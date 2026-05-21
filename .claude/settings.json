@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ta__schema",
+      "mcp__ta__create",
+      "mcp__ta__update",
+      "mcp__ta__list_sections",
+      "mcp__ta__get",
+      "mcp__ta__search",
+      "mcp__ta__delete"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "ta"
+  ]
+}

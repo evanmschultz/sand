@@ -1,0 +1,961 @@
+[agents_md]
+description = 'Project agent-rules file — Codex (AGENTS.md) and Claude Code (CLAUDE.md) conventions. Sections addressable so project.standards_markdown_id can link to a specific section.'
+paths = ['AGENTS.md', 'CLAUDE.md']
+
+[agents_md.section]
+description = 'An H2 section of AGENTS.md / CLAUDE.md — addressable so project.standards_markdown_id can link to a specific section.'
+heading = 2
+
+[agents_md.section.fields]
+[agents_md.section.fields.body]
+format = 'markdown'
+type = 'string'
+
+[cascade]
+description = 'Cascade trees — drops + their segments, confluences, droplets, planners, QA records, failures.'
+paths = ['.ta/cascade/drops/drop_*/drop.toml']
+
+[cascade.confluence]
+description = 'Cascade gate node — blocks until upstream segments/droplets are complete, then releases its children. structural_type=confluence.'
+extends = 'ActionItem'
+
+[cascade.confluence.fields]
+[cascade.confluence.fields.structural_type]
+enum = ['confluence']
+required = true
+type = 'string'
+
+[cascade.drop]
+description = 'L1 cascade root — one self-contained unit of work.'
+extends = 'ActionItem'
+
+[cascade.drop.fields]
+[cascade.drop.fields.drop_number]
+description = 'Sequential drop number (matches the drop_N directory).'
+required = true
+type = 'integer'
+
+[cascade.drop.fields.structural_type]
+enum = ['drop']
+required = true
+type = 'string'
+
+# F23 v2 runtime-fill: every cascade.drop record creation generates
+# its two plan-QA twin records so descent into L2/L3/Ln is gated by
+# schema-driven QA enforcement (drop_004 L2-J).
+[cascade.drop.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+
+[cascade.droplet]
+description = 'Atomic build leaf — what a builder agent finishes in one shot. Touches one file (or tight cluster) with a few blocks of change.'
+extends = 'ActionItem'
+
+[cascade.droplet.fields]
+[cascade.droplet.fields.irreducible]
+default = false
+description = 'True if this droplet cannot be further decomposed (e.g. single function-signature change rippling through one file). Plan-QA validates the claim.'
+type = 'boolean'
+
+[cascade.droplet.fields.structural_type]
+enum = ['droplet']
+required = true
+type = 'string'
+
+# F23 v2 runtime-fill (FIELD-ONLY): every droplet creation generates
+# its two QA twin records so the build leaf cannot slip past review.
+# id_template stays v1-only ({parent_id}); field values use the v2
+# tokens to fill the required-no-default fields on the target type:
+#   {now}              → RFC3339 UTC timestamp at create time
+#   {state.initial}    → enum[0] of the target type's `state` field
+#   {parent.<field>}   → parent record's same-named field
+# Structural home is [cascade.droplet] (the build leaf), NOT
+# [cascade.drop] where this comment sat pre-F35.
+[cascade.droplet.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-qa-proof",         fields = { role = "qa-proof",         title = "QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-qa-falsification", fields = { role = "qa-falsification", title = "QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+
+[cascade.failure]
+description = 'Captured failure artifact — what went wrong, when, where, with what context. Persistent record for cascade post-mortems.'
+extends = 'NodeBase'
+
+[cascade.failure.fields]
+[cascade.failure.fields.context_blocks]
+element_type = 'ContextBlock'
+type = 'array'
+
+[cascade.failure.fields.diagnostic]
+description = 'What broke and how it was identified.'
+format = 'markdown'
+required = true
+type = 'string'
+
+[cascade.failure.fields.failure_kind]
+enum = ['build', 'test', 'qa-proof', 'qa-falsification', 'blocker', 'other']
+required = true
+type = 'string'
+
+[cascade.failure.fields.fix_directive]
+description = 'Planner-authored direction for the fix.'
+format = 'markdown'
+type = 'string'
+
+[cascade.failure.fields.target_id]
+description = 'ta record id of the action item that failed.'
+required = true
+type = 'string'
+
+[cascade.planner]
+description = "Generic planner action item — interior cascade work that doesn't fit segment or confluence (e.g. plan-revision, retro)."
+extends = 'ActionItem'
+
+# F23 v2 runtime-fill: every cascade.planner record creation generates
+# its two plan-QA twin records so interior planning records (L3+ planners,
+# retros, plan-revisions) are gated by schema-driven QA enforcement.
+[cascade.planner.auto_spawn]
+on_create = [
+    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
+]
+
+[cascade.qa_falsification]
+description = "QA falsification record — actively attacks the target's conclusion via counterexamples, hidden dependencies, contract drift."
+extends = 'ActionItem'
+
+[cascade.qa_falsification.fields]
+[cascade.qa_falsification.fields.role]
+enum = ['qa-falsification']
+required = true
+type = 'string'
+
+[cascade.qa_falsification.fields.target_id]
+description = 'ta record id of the action item this QA pass attacks.'
+required = true
+type = 'string'
+
+[cascade.qa_proof]
+description = 'QA proof record — verifies evidence completeness and reasoning coherence.'
+extends = 'ActionItem'
+
+[cascade.qa_proof.fields]
+[cascade.qa_proof.fields.role]
+enum = ['qa-proof', 'qa-a11y', 'qa-visual']
+required = true
+type = 'string'
+
+[cascade.qa_proof.fields.target_id]
+description = 'ta record id of the action item this QA pass verifies.'
+required = true
+type = 'string'
+
+[cascade.segment]
+description = 'Interior cascade node — splits a drop into parallel work streams. Has children. structural_type=segment.'
+extends = 'ActionItem'
+
+[cascade.segment.fields]
+[cascade.segment.fields.structural_type]
+enum = ['segment']
+required = true
+type = 'string'
+
+[claude_agents]
+description = 'Claude Code subagent definitions. Tracks both the home library (`agents/<kind>/<name>.md`, kind-nested) and the per-project install (`.claude/agents/<flat-name>.md`, flat). Each markdown file is one agent record with YAML frontmatter as fields and the body as the system prompt.'
+paths = ['agents/*/*.md', '.claude/agents/*.md']
+
+[claude_agents.agent]
+body_field = 'prompt'
+description = "One Claude Code subagent definition. Filename stem is the agent's `name` field; body is the agent's system prompt. Stem layout differs by mount: home library uses `<kind>/<name>.md` (e.g. `agents/go/builder.md` → name `builder`); project install uses flat `<kind>-<name>.md` (e.g. `.claude/agents/go-builder.md` → name `go-builder`)."
+record_per = 'file'
+
+[claude_agents.agent.fields]
+[claude_agents.agent.fields.color]
+description = 'Optional UI hint for the Claude Code agent picker. Free-form; not enforced.'
+type = 'string'
+
+[claude_agents.agent.fields.description]
+description = 'When Claude should delegate to this subagent. Surfaced to the orchestrator as the routing hint at agent-selection time.'
+required = true
+type = 'string'
+
+[claude_agents.agent.fields.model]
+description = "Optional Claude model identifier override (e.g. 'sonnet', 'opus'). Omit to use the orchestrator's default."
+type = 'string'
+
+[claude_agents.agent.fields.name]
+description = 'Subagent identifier. Lowercase letters, digits, and hyphens only (Claude Code rule). Must match the filename stem so the on-disk name and the frontmatter name stay in sync. Home-nested example: `agents/go/builder.md` → `name = "builder"`. Project-flat example: `.claude/agents/go-builder.md` → `name = "go-builder"` (post-flatten).'
+required = true
+type = 'string'
+
+[claude_agents.agent.fields.prompt]
+description = "Markdown body — the subagent's system prompt. Mounted from the file body, not from frontmatter."
+format = 'markdown'
+required = true
+type = 'string'
+
+[claude_agents.agent.fields.tools]
+description = "Optional comma-separated tool allowlist (e.g. 'Read, Edit, Bash, mcp__hylla__hylla_search'). Omit to inherit the orchestrator's full tool set. Stored as a single YAML scalar to match Claude Code's frontmatter convention."
+type = 'string'
+
+[contributing]
+description = 'Contribution rules. Sections addressable.'
+paths = ['CONTRIBUTING.md']
+
+[contributing.section]
+description = 'An H2 section of CONTRIBUTING.md.'
+heading = 2
+
+[contributing.section.fields]
+[contributing.section.fields.body]
+format = 'markdown'
+type = 'string'
+
+[discussions]
+description = 'Open discussions. Lifecycle: todo (open) → complete (closed via promotion or rejection).'
+paths = ['.ta/cascade/discussions.toml']
+
+[discussions.discussion]
+description = 'An open discussion item. May graduate to plan or drop, or be closed without action.'
+extends = 'ActionItem'
+
+[discussions.discussion.fields]
+[discussions.discussion.fields.structural_type]
+default = ''
+enum = ['']
+type = 'string'
+
+[plans]
+description = 'Overarching plans pre-drop. Lifecycle: todo → in_progress → complete (outcome=success when promoted to drop, outcome=failure when rejected).'
+paths = ['.ta/cascade/plans.toml']
+
+[plans.plan]
+description = 'An overarching plan. Eventually decomposed into a drop tree.'
+extends = 'ActionItem'
+
+[plans.plan.fields]
+[plans.plan.fields.structural_type]
+default = ''
+enum = ['']
+type = 'string'
+
+[project]
+description = 'Project node — onboarding metadata for orchestrator agents and humans.'
+paths = ['.ta/cascade/project.toml']
+
+[project.bases]
+[project.bases.ActionItem]
+description = 'An action item — a node carrying work. Adds role, structural classification, edit-scope fields, completion contract.'
+extends = 'NodeBase'
+
+[project.bases.ActionItem.fields]
+[project.bases.ActionItem.fields.acceptance_criteria]
+description = "Behavior-level assertions — how we know it's done."
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.attempt_count]
+default = 0
+description = 'Number of times this item entered in_progress.'
+type = 'integer'
+
+[project.bases.ActionItem.fields.blocked_reason]
+description = 'Free prose explaining why item is blocked.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.blocked_retry_count]
+default = 0
+description = 'Number of times this item transitioned in_progress→failed→in_progress.'
+type = 'integer'
+
+[project.bases.ActionItem.fields.canceled_at]
+type = 'datetime'
+
+[project.bases.ActionItem.fields.command_snippets]
+description = 'Shell commands relevant to the item — copy-pasteable.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.ActionItem.fields.completion_contract]
+description = 'Structured contract describing how the item enters and exits.'
+type = 'table'
+
+[project.bases.ActionItem.fields.completion_contract.fields]
+[project.bases.ActionItem.fields.completion_contract.fields.completion_checklist]
+description = "Concrete operator-facing checklist tracked across the item's lifecycle."
+element_type = 'ChecklistItem'
+type = 'array'
+
+[project.bases.ActionItem.fields.completion_contract.fields.completion_criteria]
+description = 'Checklist of behavior-level assertions that mark the item complete.'
+element_type = 'ChecklistItem'
+type = 'array'
+
+[project.bases.ActionItem.fields.completion_contract.fields.completion_evidence]
+description = 'References (ta record ids, URLs, file paths) demonstrating completion.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.ActionItem.fields.completion_contract.fields.completion_notes]
+description = 'Free prose summarizing the completion outcome.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.completion_contract.fields.require_children_complete]
+default = true
+description = 'Whether all child action items must reach state=complete before this item can transition to complete.'
+type = 'boolean'
+
+[project.bases.ActionItem.fields.completion_contract.fields.start_criteria]
+description = 'Checklist of preconditions that must hold before the item can transition todo→in_progress.'
+element_type = 'ChecklistItem'
+type = 'array'
+
+[project.bases.ActionItem.fields.context_blocks]
+description = 'Context attachments — code locations, URLs, doc refs the agent needs to do the work or verify it.'
+element_type = 'ContextBlock'
+type = 'array'
+
+[project.bases.ActionItem.fields.decision_log]
+description = 'Append-only decision entries. Each is a short markdown blurb.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.ActionItem.fields.definition_of_complete]
+description = "Concrete checklist of what 'complete' means for this item."
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.dev_gated]
+default = false
+description = 'True if state transitions require human reviewer approval.'
+type = 'boolean'
+
+[project.bases.ActionItem.fields.due_at]
+description = 'Optional deadline.'
+type = 'datetime'
+
+[project.bases.ActionItem.fields.end_commit]
+description = 'Commit hash at which terminal state was reached.'
+type = 'string'
+
+[project.bases.ActionItem.fields.expected_outputs]
+description = 'Files / artifacts the item is expected to produce.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.ActionItem.fields.files]
+description = 'Reference attachments — files the agent should read for context but not write.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.ActionItem.fields.implementation_notes_agent]
+description = 'Agent-authored notes captured during work.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.implementation_notes_user]
+description = 'Human-authored implementation guidance for the agent.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.last_failure_context]
+description = 'Most recent failure detail — used by planner edits to inform fix directives.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.objective]
+description = 'What this item is trying to achieve, in prose.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.owner]
+description = 'Actor identity that gates state transitions on this item.'
+type = 'string'
+
+[project.bases.ActionItem.fields.packages]
+description = 'Packages affected (sibling-blocking unit). Implementation-language-specific format.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.ActionItem.fields.paths]
+description = 'File globs this item writes to. Planner fills; builder/QA read; sibling-blocking input.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.ActionItem.fields.persistent]
+default = false
+description = "True for retained anchor items that don't archive."
+type = 'boolean'
+
+[project.bases.ActionItem.fields.resource_refs]
+description = 'External resource references (artifacts, services, files outside the repo).'
+element_type = 'ResourceRef'
+type = 'array'
+
+[project.bases.ActionItem.fields.risk_notes]
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.role]
+description = 'Work-lane the action item runs in.'
+enum = ['builder', 'qa-proof', 'qa-falsification', 'qa-a11y', 'qa-visual', 'design', 'commit', 'planner', 'research']
+required = true
+type = 'string'
+
+[project.bases.ActionItem.fields.start_commit]
+description = 'Commit hash at which in_progress started — git diff anchor.'
+type = 'string'
+
+[project.bases.ActionItem.fields.structural_type]
+default = ''
+description = 'Cascade structural classification. drop: L1 cascade root. segment: interior planner node. confluence: merge point. droplet: atomic build leaf. Empty for non-cascade containers.'
+enum = ['', 'drop', 'segment', 'confluence', 'droplet']
+type = 'string'
+
+[project.bases.ActionItem.fields.transition_notes]
+description = 'Notes captured at state transitions.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.ActionItem.fields.validation_plan]
+description = 'How the work will be validated (tests, manual review, gates).'
+format = 'markdown'
+type = 'string'
+
+[project.bases.NodeBase]
+description = 'Common fields for any cascade node — shared by project, plans, discussions, drop-tree action items.'
+
+[project.bases.NodeBase.fields]
+[project.bases.NodeBase.fields.archived_at]
+description = 'Set on transition to archived.'
+type = 'datetime'
+
+[project.bases.NodeBase.fields.blockers]
+description = 'ta record ids of nodes that must reach state=complete before this node can transition todo→in_progress.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.NodeBase.fields.comments]
+description = 'Embedded thread of comments on this node. Append-only.'
+element_type = 'Comment'
+type = 'array'
+
+[project.bases.NodeBase.fields.completed_at]
+description = 'Set on transition to complete or failed.'
+type = 'datetime'
+
+[project.bases.NodeBase.fields.created_at]
+description = 'Creation timestamp (RFC3339).'
+required = true
+type = 'datetime'
+
+[project.bases.NodeBase.fields.created_by_actor]
+description = "Actor identity that created the node (e.g. 'agent:planner-1', 'user:ev')."
+type = 'string'
+
+[project.bases.NodeBase.fields.created_by_type]
+description = 'Actor category.'
+enum = ['user', 'agent', 'system']
+type = 'string'
+
+[project.bases.NodeBase.fields.depends_on]
+description = 'Soft dependencies — referenced but not strictly blocking.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.NodeBase.fields.description]
+description = 'Free prose describing the node. Markdown supported.'
+format = 'markdown'
+type = 'string'
+
+[project.bases.NodeBase.fields.labels]
+description = 'Free-form tag strings.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.NodeBase.fields.outcome]
+default = ''
+description = 'Set when reaching terminal state. Disambiguates complete-via-promotion from complete-via-rejection.'
+enum = ['', 'success', 'failure', 'blocked']
+type = 'string'
+
+[project.bases.NodeBase.fields.parent_id]
+description = 'ta record id of the parent node, or empty for root nodes.'
+type = 'string'
+
+[project.bases.NodeBase.fields.priority]
+default = 'medium'
+description = 'Operator-set priority hint.'
+enum = ['low', 'medium', 'high']
+type = 'string'
+
+[project.bases.NodeBase.fields.related_items]
+description = 'ta record ids related to this node for cross-reference.'
+element_type = 'string'
+type = 'array'
+
+[project.bases.NodeBase.fields.started_at]
+description = 'Set on transition to in_progress.'
+type = 'datetime'
+
+[project.bases.NodeBase.fields.state]
+description = 'Lifecycle state. todo: not started. in_progress: actively being worked. complete: terminal success. failed: terminal failure. archived: soft-retired.'
+enum = ['todo', 'in_progress', 'complete', 'failed', 'archived']
+required = true
+type = 'string'
+
+[project.bases.NodeBase.fields.title]
+description = 'Short headline for the node.'
+required = true
+type = 'string'
+
+[project.bases.NodeBase.fields.updated_at]
+description = 'Last-update timestamp (RFC3339).'
+required = true
+type = 'datetime'
+
+[project.bases.NodeBase.fields.updated_by_actor]
+description = 'Actor identity that last updated the node.'
+type = 'string'
+
+[project.bases.NodeBase.fields.updated_by_type]
+enum = ['user', 'agent', 'system']
+type = 'string'
+
+[project.project]
+description = 'The project itself. Single-record db (one project per repo).'
+extends = 'NodeBase'
+
+[project.project.fields]
+[project.project.fields.build_tool]
+description = 'Build/task tool the project uses.'
+enum = ['mage', 'make', 'just', 'npm', 'yarn', 'pnpm', 'cargo', 'uv', 'other']
+type = 'string'
+
+[project.project.fields.color]
+description = 'Optional color identifier.'
+type = 'string'
+
+[project.project.fields.current_focus]
+description = 'ta record id of the active drop or plan.'
+type = 'string'
+
+[project.project.fields.dev_mcp_server_name]
+description = 'MCP server name dispatched agents register against.'
+type = 'string'
+
+[project.project.fields.homepage]
+description = 'Project homepage URL.'
+type = 'string'
+
+[project.project.fields.hylla_artifact_ref]
+description = 'Optional Hylla artifact reference (e.g. github.com/org/repo@branch).'
+type = 'string'
+
+[project.project.fields.icon]
+description = 'Optional icon identifier.'
+type = 'string'
+
+[project.project.fields.language]
+description = 'Primary implementation language. Drives agent variant selection.'
+enum = ['go', 'fe', 'rust', 'python', 'other']
+type = 'string'
+
+[project.project.fields.mission]
+description = 'One-paragraph elevator pitch for the project.'
+format = 'markdown'
+type = 'string'
+
+[project.project.fields.repo_bare_root]
+description = 'Absolute path to bare repo (multi-worktree projects).'
+type = 'string'
+
+[project.project.fields.repo_primary_worktree]
+description = 'Absolute path to the primary working tree — cd target for dispatched agents.'
+type = 'string'
+
+[project.project.fields.slug]
+description = 'Short URL-safe project slug.'
+required = true
+type = 'string'
+
+[project.project.fields.standards_markdown_id]
+description = "ta record id of the AGENTS.md / CLAUDE.md section that holds the project's standards/conventions. Avoids duplicating prose between project.toml and the agent rules file."
+type = 'string'
+
+[project.project.fields.tags]
+element_type = 'string'
+type = 'array'
+
+[project.project.fields.vocabulary]
+description = 'Domain terms specific to this project, with definitions. Free-form key:string-value:string map.'
+type = 'table'
+
+[project.types]
+[project.types.ChecklistItem]
+description = 'One item in a structured checklist (start_criteria / completion_checklist / etc.).'
+
+[project.types.ChecklistItem.fields]
+[project.types.ChecklistItem.fields.complete]
+default = false
+description = 'Whether this item is satisfied.'
+type = 'boolean'
+
+[project.types.ChecklistItem.fields.id]
+description = "Checklist-item identifier (caller-set, scoped to its parent action item's checklist)."
+required = true
+type = 'string'
+
+[project.types.ChecklistItem.fields.text]
+description = 'Item description.'
+format = 'markdown'
+required = true
+type = 'string'
+
+[project.types.Comment]
+description = 'Append-only thread entry on any action item.'
+
+[project.types.Comment.fields]
+[project.types.Comment.fields.author]
+description = "Actor identity that wrote the comment (e.g. 'agent:builder-1', 'user:ev')."
+required = true
+type = 'string'
+
+[project.types.Comment.fields.body]
+description = 'Comment content. Markdown — rendered for humans, raw for agents.'
+format = 'markdown'
+required = true
+type = 'string'
+
+[project.types.Comment.fields.id]
+description = 'Comment identifier (caller-set; recommend ULID or short slug).'
+required = true
+type = 'string'
+
+[project.types.Comment.fields.role]
+description = 'Optional role context for the comment author.'
+type = 'string'
+
+[project.types.Comment.fields.timestamp]
+description = 'When the comment was written (RFC3339).'
+required = true
+type = 'datetime'
+
+[project.types.ContextBlock]
+description = 'A piece of context an agent needs — code locations, URLs, doc refs, anything pointing at material relevant to the work.'
+
+[project.types.ContextBlock.fields]
+[project.types.ContextBlock.fields.body]
+description = 'Optional inline content — preview / excerpt / commentary on the reference.'
+format = 'markdown'
+type = 'string'
+
+[project.types.ContextBlock.fields.importance]
+default = 'supporting'
+description = 'How load-bearing this context is for the agent.'
+enum = ['primary', 'supporting', 'tangential']
+type = 'string'
+
+[project.types.ContextBlock.fields.kind]
+description = 'Discriminator — what KIND of context this block points at. code: file:line in this repo. url: external URL. doc: project doc reference. file: another local file. context7: a Context7 library/topic ref. other: anything else.'
+enum = ['code', 'url', 'doc', 'file', 'context7', 'other']
+required = true
+type = 'string'
+
+[project.types.ContextBlock.fields.label]
+description = 'Human-readable label for the block.'
+type = 'string'
+
+[project.types.ContextBlock.fields.ref]
+description = "The reference itself. Format depends on kind. code → 'path/to/file.go:42-58'. url → 'https://...'. doc → ta-record-id or markdown-section-id. file → relative path. context7 → 'library/topic'. other → free-form."
+required = true
+type = 'string'
+
+[project.types.ResourceRef]
+description = 'An external resource (artifact, service, file outside the repo) referenced by an action item.'
+
+[project.types.ResourceRef.fields]
+[project.types.ResourceRef.fields.kind]
+enum = ['artifact', 'service', 'file', 'url', 'other']
+required = true
+type = 'string'
+
+[project.types.ResourceRef.fields.label]
+type = 'string'
+
+[project.types.ResourceRef.fields.notes]
+format = 'markdown'
+type = 'string'
+
+[project.types.ResourceRef.fields.ref]
+description = 'The reference. Format depends on kind.'
+required = true
+type = 'string'
+
+[readme]
+description = 'Project README — humans entry point. Sections addressable via ta.'
+paths = ['README.md']
+
+[readme.section]
+description = 'An H2 section of README.md.'
+heading = 2
+
+[readme.section.fields]
+[readme.section.fields.body]
+format = 'markdown'
+type = 'string'
+
+[security]
+description = 'Security policy. Sections addressable.'
+paths = ['SECURITY.md']
+
+[security.section]
+description = 'An H2 section of SECURITY.md.'
+heading = 2
+
+[security.section.fields]
+[security.section.fields.body]
+format = 'markdown'
+type = 'string'
+
+# ============================================================================
+# drop_004 L2-A new kinds — merged from examples/schemas/
+# Manual merge stopgap pending L2-F target-system installer.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# roadmap db — versions, items, dependencies.
+# ----------------------------------------------------------------------------
+
+[roadmap]
+description = "Roadmap versions, items, and dependencies — pre-MVP and post-MVP planning surface."
+paths = [".ta/roadmap/*.toml"]
+
+[roadmap.version]
+extends = "ActionItem"
+description = "A roadmap version — a release band or milestone that groups roadmap items toward a target date."
+
+[roadmap.version.fields.vision_summary]
+type = "string"
+format = "markdown"
+description = "Narrative summary of what this version aims to deliver."
+
+[roadmap.version.fields.target_date_band]
+type = "string"
+description = "Loose target window (e.g. 'Q3 2026', '2026-09', 'pre-MVP') — not a hard deadline."
+
+[roadmap.version.fields.status]
+type = "string"
+required = true
+enum = ["planning", "in_progress", "landed", "punted"]
+description = "Version lifecycle status."
+
+[roadmap.item]
+extends = "ActionItem"
+description = "A roadmap item — one work unit assigned to a roadmap.version with optional typed dependencies."
+
+[roadmap.item.fields.target_version]
+type = "string"
+description = "roadmap.version record id ref."
+
+[roadmap.item.fields.dependencies]
+type = "array"
+element_type = "string"
+description = "roadmap.dependency record id refs."
+
+[roadmap.dependency]
+extends = "NodeBase"
+description = "Typed relationship between two roadmap.item records."
+
+[roadmap.dependency.fields.from_id]
+type = "string"
+required = true
+description = "roadmap.item record id this dependency originates from."
+
+[roadmap.dependency.fields.to_id]
+type = "string"
+required = true
+description = "roadmap.item record id this dependency targets."
+
+[roadmap.dependency.fields.kind]
+type = "string"
+required = true
+enum = ["blocks", "enables", "supersedes", "punted_to"]
+description = "Relationship kind."
+
+[roadmap.dependency.fields.rationale]
+type = "string"
+format = "markdown"
+description = "Free prose explaining why this dependency exists."
+
+# ----------------------------------------------------------------------------
+# template_manifest db — per-format manifests.
+# ----------------------------------------------------------------------------
+
+[template_manifest]
+description = "Per-format manifests describing how a file maps to/from JSON for agent read/write."
+paths = [".ta/templates/manifests/*.toml"]
+
+[template_manifest.bases.Manifest]
+extends = "NodeBase"
+description = "Shared base for per-format manifest records."
+
+[template_manifest.bases.Manifest.fields.field_type_bindings]
+type = "table"
+description = "Free-form table mapping block-name → JSON-type binding."
+
+[template_manifest.bases.Manifest.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing what the manifest binds."
+
+[template_manifest.html]
+extends = "Manifest"
+description = "HTML-format manifest — selectors are CSS selectors via cascadia."
+
+[template_manifest.html.fields.format]
+type = "string"
+required = true
+enum = ["html"]
+description = "Source-file format. Locked to html."
+
+[template_manifest.html.fields.selectors]
+type = "table"
+description = "Free-form table mapping block-name → CSS selector."
+
+[template_manifest.md]
+extends = "Manifest"
+description = "Markdown-format manifest — selectors are heading paths."
+
+[template_manifest.md.fields.format]
+type = "string"
+required = true
+enum = ["md"]
+description = "Source-file format. Locked to md."
+
+[template_manifest.md.fields.heading_path_selectors]
+type = "table"
+description = "Free-form table mapping block-name → heading path."
+
+[template_manifest.txt]
+extends = "Manifest"
+description = "Plain-text manifest — selectors are regex patterns."
+
+[template_manifest.txt.fields.format]
+type = "string"
+required = true
+enum = ["txt"]
+description = "Source-file format. Locked to txt."
+
+[template_manifest.txt.fields.regex_selectors]
+type = "table"
+description = "Free-form table mapping block-name → regex pattern."
+
+# ----------------------------------------------------------------------------
+# html_template db — view-template manifests.
+# ----------------------------------------------------------------------------
+
+[html_template]
+description = "HTML view-template manifests — one record per addressable view."
+paths = [".ta/templates/html_views/*.toml"]
+
+[html_template.bases.View]
+extends = "NodeBase"
+description = "Shared base for HTML view-template manifest records."
+
+[html_template.bases.View.fields.view_name]
+type = "string"
+required = true
+description = "Canonical view name."
+
+[html_template.bases.View.fields.template_relpath]
+type = "string"
+required = true
+description = "Template file path relative to embedded dist/."
+
+[html_template.bases.View.fields.description]
+type = "string"
+format = "markdown"
+description = "Free prose describing what the view renders."
+
+[html_template.bases.View.fields.target_record_type]
+type = "string"
+description = "db.type the view renders, e.g. cascade.drop."
+
+[html_template.bases.View.fields.variant]
+type = "string"
+enum = ["simple", "stil_full"]
+default = "simple"
+description = "Render variant — simple inline, stil_full themed page."
+
+[html_template.cascade_drop_view]
+extends = "View"
+description = "View template for a cascade.drop record."
+
+[html_template.cascade_planner_view]
+extends = "View"
+description = "View template for a cascade.planner record."
+
+[html_template.cascade_droplet_view]
+extends = "View"
+description = "View template for a cascade.droplet record."
+
+[html_template.cascade_qa_view]
+extends = "View"
+description = "View template for cascade.qa_proof / cascade.qa_falsification records."
+
+[html_template.roadmap_version_view]
+extends = "View"
+description = "View template for a roadmap.version record."
+
+[html_template.schema_browser_view]
+extends = "View"
+description = "View template for the schema browser."
+
+# ----------------------------------------------------------------------------
+# target_system db — agent-harness descriptors.
+# ----------------------------------------------------------------------------
+
+[target_system]
+description = "Target agent-harness descriptors. Install behavior lives in L2-F walker, NOT here."
+paths = [".ta/target_systems/*.toml"]
+
+[target_system.bases.TargetSystem]
+extends = "NodeBase"
+description = "Common fields for any target agent-harness descriptor."
+
+[target_system.bases.TargetSystem.fields.name]
+type = "string"
+required = true
+description = "Display name."
+
+[target_system.bases.TargetSystem.fields.install_destinations]
+type = "table"
+description = "subtree-name → destination path."
+
+[target_system.bases.TargetSystem.fields.on_conflict_default]
+type = "string"
+enum = ["skip", "overwrite", "merge", "prompt"]
+default = "prompt"
+description = "Default conflict policy."
+
+[target_system.bases.TargetSystem.fields.requires_substrate_dir]
+type = "string"
+description = "Absolute or ~/-rooted path to user's substrate dir."
+
+[target_system.bases.TargetSystem.fields.description]
+type = "string"
+format = "markdown"
+description = "Prose description of the target system."
+
+[target_system.claude]
+extends = "TargetSystem"
+description = "Claude Code conventions — .claude/agents/, .claude/hooks/, .claude/skills/, .claude/settings.json fragments."
+
+[target_system.codex]
+extends = "TargetSystem"
+description = "Codex conventions — .codex/agents/, .codex/config.toml fragments, AGENTS.md root file."
