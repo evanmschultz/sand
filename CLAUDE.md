@@ -62,20 +62,18 @@ Agents NEVER run raw language tooling. No `go test`, no `go vet`, no `go build`,
 
 Sand-the-project does NOT have `magefile.go` yet — it lands during the v0.1 build cascade. Until then, mage targets referenced in personas are NOT runnable in sand and dispatched agents will fail loudly if they try. That is correct — sand needs the magefile before QA personas can run their gates.
 
-Per-role scoped Bash allowlist (verified in ta — `--allowedTools` filters tools from the model's visible toolset):
+Per-role scoped Bash allowlist (verified in ta — `--allowedTools` filters tools from the model's visible toolset). TOON form (the project's adopted encoding — see SAND-SPEC §4):
 
+```toon
+bash-allowlist{role,allowed,denied}:
+  builder,Bash(mage testFunc *)|Bash(mage testPkg *)|Bash(git diff *)|Bash(git log *)|Bash(git status),go *|gofmt|gofumpt|pnpm *|npm *|node *|npx *|git commit/push/reset
+  planner,,all
+  qa-proof,Bash(mage testFunc *)|Bash(mage testPkg *)|Bash(mage check)|Bash(git diff *)|Bash(git log *)|Bash(git status),raw lang tooling|git commit/push/reset
+  qa-falsif,Bash(mage testFunc *)|Bash(mage testPkg *)|Bash(mage check)|Bash(git diff *)|Bash(git log *)|Bash(git status),raw lang tooling|git commit/push/reset
+  closeout,Bash(mage check)|Bash(git diff *)|Bash(git log *)|Bash(git status),raw lang tooling|git commit/push/reset
 ```
-role             scoped Bash (allowed)                                          NOT allowed
-----             ----                                                            ----
-builder          Bash(mage testFunc *), Bash(mage testPkg *),                    go *, gofmt, gofumpt,
-                 Bash(git diff *), Bash(git log *), Bash(git status)             pnpm *, npm *, node *,
-                                                                                  npx *, git commit/push/reset
-planner          (NO Bash — planners author plans)                               all
-qa-proof         Bash(mage testFunc *), Bash(mage testPkg *), Bash(mage check),  raw lang tooling,
-qa-falsif        Bash(git diff *), Bash(git log *), Bash(git status)             git commit/push/reset
-closeout         Bash(mage check), Bash(git diff *), Bash(git log *),            raw lang tooling,
-                 Bash(git status)                                                 git commit/push/reset
-```
+
+(Pipe `|` separates list items inside a single TOON field; comma `,` separates fields. Planner's `allowed` cell is empty because planners get no `Bash(...)` patterns — they author plans, not run commands.)
 
 **If a capability is missing, add a mage target — do NOT broaden the persona's Bash scope.**
 
