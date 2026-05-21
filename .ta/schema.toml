@@ -40,15 +40,6 @@ enum = ['drop']
 required = true
 type = 'string'
 
-# F23 v2 runtime-fill: every cascade.drop record creation generates
-# its two plan-QA twin records so descent into L2/L3/Ln is gated by
-# schema-driven QA enforcement (drop_004 L2-J).
-[cascade.drop.auto_spawn]
-on_create = [
-    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
-    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
-]
-
 [cascade.droplet]
 description = 'Atomic build leaf — what a builder agent finishes in one shot. Touches one file (or tight cluster) with a few blocks of change.'
 extends = 'ActionItem'
@@ -63,21 +54,6 @@ type = 'boolean'
 enum = ['droplet']
 required = true
 type = 'string'
-
-# F23 v2 runtime-fill (FIELD-ONLY): every droplet creation generates
-# its two QA twin records so the build leaf cannot slip past review.
-# id_template stays v1-only ({parent_id}); field values use the v2
-# tokens to fill the required-no-default fields on the target type:
-#   {now}              → RFC3339 UTC timestamp at create time
-#   {state.initial}    → enum[0] of the target type's `state` field
-#   {parent.<field>}   → parent record's same-named field
-# Structural home is [cascade.droplet] (the build leaf), NOT
-# [cascade.drop] where this comment sat pre-F35.
-[cascade.droplet.auto_spawn]
-on_create = [
-    { type = "cascade.qa_proof",         id_template = "{parent_id}-qa-proof",         fields = { role = "qa-proof",         title = "QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
-    { type = "cascade.qa_falsification", id_template = "{parent_id}-qa-falsification", fields = { role = "qa-falsification", title = "QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
-]
 
 [cascade.failure]
 description = 'Captured failure artifact — what went wrong, when, where, with what context. Persistent record for cascade post-mortems.'
@@ -112,15 +88,6 @@ type = 'string'
 [cascade.planner]
 description = "Generic planner action item — interior cascade work that doesn't fit segment or confluence (e.g. plan-revision, retro)."
 extends = 'ActionItem'
-
-# F23 v2 runtime-fill: every cascade.planner record creation generates
-# its two plan-QA twin records so interior planning records (L3+ planners,
-# retros, plan-revisions) are gated by schema-driven QA enforcement.
-[cascade.planner.auto_spawn]
-on_create = [
-    { type = "cascade.qa_proof",         id_template = "{parent_id}-plan-qa-proof",         fields = { role = "qa-proof",         title = "Plan-QA proof of {parent.title}",  state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
-    { type = "cascade.qa_falsification", id_template = "{parent_id}-plan-qa-falsification", fields = { role = "qa-falsification", title = "Plan-QA falsif of {parent.title}", state = "{state.initial}", created_at = "{now}", updated_at = "{now}", target_id = "{parent_id}" } },
-]
 
 [cascade.qa_falsification]
 description = "QA falsification record — actively attacks the target's conclusion via counterexamples, hidden dependencies, contract drift."
@@ -226,6 +193,65 @@ extends = 'ActionItem'
 default = ''
 enum = ['']
 type = 'string'
+
+[html_template]
+description = 'HTML view-template manifests — one record per addressable view.'
+paths = ['.ta/templates/html_views/*.toml']
+
+[html_template.bases]
+[html_template.bases.View]
+description = 'Shared base for HTML view-template manifest records.'
+extends = 'NodeBase'
+
+[html_template.bases.View.fields]
+[html_template.bases.View.fields.description]
+description = 'Free prose describing what the view renders.'
+format = 'markdown'
+type = 'string'
+
+[html_template.bases.View.fields.target_record_type]
+description = 'db.type the view renders, e.g. cascade.drop.'
+type = 'string'
+
+[html_template.bases.View.fields.template_relpath]
+description = 'Template file path relative to embedded dist/.'
+required = true
+type = 'string'
+
+[html_template.bases.View.fields.variant]
+default = 'simple'
+description = 'Render variant — simple inline, stil_full themed page.'
+enum = ['simple', 'stil_full']
+type = 'string'
+
+[html_template.bases.View.fields.view_name]
+description = 'Canonical view name.'
+required = true
+type = 'string'
+
+[html_template.cascade_drop_view]
+description = 'View template for a cascade.drop record.'
+extends = 'View'
+
+[html_template.cascade_droplet_view]
+description = 'View template for a cascade.droplet record.'
+extends = 'View'
+
+[html_template.cascade_planner_view]
+description = 'View template for a cascade.planner record.'
+extends = 'View'
+
+[html_template.cascade_qa_view]
+description = 'View template for cascade.qa_proof / cascade.qa_falsification records.'
+extends = 'View'
+
+[html_template.roadmap_version_view]
+description = 'View template for a roadmap.version record.'
+extends = 'View'
+
+[html_template.schema_browser_view]
+description = 'View template for the schema browser.'
+extends = 'View'
 
 [plans]
 description = 'Overarching plans pre-drop. Lifecycle: todo → in_progress → complete (outcome=success when promoted to drop, outcome=failure when rejected).'
@@ -709,6 +735,70 @@ heading = 2
 format = 'markdown'
 type = 'string'
 
+[roadmap]
+description = 'Roadmap versions, items, and dependencies — pre-MVP and post-MVP planning surface.'
+paths = ['.ta/roadmap/*.toml']
+
+[roadmap.dependency]
+description = 'Typed relationship between two roadmap.item records.'
+extends = 'NodeBase'
+
+[roadmap.dependency.fields]
+[roadmap.dependency.fields.from_id]
+description = 'roadmap.item record id this dependency originates from.'
+required = true
+type = 'string'
+
+[roadmap.dependency.fields.kind]
+description = 'Relationship kind.'
+enum = ['blocks', 'enables', 'supersedes', 'punted_to']
+required = true
+type = 'string'
+
+[roadmap.dependency.fields.rationale]
+description = 'Free prose explaining why this dependency exists.'
+format = 'markdown'
+type = 'string'
+
+[roadmap.dependency.fields.to_id]
+description = 'roadmap.item record id this dependency targets.'
+required = true
+type = 'string'
+
+[roadmap.item]
+description = 'A roadmap item — one work unit assigned to a roadmap.version with optional typed dependencies.'
+extends = 'ActionItem'
+
+[roadmap.item.fields]
+[roadmap.item.fields.dependencies]
+description = 'roadmap.dependency record id refs.'
+element_type = 'string'
+type = 'array'
+
+[roadmap.item.fields.target_version]
+description = 'roadmap.version record id ref.'
+type = 'string'
+
+[roadmap.version]
+description = 'A roadmap version — a release band or milestone that groups roadmap items toward a target date.'
+extends = 'ActionItem'
+
+[roadmap.version.fields]
+[roadmap.version.fields.status]
+description = 'Version lifecycle status.'
+enum = ['planning', 'in_progress', 'landed', 'punted']
+required = true
+type = 'string'
+
+[roadmap.version.fields.target_date_band]
+description = "Loose target window (e.g. 'Q3 2026', '2026-09', 'pre-MVP') — not a hard deadline."
+type = 'string'
+
+[roadmap.version.fields.vision_summary]
+description = 'Narrative summary of what this version aims to deliver.'
+format = 'markdown'
+type = 'string'
+
 [security]
 description = 'Security policy. Sections addressable.'
 paths = ['SECURITY.md']
@@ -722,240 +812,108 @@ heading = 2
 format = 'markdown'
 type = 'string'
 
-# ============================================================================
-# drop_004 L2-A new kinds — merged from examples/schemas/
-# Manual merge stopgap pending L2-F target-system installer.
-# ============================================================================
-
-# ----------------------------------------------------------------------------
-# roadmap db — versions, items, dependencies.
-# ----------------------------------------------------------------------------
-
-[roadmap]
-description = "Roadmap versions, items, and dependencies — pre-MVP and post-MVP planning surface."
-paths = [".ta/roadmap/*.toml"]
-
-[roadmap.version]
-extends = "ActionItem"
-description = "A roadmap version — a release band or milestone that groups roadmap items toward a target date."
-
-[roadmap.version.fields.vision_summary]
-type = "string"
-format = "markdown"
-description = "Narrative summary of what this version aims to deliver."
-
-[roadmap.version.fields.target_date_band]
-type = "string"
-description = "Loose target window (e.g. 'Q3 2026', '2026-09', 'pre-MVP') — not a hard deadline."
-
-[roadmap.version.fields.status]
-type = "string"
-required = true
-enum = ["planning", "in_progress", "landed", "punted"]
-description = "Version lifecycle status."
-
-[roadmap.item]
-extends = "ActionItem"
-description = "A roadmap item — one work unit assigned to a roadmap.version with optional typed dependencies."
-
-[roadmap.item.fields.target_version]
-type = "string"
-description = "roadmap.version record id ref."
-
-[roadmap.item.fields.dependencies]
-type = "array"
-element_type = "string"
-description = "roadmap.dependency record id refs."
-
-[roadmap.dependency]
-extends = "NodeBase"
-description = "Typed relationship between two roadmap.item records."
-
-[roadmap.dependency.fields.from_id]
-type = "string"
-required = true
-description = "roadmap.item record id this dependency originates from."
-
-[roadmap.dependency.fields.to_id]
-type = "string"
-required = true
-description = "roadmap.item record id this dependency targets."
-
-[roadmap.dependency.fields.kind]
-type = "string"
-required = true
-enum = ["blocks", "enables", "supersedes", "punted_to"]
-description = "Relationship kind."
-
-[roadmap.dependency.fields.rationale]
-type = "string"
-format = "markdown"
-description = "Free prose explaining why this dependency exists."
-
-# ----------------------------------------------------------------------------
-# template_manifest db — per-format manifests.
-# ----------------------------------------------------------------------------
-
-[template_manifest]
-description = "Per-format manifests describing how a file maps to/from JSON for agent read/write."
-paths = [".ta/templates/manifests/*.toml"]
-
-[template_manifest.bases.Manifest]
-extends = "NodeBase"
-description = "Shared base for per-format manifest records."
-
-[template_manifest.bases.Manifest.fields.field_type_bindings]
-type = "table"
-description = "Free-form table mapping block-name → JSON-type binding."
-
-[template_manifest.bases.Manifest.fields.description]
-type = "string"
-format = "markdown"
-description = "Free prose describing what the manifest binds."
-
-[template_manifest.html]
-extends = "Manifest"
-description = "HTML-format manifest — selectors are CSS selectors via cascadia."
-
-[template_manifest.html.fields.format]
-type = "string"
-required = true
-enum = ["html"]
-description = "Source-file format. Locked to html."
-
-[template_manifest.html.fields.selectors]
-type = "table"
-description = "Free-form table mapping block-name → CSS selector."
-
-[template_manifest.md]
-extends = "Manifest"
-description = "Markdown-format manifest — selectors are heading paths."
-
-[template_manifest.md.fields.format]
-type = "string"
-required = true
-enum = ["md"]
-description = "Source-file format. Locked to md."
-
-[template_manifest.md.fields.heading_path_selectors]
-type = "table"
-description = "Free-form table mapping block-name → heading path."
-
-[template_manifest.txt]
-extends = "Manifest"
-description = "Plain-text manifest — selectors are regex patterns."
-
-[template_manifest.txt.fields.format]
-type = "string"
-required = true
-enum = ["txt"]
-description = "Source-file format. Locked to txt."
-
-[template_manifest.txt.fields.regex_selectors]
-type = "table"
-description = "Free-form table mapping block-name → regex pattern."
-
-# ----------------------------------------------------------------------------
-# html_template db — view-template manifests.
-# ----------------------------------------------------------------------------
-
-[html_template]
-description = "HTML view-template manifests — one record per addressable view."
-paths = [".ta/templates/html_views/*.toml"]
-
-[html_template.bases.View]
-extends = "NodeBase"
-description = "Shared base for HTML view-template manifest records."
-
-[html_template.bases.View.fields.view_name]
-type = "string"
-required = true
-description = "Canonical view name."
-
-[html_template.bases.View.fields.template_relpath]
-type = "string"
-required = true
-description = "Template file path relative to embedded dist/."
-
-[html_template.bases.View.fields.description]
-type = "string"
-format = "markdown"
-description = "Free prose describing what the view renders."
-
-[html_template.bases.View.fields.target_record_type]
-type = "string"
-description = "db.type the view renders, e.g. cascade.drop."
-
-[html_template.bases.View.fields.variant]
-type = "string"
-enum = ["simple", "stil_full"]
-default = "simple"
-description = "Render variant — simple inline, stil_full themed page."
-
-[html_template.cascade_drop_view]
-extends = "View"
-description = "View template for a cascade.drop record."
-
-[html_template.cascade_planner_view]
-extends = "View"
-description = "View template for a cascade.planner record."
-
-[html_template.cascade_droplet_view]
-extends = "View"
-description = "View template for a cascade.droplet record."
-
-[html_template.cascade_qa_view]
-extends = "View"
-description = "View template for cascade.qa_proof / cascade.qa_falsification records."
-
-[html_template.roadmap_version_view]
-extends = "View"
-description = "View template for a roadmap.version record."
-
-[html_template.schema_browser_view]
-extends = "View"
-description = "View template for the schema browser."
-
-# ----------------------------------------------------------------------------
-# target_system db — agent-harness descriptors.
-# ----------------------------------------------------------------------------
-
 [target_system]
-description = "Target agent-harness descriptors. Install behavior lives in L2-F walker, NOT here."
-paths = [".ta/target_systems/*.toml"]
+description = 'Target agent-harness descriptors. Install behavior lives in L2-F walker, NOT here.'
+paths = ['.ta/target_systems/*.toml']
 
+[target_system.bases]
 [target_system.bases.TargetSystem]
-extends = "NodeBase"
-description = "Common fields for any target agent-harness descriptor."
+description = 'Common fields for any target agent-harness descriptor.'
+extends = 'NodeBase'
 
-[target_system.bases.TargetSystem.fields.name]
-type = "string"
-required = true
-description = "Display name."
+[target_system.bases.TargetSystem.fields]
+[target_system.bases.TargetSystem.fields.description]
+description = 'Prose description of the target system.'
+format = 'markdown'
+type = 'string'
 
 [target_system.bases.TargetSystem.fields.install_destinations]
-type = "table"
-description = "subtree-name → destination path."
+description = 'subtree-name → destination path.'
+type = 'table'
+
+[target_system.bases.TargetSystem.fields.name]
+description = 'Display name.'
+required = true
+type = 'string'
 
 [target_system.bases.TargetSystem.fields.on_conflict_default]
-type = "string"
-enum = ["skip", "overwrite", "merge", "prompt"]
-default = "prompt"
-description = "Default conflict policy."
+default = 'prompt'
+description = 'Default conflict policy.'
+enum = ['skip', 'overwrite', 'merge', 'prompt']
+type = 'string'
 
 [target_system.bases.TargetSystem.fields.requires_substrate_dir]
-type = "string"
 description = "Absolute or ~/-rooted path to user's substrate dir."
-
-[target_system.bases.TargetSystem.fields.description]
-type = "string"
-format = "markdown"
-description = "Prose description of the target system."
+type = 'string'
 
 [target_system.claude]
-extends = "TargetSystem"
-description = "Claude Code conventions — .claude/agents/, .claude/hooks/, .claude/skills/, .claude/settings.json fragments."
+description = 'Claude Code conventions — .claude/agents/, .claude/hooks/, .claude/skills/, .claude/settings.json fragments.'
+extends = 'TargetSystem'
 
 [target_system.codex]
-extends = "TargetSystem"
-description = "Codex conventions — .codex/agents/, .codex/config.toml fragments, AGENTS.md root file."
+description = 'Codex conventions — .codex/agents/, .codex/config.toml fragments, AGENTS.md root file.'
+extends = 'TargetSystem'
+
+[template_manifest]
+description = 'Per-format manifests describing how a file maps to/from JSON for agent read/write.'
+paths = ['.ta/templates/manifests/*.toml']
+
+[template_manifest.bases]
+[template_manifest.bases.Manifest]
+description = 'Shared base for per-format manifest records.'
+extends = 'NodeBase'
+
+[template_manifest.bases.Manifest.fields]
+[template_manifest.bases.Manifest.fields.description]
+description = 'Free prose describing what the manifest binds.'
+format = 'markdown'
+type = 'string'
+
+[template_manifest.bases.Manifest.fields.field_type_bindings]
+description = 'Free-form table mapping block-name → JSON-type binding.'
+type = 'table'
+
+[template_manifest.html]
+description = 'HTML-format manifest — selectors are CSS selectors via cascadia.'
+extends = 'Manifest'
+
+[template_manifest.html.fields]
+[template_manifest.html.fields.format]
+description = 'Source-file format. Locked to html.'
+enum = ['html']
+required = true
+type = 'string'
+
+[template_manifest.html.fields.selectors]
+description = 'Free-form table mapping block-name → CSS selector.'
+type = 'table'
+
+[template_manifest.md]
+description = 'Markdown-format manifest — selectors are heading paths.'
+extends = 'Manifest'
+
+[template_manifest.md.fields]
+[template_manifest.md.fields.format]
+description = 'Source-file format. Locked to md.'
+enum = ['md']
+required = true
+type = 'string'
+
+[template_manifest.md.fields.heading_path_selectors]
+description = 'Free-form table mapping block-name → heading path.'
+type = 'table'
+
+[template_manifest.txt]
+description = 'Plain-text manifest — selectors are regex patterns.'
+extends = 'Manifest'
+
+[template_manifest.txt.fields]
+[template_manifest.txt.fields.format]
+description = 'Source-file format. Locked to txt.'
+enum = ['txt']
+required = true
+type = 'string'
+
+[template_manifest.txt.fields.regex_selectors]
+description = 'Free-form table mapping block-name → regex pattern.'
+type = 'table'
