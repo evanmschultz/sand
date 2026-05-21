@@ -132,7 +132,7 @@ input:
 role: <string>
 tiers[<N>]{tier,backend,model,ok,reason}:
   1,ollama-local,qwen2.5-coder:7b,true,
-  2,codex-exec,gpt-5.4,false,model not pulled locally
+  2,codex-exec,gpt-5.5,false,model not pulled locally
   3,claude-native,opus,true,
 ```
 
@@ -178,14 +178,14 @@ roles[<N>]:
   - role: ta-go-builder
     tiers[3]{tier,backend,model,opts,wait_max,slots}:
       1,ollama-local,qwen2.5-coder:7b,,20,4
-      2,codex-exec,gpt-5.4,--sandbox workspace-write -c model_reasoning_effort=low,,
+      2,codex-exec,gpt-5.5,--sandbox workspace-write -c model_reasoning_effort=low,,
       3,claude-native,haiku,,,
   - role: ta-go-planning
     tiers[4]{tier,backend,model,opts,wait_max,slots}:
-      1,codex-exec,gpt-5.4,--sandbox read-only -c model_reasoning_effort=medium,,
-      2,codex-exec,gpt-5.4,--sandbox read-only -c model_reasoning_effort=low,,
-      3,claude-native,opus,,,
-      4,claude-native,sonnet,,,
+      1,codex-exec,gpt-5.5,--sandbox read-only -c model_reasoning_effort=low,,
+      2,codex-exec,gpt-5.5,--sandbox read-only -c model_reasoning_effort=medium,,
+      3,claude-native,sonnet,,,
+      4,claude-native,opus,,,
 ```
 
 The outer `roles[N]:` declares a list whose elements are objects (not tabular — they don't share a uniform field set since each `tiers` sub-array is potentially different length). Empty values in the CSV rows (e.g. `opts` when not set, `wait_max`/`slots` for non-ollama tiers) are literal empty strings between commas. The build agent should verify this exact nested pattern against the canonical TOON spec at https://github.com/toon-format/toon and adjust to the most idiomatic encoding the encoder supports.
@@ -224,7 +224,7 @@ slots = 4
 
 [[chains."ta-go-builder".tiers]]
 backend = "codex-exec"
-model = "gpt-5.4"
+model = "gpt-5.5"
 opts = "--sandbox workspace-write -c model_reasoning_effort=low"
 
 [[chains."ta-go-builder".tiers]]
@@ -357,7 +357,7 @@ Per-dispatch log file at `/tmp/sand-dispatch/log/<uuid>.json` (UUID per dispatch
   "started_at": "2026-05-20T22:30:00Z",
   "completed_at": "2026-05-20T22:32:48Z",
   "tier_trace": [
-    {"tier": 1, "backend": "codex-exec", "model": "gpt-5.4", "result": "skip", "reason": "exited 1 (usage limit)"},
+    {"tier": 1, "backend": "codex-exec", "model": "gpt-5.5", "result": "skip", "reason": "exited 1 (usage limit)"},
     {"tier": 3, "backend": "claude-native", "model": "opus", "result": "served"}
   ],
   "served_by": "claude-native:opus",

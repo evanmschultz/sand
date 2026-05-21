@@ -35,8 +35,8 @@ Each role has a fallback chain (primary + ordered fallbacks). See [`../ta/main/.
 ```
 role-primaries{role,backend,model,dispatch}:
 ta-go-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
-ta-go-planning,codex-exec,gpt-5.4+medium,bash-dispatcher
-ta-go-qa-falsification,codex-exec,gpt-5.4+xhigh,bash-dispatcher
+ta-go-planning,codex-exec,gpt-5.5+low,bash-dispatcher
+ta-go-qa-falsification,codex-exec,gpt-5.5+xhigh,bash-dispatcher
 ta-go-qa-proof,claude-native,opus,agent-tool
 ta-closeout,claude-native,opus,agent-tool
 ```
