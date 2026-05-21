@@ -2,47 +2,113 @@ format_version = 3
 
 [drop_001]
 [drop_001.drop]
+[drop_001.drop.droplet_create_cmd_sand_main]
+created = 2026-05-21T06:56:20.854637Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T07:11:47.127444Z
+
+[drop_001.drop.droplet_create_go_mod]
+created = 2026-05-21T06:51:02.348911Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T07:07:58.062308Z
+
+[drop_001.drop.droplet_mage_check]
+created = 2026-05-21T07:03:45.208153Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T07:19:47.919325Z
+
+[drop_001.drop.droplet_mage_install]
+created = 2026-05-21T07:03:45.196012Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T07:17:56.368264Z
+
+[drop_001.drop.droplet_mage_test]
+created = 2026-05-21T07:11:32.462532Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T07:22:27.479494Z
+
+[drop_001.drop.droplet_mage_test_func]
+created = 2026-05-21T07:11:32.48548Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T07:26:45.765419Z
+
+[drop_001.drop.droplet_mage_test_pkg]
+created = 2026-05-21T07:11:32.473368Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T07:24:38.656641Z
+
 [drop_001.drop.planner_cmd_sand_stub]
 created = 2026-05-21T04:08:45.644965Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-21T04:08:45.644965Z
+updated = 2026-05-21T06:56:39.154255Z
+
+[drop_001.drop.planner_mage_build_targets]
+created = 2026-05-21T06:58:52.091892Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T07:04:24.630185Z
 
 [drop_001.drop.planner_mage_harness]
 created = 2026-05-21T04:08:45.655987Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-21T04:08:45.655987Z
+updated = 2026-05-21T06:57:57.721661Z
+
+[drop_001.drop.planner_mage_test_targets]
+created = 2026-05-21T06:58:52.124603Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T07:12:40.995352Z
 
 [drop_001.drop.planner_module_bootstrap]
 created = 2026-05-21T04:08:45.631358Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-21T04:08:45.631358Z
+updated = 2026-05-21T06:51:37.006809Z
 
 [drop_001.drop.planner_sand_skeleton]
 created = 2026-05-21T02:30:25.363709Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-21T04:09:50.226879Z
+updated = 2026-05-21T07:09:34.03683Z
 
 [drop_001.drop.qa_falsification_cmd_sand_stub_plan]
 created = 2026-05-21T04:08:45.695822Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T04:08:45.695822Z
+updated = 2026-05-21T07:06:05.192081Z
+
+[drop_001.drop.qa_falsification_mage_build_targets_plan]
+created = 2026-05-21T06:58:52.1147Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T07:15:00.075764Z
 
 [drop_001.drop.qa_falsification_mage_harness_plan]
 created = 2026-05-21T04:08:45.715957Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T04:08:45.715957Z
+updated = 2026-05-21T07:23:50.093862Z
+
+[drop_001.drop.qa_falsification_mage_test_targets_plan]
+created = 2026-05-21T06:58:52.145747Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T07:23:50.109836Z
 
 [drop_001.drop.qa_falsification_module_bootstrap_plan]
 created = 2026-05-21T04:08:45.67593Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-21T04:08:45.67593Z
+updated = 2026-05-21T06:58:51.422837Z
 
 [drop_001.drop.qa_falsification_sand_skeleton_plan]
 created = 2026-05-21T02:30:40.092544Z
@@ -54,19 +120,31 @@ updated = 2026-05-21T04:28:02.80473Z
 created = 2026-05-21T04:08:45.685793Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T04:08:45.685793Z
+updated = 2026-05-21T07:06:30.032393Z
+
+[drop_001.drop.qa_proof_mage_build_targets_plan]
+created = 2026-05-21T06:58:52.103697Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T07:15:00.063051Z
 
 [drop_001.drop.qa_proof_mage_harness_plan]
 created = 2026-05-21T04:08:45.705815Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T04:08:45.705815Z
+updated = 2026-05-21T07:03:45.018Z
+
+[drop_001.drop.qa_proof_mage_test_targets_plan]
+created = 2026-05-21T06:58:52.134741Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T07:14:35.476014Z
 
 [drop_001.drop.qa_proof_module_bootstrap_plan]
 created = 2026-05-21T04:08:45.665882Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-21T04:08:45.665882Z
+updated = 2026-05-21T06:56:24.965318Z
 
 [drop_001.drop.qa_proof_sand_skeleton_plan]
 created = 2026-05-21T02:30:35.854086Z
@@ -78,7 +156,7 @@ updated = 2026-05-21T04:19:54.167224Z
 created = 2026-05-21T02:29:06.983863Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-21T02:29:06.983863Z
+updated = 2026-05-21T07:23:50.080017Z
 
 [ta-closeout]
 created = 2026-05-21T04:59:59.072717Z
