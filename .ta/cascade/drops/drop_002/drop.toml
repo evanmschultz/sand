@@ -8,9 +8,11 @@ acceptance_criteria = """
 - Test fixtures (sample chains.toml + sample persona .md) live under each package's `testdata/`.
 - Persona body sections may be distributed across multiple Go files per recursive decomposition if atomicity demands; companion test files permitted.
 """
+completed_at = "2026-05-21T21:45:00Z"
 created_at = "2026-05-21T19:00:00Z"
 created_by_actor = "user:ev"
 created_by_type = "user"
+decision_log = ["2026-05-21T19:00:00Z: Drop_002 created — L1 root for chains.toml parser + persona loader.", "2026-05-21T21:45:00Z: CLOSEOUT. All 8 builder droplets state=complete/outcome=success. L2 planner + 2 L3 sub-planners (chains + persona) + 6 plan-QA twins (3 proof + 3 falsification across L2 + 2 L3 levels) state=complete; 5 outcome=success directly; 1 (qa_falsification_persona_plan) orchestrator-amended after surgical fix to droplet_persona_load_happy_path tools-edge-case enumeration. Source files: internal/chains/chains.go (Config|Tier|Parse|ErrUnknownRole|Chain) + internal/chains/chains_test.go (4 TestParse + 5 TestConfigChain + 1 TestParseFixture) + internal/chains/testdata/chains.toml (3 roles 7 tiers, [chains] top-level shape after orchestrator alignment). internal/persona/persona.go (Persona|Load|3 sentinels) + internal/persona/persona_test.go (10 subtests across TestLoadFixtureRoundTrip|TestLoadToolsParsing|TestLoadCRLFAndTrailingWhitespace|TestLoadBodyPreservation|TestLoadErrors) + internal/persona/testdata/.claude/agents/ta-go-builder.md (orchestrator moved from testdata/agents/ to match Load's filepath.Join(projectDir, '.claude', 'agents', role+'.md') contract). External deps added: BurntSushi/toml v1.6.0. Build gate: mage check PASSED (both packages compile, all tests pass). Commit 6f860fca24cc9e43640041da7c9fec0588e8b383 captures source + cascade. Orchestrator-applied surgical fixes documented in this entry: (1) persona fixture path move; (2) chains testdata [chains] shape alignment; (3) qa_falsification_persona_plan verdict amendment after A6 tools-edge-case fix to droplet_persona_load_happy_path."]
 definition_of_complete = """
 - [ ] internal/chains/ package compiles + tests pass
 - [ ] internal/persona/ package compiles + tests pass
@@ -22,6 +24,7 @@ definition_of_complete = """
 - [ ] Commit on sand main branch + push + hylla ingest from remote BEFORE marking drop_002 closed
 """
 drop_number = 2.0
+end_commit = "6f860fca24cc9e43640041da7c9fec0588e8b383"
 expected_outputs = ["internal/chains/chains.go", "internal/chains/chains_test.go", "internal/chains/testdata/", "internal/persona/persona.go", "internal/persona/persona_test.go", "internal/persona/testdata/"]
 labels = ["v0.1", "config-layer", "chains", "persona-loader"]
 objective = """
@@ -29,12 +32,12 @@ Land the two configuration-layer concerns sand v0.1 needs before any MCP tool ex
 
 Drop_002 may produce companion sub-packages and test files per recursive decomposition; mage supports multi-file packages (Context7 `/magefile/mage`); Go supports multi-file package decomposition natively. Recursion is permitted at any planner level if atomicity ceiling demands.
 """
+outcome = "success"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "drop"
 title = "Sand v0.1 — chains.toml parser + persona loader"
-updated_at = "2026-05-21T19:00:00Z"
-
+updated_at = "2026-05-21T21:45:00Z"
 [planner_chains_and_persona]
 acceptance_criteria = """
 - Parent planner is complete only after both child planners and all four child plan-QA twins exist.
