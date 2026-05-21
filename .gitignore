@@ -1,5 +1,6 @@
 # Binaries — sand binary built into ~/.local/bin by mage install, not /bin/
-/bin/
+/bin/*
+!/bin/agent-dispatch.sh
 /dist/
 
 # Test and coverage artifacts
