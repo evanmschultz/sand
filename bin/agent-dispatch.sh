@@ -393,7 +393,7 @@ dispatch_claude_native() {
   [[ -n "${TOOLS_LINE}" ]] && cmd+=( --allowedTools "${TOOLS_LINE}" )
 
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    printf '  (env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN) \\\n' >&2
+    printf '  (env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_API_KEY) \\\n' >&2
     printf '  cd %q && \\\n' "${CWD}" >&2
     printf '  ' >&2
     printf '%q ' "${cmd[@]}" >&2
@@ -401,9 +401,16 @@ dispatch_claude_native() {
     return 0
   fi
 
-  # Subshell unsets Ollama redirect vars so claude-native hits api.anthropic.com.
+  # Subshell unsets Ollama redirect vars (ANTHROPIC_BASE_URL / AUTH_TOKEN)
+  # AND ANTHROPIC_API_KEY so claude-native cannot bill against an API key.
+  # The intended auth path is the Claude Code subscription (OAuth in the
+  # local keychain). 2026-05-21 hardening: chain_planning + chain_qa_falsif
+  # no longer list claude-native rows, so this function is reachable only
+  # via chain_qa_proof / chain_closeout (which use agent-tool dispatch in
+  # practice) or manual --backend overrides. Strict env-var hygiene is the
+  # belt-and-suspenders guarantee that an API-key bill can never appear.
   (
-    unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN
+    unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY
     "${cmd[@]}" <<<"${TASK_PROMPT}"
   )
 }
@@ -486,4 +493,5 @@ while IFS='|' read -r backend model opts wait_max slots; do
 done <<<"${TIER_TABLE}"
 
 echo "[disp] CHAIN FAILED: ${TIER_NUM} tiers exhausted for role=${ROLE}" >&2
+echo "[disp] CODEX_EXHAUSTED role=${ROLE} — orchestrator should re-dispatch via the native Agent tool with subagent_type=${ROLE} model=sonnet (equal-tier Anthropic substitute). Escalate to opus ONLY on repeated sonnet failures for plan-QA-falsif slices (orch judgment, not automatic). Do NOT invoke 'claude -p' as a subprocess — that path was retired 2026-05-21 to keep claude-native billing on the subscription, not on ANTHROPIC_API_KEY." >&2
 exit 1

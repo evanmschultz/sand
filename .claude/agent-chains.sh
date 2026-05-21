@@ -14,9 +14,22 @@
 #   wait_max  unused now that ollama is removed
 #   slots     unused now that ollama is removed
 #
-# Lock policy: codex-exec and claude-native dispatch directly — the external
-# API returns 429/401 on overload or auth, and any non-zero exit advances
-# the dispatcher to the next tier.
+# Fallback policy (2026-05-21 hardening): claude-native rows are present
+# ONLY for agent-tool roles (chain_builder / chain_qa_proof / chain_closeout)
+# where the orchestrator reads them as model hints and dispatches via
+# Claude Code's native Agent tool (subscription-billed, no claude -p
+# subprocess). For bash-dispatched roles (chain_planning + chain_qa_falsif)
+# there is NO claude-native fallback row in the chain — codex exhaustion
+# exits the dispatcher with a non-zero code + CODEX_EXHAUSTED marker on
+# stderr telling the orchestrator to re-dispatch via the Agent tool.
+# This guarantees no `claude -p` subprocess (which could pick up
+# ANTHROPIC_API_KEY billing in mis-configured envs) ever fires through
+# the bash dispatcher's automatic fallback path.
+#
+# Lock policy: codex-exec dispatches directly — the external API returns
+# 429/401 on overload or auth, and any non-zero exit advances the
+# dispatcher to the next tier (or exits with CODEX_EXHAUSTED for
+# bash-dispatched roles).
 #
 # Chain principle: cheap-first → escalate ON FAILURE. Tier 1 = cheapest tier
 # that clears the role's quality floor for its TYPICAL work. Higher tiers
@@ -47,55 +60,55 @@ EOF
 }
 
 # --- Planning --------------------------------------------------------------
-# Cheap-first: codex 5.5 low primary (cheapest sufficient for decomposition);
-# codex 5.5 medium tier-2 if low fails; claude sonnet + opus as cross-backend
-# redundancy.
+# Single tier: codex 5.4 with high reasoning. No claude-native fallback row.
+# On codex failure (rate-limit or otherwise), dispatcher exits with
+# CODEX_EXHAUSTED and the orchestrator re-dispatches via the native Agent
+# tool with `subagent_type=<role> model=sonnet` — sonnet is the *equal-tier*
+# Anthropic substitute for planning, NOT an upgrade. Orchestrator may
+# escalate to opus only on REPEATED failures (judgment call, not automatic).
 chain_planning() {
   cat <<'EOF'
-codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=low||
-codex-exec|gpt-5.5|--sandbox read-only -c model_reasoning_effort=medium||
-claude-native|sonnet||||
-claude-native|opus||||
+codex-exec|gpt-5.4|--sandbox read-only -c model_reasoning_effort=high||
 EOF
 }
 
 # --- QA Falsification ------------------------------------------------------
-# Adversarial reasoning. Cheap-first: medium handles build-QA-falsif (the
-# typical case where the plan was already vetted in plan-QA); high tier-2
-# handles plan-QA-falsif via escalation when medium is insufficient.
-# Claude opus is cross-backend redundancy.
+# Single tier: codex 5.4 high — adversarial reasoning is high-stakes
+# enough that we don't want to bother with a cheaper try-first. No
+# claude-native fallback row. On codex failure, dispatcher exits with
+# CODEX_EXHAUSTED and the orchestrator re-dispatches via the native Agent
+# tool with `model=sonnet` — sonnet is the equal-tier Anthropic substitute
+# for build-QA-falsif (the typical case). For plan-QA-falsif slices (rarer,
+# higher stakes), the orchestrator may escalate to opus on REPEATED
+# sonnet failures — judgment call, not automatic.
 #
-# Sandbox: workspace-write so the QA agent can run `mage check` / `mage testPkg`
-# (which writes to go build cache + pnpm node_modules + /tmp). The persona's
-# tools: line is the actual write-discipline (no Edit/Write/Bash(go *)/etc.);
-# codex's sandbox is defense-in-depth, not the primary gate.
+# Sandbox: workspace-write so the QA agent can run `mage check` / `mage
+# testPkg` (which writes to go build cache + pnpm node_modules + /tmp).
+# The persona's tools: line is the actual write-discipline; codex's
+# sandbox is defense-in-depth, not the primary gate.
 chain_qa_falsification() {
   cat <<'EOF'
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=high||
-claude-native|opus||||
+codex-exec|gpt-5.4|--sandbox workspace-write -c model_reasoning_effort=high||
 EOF
 }
 
 # --- QA Proof --------------------------------------------------------------
-# Evidence verification. Quality floor IS opus — no graceful-degradation
-# tier to sonnet (if opus fails, fall to codex; sonnet would underqualify
-# for proof reasoning). Sandbox: workspace-write so the QA agent can run
-# `mage check`. Persona tools: line gates source-write discipline.
+# Single tier: Agent-tool opus. Quality floor IS opus — sonnet would
+# underqualify for proof reasoning. No codex fallback row in this chain
+# because qa_proof routes via agent-tool dispatch (never invokes the
+# bash dispatcher in practice); the row is the orchestrator's model hint.
 chain_qa_proof() {
   cat <<'EOF'
 claude-native|opus||||
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 EOF
 }
 
 # --- Closeout -------------------------------------------------------------
-# Final coordinator before commit. Quality floor IS opus. Sandbox:
-# workspace-write so closeout can run `mage check`. Persona tools: line
-# gates source-write discipline (no Edit/Write tools).
+# Single tier: Agent-tool opus. Final coordinator before commit; quality
+# floor IS opus. Routes via agent-tool dispatch; the row is the
+# orchestrator's model hint.
 chain_closeout() {
   cat <<'EOF'
 claude-native|opus||||
-codex-exec|gpt-5.5|--sandbox workspace-write -c model_reasoning_effort=medium||
 EOF
 }
