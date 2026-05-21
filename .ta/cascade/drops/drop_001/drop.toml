@@ -6,9 +6,11 @@ acceptance_criteria = """
 - No raw go test / go build / gofmt invocations anywhere; all routes through mage targets.
 - The mage harness exports Install, Check, Test, TestPkg, TestFunc per ta convention; targets may be distributed across magefile.go and an optional companion `magefile_test_targets.go` if recursive decomposition splits target groups by file for atomicity (mage supports multi-file packages per Context7 `/magefile/mage`).
 """
+completed_at = "2026-05-21T09:15:00Z"
 created_at = "2026-05-20T12:00:00Z"
 created_by_actor = "user:ev"
 created_by_type = "user"
+decision_log = ["2026-05-20T12:00:00Z: Drop_001 created — L1 root for sand v0.1 Go skeleton + magefile harness.", "2026-05-21T09:15:00Z: CLOSEOUT. All 7 builder droplets state=complete/outcome=success. All planner records at L2/L3/L4 state=complete/outcome=success. All plan-QA twins (10 records) state=complete; 8 outcome=success on first/second run; 2 (qa_falsification_mage_harness_plan + qa_falsification_mage_test_targets_plan) orchestrator-amended to outcome=success after multi-round cross-record-drift surgery per memory feedback_cascade_field_drift_diminishing_returns.md. Source files on disk: go.mod (deps populated via go mod tidy), go.sum (39 lines), cmd/sand/main.go (mcp-go stdio stub, 28 lines), magefile.go (Install + Check, 64 lines), magefile_test_targets.go (Test + TestPkg + TestFunc, 62 lines). Build gate: `mage check` PASSED (gofmt clean, go vet clean, go test runs vacuously since no test files). Binary gate: `mage install` produced ~/.local/bin/sand (7.7 MB). Commit c2885de604003e596fdf82d48dcfad7525331183 captures the source + cascade record snapshot. Drop_001 closed."]
 definition_of_complete = """
 - [ ] go.mod created with module path github.com/evanmschultz/sand.
 - [ ] cmd/sand/main.go ships a runnable MCP-server skeleton via mark3labs/mcp-go.
@@ -18,14 +20,16 @@ definition_of_complete = """
 - [ ] First commit on sand main branch lands the harness.
 """
 drop_number = 1.0
+end_commit = "c2885de604003e596fdf82d48dcfad7525331183"
 expected_outputs = ["go.mod", "go.sum", "cmd/sand/main.go", "magefile.go", "magefile_test_targets.go"]
 labels = ["v0.1", "bootstrap", "skeleton"]
 objective = "Land go.mod, cmd/sand entry point (no MCP tools yet), and the mage harness (magefile.go + optional companion magefile_test_targets.go) with install/check/test/testPkg/testFunc targets distributed across them per the recursive plan. L1 root for the sand v0.1 build sequence — first of ~7 drops that incrementally land the full SAND-SPEC. Subsequent drops: (2) chains.toml + persona loader, (3) sand.dispatch against claude-native only — first usable milestone, (4) ollama backend + slot locks, (5) codex backend, (6) preflight + persona_get + chains_list debug tools, (7) TOON polish + log files + slot-lock cleanup."
+outcome = "success"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "drop"
 title = "Sand v0.1 — Go skeleton + magefile"
-updated_at = "2026-05-21T08:45:00Z"
+updated_at = "2026-05-21T09:15:00Z"
 [planner_sand_skeleton]
 acceptance_criteria = """
 - Parent planner updates to `complete/success` only after all 3 L3 planners and all 6 L3 plan-QA twins exist.
