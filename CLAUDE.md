@@ -36,16 +36,16 @@ Each role has a fallback chain (primary + ordered fallbacks). See [`../ta/main/.
 
 ```
 role-primaries{role,backend,model,dispatch}:
-ta-go-builder,ollama-local,qwen2.5-coder:7b,bash-dispatcher
+ta-go-builder,claude-native,haiku,agent-tool
 ta-go-planning,codex-exec,gpt-5.5+low,bash-dispatcher
-ta-go-qa-falsification,codex-exec,gpt-5.5+xhigh,bash-dispatcher
+ta-go-qa-falsification,codex-exec,gpt-5.5+medium,bash-dispatcher
 ta-go-qa-proof,claude-native,opus,agent-tool
 ta-closeout,claude-native,opus,agent-tool
 ```
 
-**Cascade methodology constraint** ([`../ta/main/docs/cascade-methodology.md`](../../ta/main/docs/cascade-methodology.md)): builder droplets touch **1-2 small blocks of code INCLUDING their tests**. The 7B coder handles atomic edits fine. Only ONE local model is in the chains — `qwen2.5-coder:7b`. Larger local models melt the machine and aren't in any chain.
+**Cascade methodology constraint** ([`../ta/main/docs/cascade-methodology.md`](../../ta/main/docs/cascade-methodology.md)): builder droplets touch **1-2 small blocks of code INCLUDING their tests**. Builder primary is `claude-native|haiku` via the `Agent` tool — fast + cheap (3x cheaper per-token than sonnet per Anthropic pricing). Local Ollama (qwen3-coder:30b) was dropped 2026-05-21 because running many 30B agents concurrently pressured VRAM/thermal budget and slowed iteration loops; haiku trades local-compute-free for cloud-speed + predictable concurrency. Sonnet fallback if haiku fails.
 
-**Planner + plan-QA enforcement rule**: every planner output MUST be reviewed by plan-QA to confirm each terminal builder droplet is 1-2 small blocks. If a droplet would be larger, the planner MUST decompose further before plan-QA passes. The 7B builder backend will FAIL LOUDLY on under-decomposed droplets — that is the desired feedback signal.
+**Planner + plan-QA enforcement rule**: every planner output MUST be reviewed by plan-QA to confirm each terminal builder droplet is 1-2 small blocks. If a droplet would be larger, the planner MUST decompose further before plan-QA passes. Per [[orch-fabrication-self-check]], orchestrator MUST audit each builder's tool-call stream post-dispatch — self-reported "verdict: pass" is not authoritative when the JSON envelope shows zero Edit/Write tool_use events.
 
 ## Role-appropriate tool allowlists (the actual sandbox)
 
