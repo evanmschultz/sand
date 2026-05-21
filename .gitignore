@@ -22,6 +22,9 @@ mage_output_file.go
 
 # Claude Code per-dev overrides; the shared baseline lives in .claude/settings.json
 .claude/settings.local.json
+# Ephemeral per-session lock written by Claude Code's scheduled-task /
+# ScheduleWakeup mechanism. Session-PID-bound; never commit.
+.claude/scheduled_tasks.lock
 
 # Sand per-dispatch logs (when sand is running and writing here, optional ignore)
 .sand/log/
