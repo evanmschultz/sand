@@ -21,6 +21,8 @@ Sand does not exist yet as a binary. During the v0.1 build cascade, all dispatch
 echo "<task prompt>" | /Users/evanschultz/Documents/Code/hylla/ta/main/bin/agent-dispatch.sh --role ta-go-builder --cwd /Users/evanschultz/Documents/Code/hylla/sand/main
 ```
 
+(Stdin pipe shown above; `--prompt "..."` inline is the alternative. **Never use `--prompt-file`** — temp files obscure the call site and don't reproduce.)
+
 Chain config: [`../ta/main/.claude/agent-chains.sh`](../../ta/main/.claude/agent-chains.sh) — sand reuses ta's chains until sand-the-server is functional and ports the chains to TOML.
 
 After sand v0.1 ships:
@@ -55,6 +57,8 @@ Every dispatched agent runs inside its host runtime with a tool allowlist scoped
 - **Closeout**: Read + `Bash(git *)` + `Bash(mage check)` + ta update. No Edit / Write.
 
 The dispatcher passes the persona's frontmatter `tools:` line as `--allowedTools` to Claude Code (or maps it for codex). **The persona file IS the sandbox spec for that role.**
+
+**Tool-call audit after every dispatch.** Open the dispatch output and verify each agent claim against the actual stream — codex `mcp: <server>/<tool> (completed)` lines plus claude-native/ollama JSON envelope `tool_use` events. Self-reported "verdict: pass" or "tool X succeeded" is not authoritative; if the stream doesn't show the required tool calls (record updates, file edits, tests), the work didn't happen — re-dispatch or finish orchestrator-direct. Flag out-of-scope tool calls (anything outside the persona's `tools:` allowlist) as a discipline violation.
 
 ## Persona Bash scoping — mage-only, never raw language tooling
 
@@ -100,6 +104,8 @@ Sand has NO Go source committed yet. Hylla queries will return nothing until the
 **Push-often + ingest-after-push**: once sand has Go code, after every commit batch push to origin then trigger `mcp__hylla__hylla_ingest`. The `/commit-and-reingest` skill bundles both.
 
 **Hylla is Go-only.** Never query for `.toml`, `.json`, `.md`, `.yml`, scripts.
+
+**Artifact_ref this project passes**: spawn prompts that invoke `mcp__hylla__*` for sand's own code MUST use `github.com/evanmschultz/sand@main` — pinned to branch, no float. Verify ingest currency via `mcp__hylla__hylla_artifact_metadata` before dispatching when Hylla evidence is critical.
 
 ## Cascade-managed development — sand's drops live in sand's own substrate
 
