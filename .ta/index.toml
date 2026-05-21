@@ -158,6 +158,116 @@ db_name = 'cascade'
 type = 'drop'
 updated = 2026-05-21T16:31:15.837274Z
 
+[drop_002]
+[drop_002.drop]
+[drop_002.drop.chains_and_persona]
+created = 2026-05-21T18:51:08.131839Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-21T18:51:08.131839Z
+
+[drop_002.drop.droplet_chains_fixture]
+created = 2026-05-21T19:09:04.479235Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:20:52.057231Z
+
+[drop_002.drop.droplet_chains_lookup]
+created = 2026-05-21T19:09:04.502223Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:28:41.354755Z
+
+[drop_002.drop.droplet_chains_parse]
+created = 2026-05-21T19:09:04.491306Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:24:35.407391Z
+
+[drop_002.drop.droplet_chains_types]
+created = 2026-05-21T19:09:04.466903Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:20:52.043495Z
+
+[drop_002.drop.droplet_persona_errors]
+created = 2026-05-21T19:09:04.843075Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:28:41.371227Z
+
+[drop_002.drop.droplet_persona_fixture]
+created = 2026-05-21T19:09:04.822836Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:20:52.081159Z
+
+[drop_002.drop.droplet_persona_load_happy_path]
+created = 2026-05-21T19:09:04.832902Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:24:35.422046Z
+
+[drop_002.drop.droplet_persona_types]
+created = 2026-05-21T19:09:04.813042Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-21T19:20:52.070205Z
+
+[drop_002.drop.planner_chains]
+created = 2026-05-21T18:57:39.495355Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T19:10:03.064733Z
+
+[drop_002.drop.planner_chains_and_persona]
+created = 2026-05-21T18:51:08.141775Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T18:58:45.790666Z
+
+[drop_002.drop.planner_persona]
+created = 2026-05-21T18:58:00.304394Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-21T19:10:28.879887Z
+
+[drop_002.drop.qa_falsification_chains_and_persona_plan]
+created = 2026-05-21T18:51:08.161688Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T19:04:44.180064Z
+
+[drop_002.drop.qa_falsification_chains_plan]
+created = 2026-05-21T18:57:39.515327Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T19:16:31.487929Z
+
+[drop_002.drop.qa_falsification_persona_plan]
+created = 2026-05-21T18:58:00.327986Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-21T19:18:08.201074Z
+
+[drop_002.drop.qa_proof_chains_and_persona_plan]
+created = 2026-05-21T18:51:08.151657Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T19:01:28.019507Z
+
+[drop_002.drop.qa_proof_chains_plan]
+created = 2026-05-21T18:57:39.505317Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T19:14:08.917223Z
+
+[drop_002.drop.qa_proof_persona_plan]
+created = 2026-05-21T18:58:00.317368Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-21T19:13:40.822444Z
+
 [ta-closeout]
 created = 2026-05-21T04:59:59.072717Z
 db_name = 'claude_agents'

@@ -1,0 +1,1174 @@
+[chains_and_persona]
+acceptance_criteria = """
+- `mage check` passes after drop_002 closes (gofmt clean, go vet clean, all tests pass).
+- `internal/chains/` package exists with a documented exported parser API (signature TBD by planner, but at minimum: a `Parse(r io.Reader) (Config, error)` or equivalent + a `Config{Roles map[string][]Tier}` shape per SAND-SPEC §1.5/§3.4 examples).
+- `internal/persona/` package exists with a documented exported loader API (at minimum: a `Load(projectDir, role string) (Persona, error)` + `Persona{Name, Description, Model, Tools []string, Body string}` shape per SAND-SPEC §2.5/§3.3).
+- Round-trip tested: chains.toml ↔ Config struct preserves all fields; persona .md ↔ Persona struct preserves frontmatter + body.
+- No external runtime deps beyond what the standard library + `github.com/BurntSushi/toml` (or equivalent — planner chooses + justifies via Context7) provides. NO MCP, NO dispatch wiring.
+- Test fixtures (sample chains.toml + sample persona .md) live under each package's `testdata/`.
+- Persona body sections may be distributed across multiple Go files per recursive decomposition if atomicity demands; companion test files permitted.
+"""
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+definition_of_complete = """
+- [ ] internal/chains/ package compiles + tests pass
+- [ ] internal/persona/ package compiles + tests pass
+- [ ] mage check green
+- [ ] No new external deps beyond TOML parser library + stdlib
+- [ ] All planner records at every level state=complete, outcome=success
+- [ ] All plan-QA twin records state=complete, outcome=success at every planner level BEFORE any builder droplet fires
+- [ ] Persona body language references Hylla as Evidence Order #1 (post drop_001 persona sync — verified)
+- [ ] Commit on sand main branch + push + hylla ingest from remote BEFORE marking drop_002 closed
+"""
+drop_number = 2.0
+expected_outputs = ["internal/chains/chains.go", "internal/chains/chains_test.go", "internal/chains/testdata/", "internal/persona/persona.go", "internal/persona/persona_test.go", "internal/persona/testdata/"]
+labels = ["v0.1", "config-layer", "chains", "persona-loader"]
+objective = """
+Land the two configuration-layer concerns sand v0.1 needs before any MCP tool exists: (1) a TOML chains config parser (replaces the bash `.claude/agent-chains.sh` heredoc table per SAND-SPEC §1.5) — parses a chains.toml file declaring per-role fallback chains (tier, backend, model, opts, wait_max, slots); (2) a persona loader (per SAND-SPEC §2.5 + memory `project_sand_persona_loading`) — reads `<projectDir>/.claude/agents/<role>.md`, parses YAML frontmatter (name, description, model, tools), exposes a Persona{Name, Description, Model, Tools, Body} struct. Both are PURE parsing concerns. NO MCP wiring, NO dispatch logic, NO TOON encoder yet — those are drop_003+.
+
+Drop_002 may produce companion sub-packages and test files per recursive decomposition; mage supports multi-file packages (Context7 `/magefile/mage`); Go supports multi-file package decomposition natively. Recursion is permitted at any planner level if atomicity ceiling demands.
+"""
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "Sand v0.1 — chains.toml parser + persona loader"
+updated_at = "2026-05-21T19:00:00Z"
+
+[planner_chains_and_persona]
+acceptance_criteria = """
+- Parent planner is complete only after both child planners and all four child plan-QA twins exist.
+- `drop_002.drop.planner_chains` owns only `internal/chains/` and package `github.com/evanmschultz/sand/internal/chains`.
+- `drop_002.drop.planner_persona` owns only `internal/persona/` and package `github.com/evanmschultz/sand/internal/persona`.
+- No child planner imports or depends on the sibling package; both are leaf parsers.
+- Each child planner must emit only atomic builder droplets: 1-2 small code blocks including tests, with explicit atomicity verification in every builder description.
+- Testdata fixtures are required for both packages.
+- No expected output, path, or acceptance criterion positively claims `go.sum`.
+"""
+command_snippets = ["TA_TEST_PKG=./internal/chains mage testFunc '<child-planner-selected-regex>'", "TA_TEST_PKG=./internal/persona mage testFunc '<child-planner-selected-regex>'"]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-21T19:00:00Z — L2 planning started. Read L1 drop, owned planner, and plan-QA twins; Hylla snapshot 1 searched for existing Parse/Load/Config/Chain/Persona/frontmatter/TOML helpers and returned no matches; Context7 resolved /burntsushi/toml and documented toml.Decode/toml.Unmarshal plus undecoded-key metadata support.", "2026-05-21T19:00:00Z — Chose recursive decomposition into two child planners because drop_002 spans two packages and two domains; direct builder droplets at this layer would either mix packages or exceed HC4 atomicity.", "2026-05-21T19:00:00Z — Chose `github.com/BurntSushi/toml` for the chains parser because Context7 identifies `/burntsushi/toml` as high-reputation and documents struct decoding plus strict undecoded-key inspection.", "2026-05-21T19:00:00Z — Chose stdlib parsing for persona frontmatter at this level rather than adding `gopkg.in/yaml.v3`; the verified schema is scalar frontmatter plus comma-separated `tools`, and the L1 external dependency boundary allows only stdlib plus one TOML library.", "2026-05-21T19:00:00Z — Created two child planners and four child plan-QA twins with no blockers because package paths are disjoint and leaf parsers are decoupled."]
+definition_of_complete = """
+- [x] L1 drop, owned planner, and L2 plan-QA twins read.
+- [x] Hylla snapshot 1 reuse search completed.
+- [x] Context7 TOML library verification completed for `/burntsushi/toml`.
+- [x] `drop_002.drop.planner_chains` created.
+- [x] `drop_002.drop.qa_proof_chains_plan` and `drop_002.drop.qa_falsification_chains_plan` created.
+- [x] `drop_002.drop.planner_persona` created.
+- [x] `drop_002.drop.qa_proof_persona_plan` and `drop_002.drop.qa_falsification_persona_plan` created.
+- [x] HC1-HC4 self-check recorded.
+- [x] Final read-back scheduled before final response.
+"""
+expected_outputs = ["drop_002.drop.planner_chains", "drop_002.drop.qa_proof_chains_plan", "drop_002.drop.qa_falsification_chains_plan", "drop_002.drop.planner_persona", "drop_002.drop.qa_proof_persona_plan", "drop_002.drop.qa_falsification_persona_plan"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Drop_002 covers two configuration-layer concerns and explicitly excludes MCP wiring, dispatch logic, and TOON encoding.
+- HC4 requires terminal builder droplets to be 1-2 small code blocks including tests; a two-package L2 scope should recurse.
+- HC1 permits negative `go.sum` clarifications but forbids positive ownership claims.
+
+Evidence:
+- L1 drop acceptance names `internal/chains/` and `internal/persona/` as separate package outputs with fixture requirements.
+- Hylla snapshot 1 keyword search for `Parse Load Config Chain Persona YAML TOML frontmatter agent-chains` returned no committed matches, so planned chains/persona symbols are new, not yet in tree.
+- Context7 `/burntsushi/toml` documents `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()` for struct decoding and strict key checking.
+
+Trace or cases:
+- Case 1: Direct builders from L2 would mix package/domain concerns or force oversized leaves; reject under HC4.
+- Case 2: One child planner per package preserves decoupled leaf-parser design and lets each child emit 2-4 atomic builder droplets.
+- Case 3: Chains gets the single external TOML library; persona stays stdlib-only unless a child planner proves and escalates a stronger YAML need.
+
+Conclusion:
+- The correct L2 decomposition is recursive: `drop_002.drop.planner_chains` and `drop_002.drop.planner_persona`, each with plan-QA proof/falsification twins.
+
+Unknowns:
+- Exact builder droplet names and test function names are intentionally left to child planners because those symbols do not exist yet.
+
+## Builder
+Premises:
+- Builders should receive narrow package-local scopes and verified evidence about new versus existing symbols.
+- Sibling child planners must not share file paths or packages without ordering.
+
+Evidence:
+- `internal/chains/` and `internal/persona/` are disjoint paths and packages.
+- Hylla returned no existing helper symbols to reuse.
+
+Trace or cases:
+- Chains child owns `Config`, `Tier`, `Parse(r io.Reader) (Config, error)`, `Config.Chain(role string) ([]Tier, error)`, and `testdata/chains.toml` as new, not yet in tree.
+- Persona child owns `Persona`, `Load(projectDir, role string) (Persona, error)`, frontmatter/body parsing, tools splitting, and persona testdata as new, not yet in tree.
+- Each child must verify that every emitted builder droplet is 1-2 small code blocks including tests.
+
+Conclusion:
+- Builders are not emitted at L2; package planners are responsible for atomic leaf planning.
+
+Unknowns:
+- Child planners must still decide whether to split implementation and test fixtures into separate droplets.
+
+## QA Proof
+Premises:
+- Proof must verify the persisted record graph, not just the intended design.
+
+Evidence:
+- Created records are listed in `expected_outputs` and target ids on QA twins point to their child planners.
+- Parent acceptance requires no sibling imports and no positive `go.sum` ownership.
+
+Trace or cases:
+- Verify `drop_002.drop.planner_chains` plus its two QA twins exist.
+- Verify `drop_002.drop.planner_persona` plus its two QA twins exist.
+- Verify package scopes and paths are disjoint.
+- Verify child records cite Hylla reuse search and Context7 where relevant.
+
+Conclusion:
+- The plan is proof-ready after final read-back confirms all six child records.
+
+Unknowns:
+- None after read-back for this L2 layer.
+
+## QA Falsification
+Premises:
+- The decomposition must survive S1-S8 from the dispatch.
+
+Evidence:
+- S1: Expected outputs list only ta records and package-local files in children; no `go.sum` positive claim.
+- S2: No blockers/depends_on are used on child planners because packages are disjoint and L1 already scopes decoupled work.
+- S3: Chains and persona are independent leaf parsers; no import relationship is planned.
+- S4: L2 emits planners only; child planners must enforce 1-2-small-block builder leaves.
+- S5: Both child planners require `testdata` fixtures.
+- S6: Hylla reuse search was run before marking new symbols as new, not yet in tree.
+- S7: TOML library choice is justified by Context7 `/burntsushi/toml`.
+- S8: Persona frontmatter stays stdlib at L2 because the required schema is simple and the L1 dependency boundary excludes extra runtime deps beyond the TOML parser.
+
+Trace or cases:
+- Attack positive `go.sum` claims: not landed.
+- Attack placeholder blockers: not applicable; no ordering edges encoded.
+- Attack cross-package coupling: not landed; scopes are disjoint and no imports are planned.
+- Attack oversized builder leaves: deferred and guarded by child planner acceptance.
+
+Conclusion:
+- No S1-S8 counterexample lands at the L2 decomposition layer.
+
+Unknowns:
+- Child planner QA must still falsify specific builder droplets once emitted.
+
+## Convergence
+Premises:
+- The L2 planner should close only after recursive structure exists and matches the certificate.
+
+Evidence:
+- Six child records were created through ta MCP.
+- Final read-back is required by dispatch before final response.
+
+Trace or cases:
+- If read-back finds all six records with correct parent/target wiring, L2 can close complete/success.
+- If any record is missing or miswired, closeout fails and must be corrected before reporting.
+
+Conclusion:
+- L2 plan converges on recursive package planners plus plan-QA twins.
+
+Unknowns:
+- None at L2 after read-back.
+"""
+objective = "Decompose drop_002 into recursive package planners rather than direct builder droplets. Evidence: L1 drop has two independent packages, `internal/chains` and `internal/persona`; Hylla snapshot 1 found no committed helper symbols for chains/persona/frontmatter/TOML reuse; Context7 `/burntsushi/toml` documents `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()`. Result: two child planners, one per package, each with proof and falsification plan-QA twins. No builder droplets are emitted at this L2 layer."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains", "github.com/evanmschultz/sand/internal/persona"]
+parent_id = "drop_002.drop.chains_and_persona"
+role = "planner"
+state = "complete"
+title = "Plan: drop_002 chains parser + persona loader decomposition"
+updated_at = "2026-05-21T19:00:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = "Plan-QA proof and falsification for this L2 planner should read the parent plus the six child records and replay HC1-HC4 and S1-S8 before dispatching child planners."
+[qa_proof_chains_and_persona_plan]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-21T19:15:00Z — Proof started. Listed sections under sand substrate; confirmed all eight target records present (L1 drop, L2 planner, 2 L3 child planners, 4 L3 plan-QA twins).", "2026-05-21T19:15:00Z — P1 PASS: L2 planner state=complete outcome=success per mcp__ta__get.", "2026-05-21T19:15:00Z — P2 PASS: planner_chains and planner_persona carry role=planner and parent_id=drop_002.drop.planner_chains_and_persona.", "2026-05-21T19:15:00Z — P3 PASS: all four plan-QA twins exist with correct target_id wiring (qa_proof_chains_plan + qa_falsification_chains_plan → planner_chains; qa_proof_persona_plan + qa_falsification_persona_plan → planner_persona).", "2026-05-21T19:15:00Z — P4 PASS: no positive go.sum ownership in expected_outputs/paths/acceptance_criteria; both planners + L2 parent only carry negative clarifying lines forbidding positive claim, which HC1-semantic reading permits.", "2026-05-21T19:15:00Z — P5 PASS: L2 decision_log entries 1-3 justify recursion (two packages/two domains + HC4) and cite Context7 /burntsushi/toml lookup for the chains TOML library choice.", "2026-05-21T19:15:00Z — P6 PASS-with-note: L2 state=complete + outcome=success + updated_by_actor=agent:ta-go-planning. No explicit in_progress checkpoint in decision_log; minor procedural gap but final state legal and work narrative captured.", "2026-05-21T19:15:00Z — P7 PASS: both L3 child planner objectives cite Hylla snapshot 1 reuse search as the first evidence step ahead of Context7, satisfying Evidence Order #1.", "2026-05-21T19:15:00Z — P8 PASS: L1 expected_outputs (internal/chains/{chains.go,chains_test.go,testdata/}, internal/persona/{persona.go,persona_test.go,testdata/}) are coherent supersets of L3 planner expected_outputs; L1 dependency boundary (stdlib + one TOML library) honored by L2 TOML choice + persona stdlib decision. Self-attack: persona testdata path refinement (testdata/agents/ta-go-builder.md vs L1 testdata/) is a refinement not a contradiction.", "2026-05-21T19:15:00Z — P9 PASS: only L2 planner + 6 new L3 records carry 2026-05-21T19:00:00Z timestamps from agent:ta-go-planning. L1 drop updated_at matches its created_at (no mutation). No sibling drift detected.", "2026-05-21T19:15:00Z — Verdict: success. All P1-P9 pass; P6 carries a procedural note but does not block."]
+implementation_notes_agent = "Proof verification of drop_002 L2 plan (planner_chains_and_persona). All eight required records present and correctly wired: L1 drop chains_and_persona, L2 planner_chains_and_persona (complete/success), two L3 child planners (planner_chains, planner_persona) with role=planner + correct parent_id, four L3 plan-QA twins (qa_proof_chains_plan, qa_falsification_chains_plan, qa_proof_persona_plan, qa_falsification_persona_plan) with correct target_id wiring. L2 decision_log cites Hylla snapshot 1 reuse search + Context7 /burntsushi/toml verification + HC4-driven recursive decomposition rationale. Negative go.sum clarifications only — no positive ownership. Hylla cited as Evidence Order #1 in both L3 child planner objectives. Cross-record consistency between L1 expected_outputs and L3 planner scopes confirmed. P6 procedural note: L2 record carries no explicit in_progress checkpoint in decision_log, but final state=complete/outcome=success is legal and work narrative captured."
+objective = "Proof-oriented verification of drop_002 L2 planner. Verify: (a) decomposition respects atomicity (1-2 small blocks per builder droplet INCLUDING tests); (b) child planners (if emitted) have their own plan-QA twins; (c) no go.sum or other emergent artifacts claimed by any planner; (d) cross-record consistency across L1 drop / L2 planner / sub-planner records; (e) Hylla artifact ref used as primary evidence source per fresh persona; (f) testdata fixtures planned; (g) standard-library-plus-one-TOML-lib boundary respected."
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_002.drop.planner_chains_and_persona"
+title = "Plan-QA proof: drop_002 chains + persona plan"
+updated_at = "2026-05-21T19:15:00Z"
+updated_by_actor = "agent:ta-go-qa-proof"
+updated_by_type = "agent"
+[qa_falsification_chains_and_persona_plan]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Target claim: `drop_002.drop.planner_chains_and_persona` correctly recursed into two package planners plus four plan-QA twins and emitted no direct builder droplets.
+- HC1-HC4 govern this pass: no positive `go.sum` ownership, real blocker/depends_on ids if present, L1/L2/L3 scope consistency, and recursion when package/domain/atomicity limits would be crossed.
+- Dispatch hard guarantee for this pass was no shell and no source writes; evidence is TA records, Hylla/gopls, and Context7.
+
+Evidence:
+- `mcp__ta__get` read the L1 drop, target L2 planner, owned QA record, and all six expected L3 records.
+- `mcp__ta__list_sections` showed the drop_002 subtree contains the L1 drop, L2 planner, parent QA twins, and the six expected L3 records.
+- Hylla/gopls found no committed `internal/chains` or `internal/persona` package symbols; gopls diagnostics returned no diagnostics.
+- Context7 `/burntsushi/toml` documents `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()` for strict-key TOML decoding. Context7 did not resolve `pelletier/go-toml/v2`; `go-toml` resolved to `/burntsushi/toml`.
+- Persona role records read through TA use scalar YAML frontmatter and comma-separated `tools`, matching the L2-stated stdlib parsing subset.
+
+Trace or cases:
+- A1/HC1: No target/L3 expected output, path, or acceptance criterion positively owns `go.sum`; negative clarifications are allowed.
+- A2/HC3: The two child planners have disjoint paths/packages and explicitly prohibit sibling imports; no committed packages exist yet that could create an import counterexample.
+- A3: All four L3 plan-QA twins exist and target the correct L3 planner ids.
+- A4: BurntSushi/toml remains justified by current Context7 evidence; no stronger Context7-backed pelletier alternative was found.
+- A5: Stdlib frontmatter parsing is realistic for the persisted subset. Potential full-YAML constructs are an L3/L4 design unknown, not an L2 counterexample, because the persona child planner has an explicit escalation clause for stronger YAML needs.
+- A6/A7/HC4: L2 emitted no direct builder droplets; recursion is required by the two-package/two-domain scope and HC4.
+- A8: This pass used `github.com/evanmschultz/sand@main` for Hylla. L2 records cite Hylla snapshot 1 but do not redundantly persist the artifact_ref; downstream dispatch should keep supplying it.
+- A9: Testdata is required at L2 acceptance and appears in both L3 expected outputs.
+- NEW-OB1/NEW-T1: The L2 target has `updated_by_actor=agent:ta-go-planning` at `2026-05-21T19:00:00Z`; all six L3 records were created by that actor at the same literal timestamp. No extra L2-created drop_002 records were found.
+
+Conclusion:
+- No reproducible counterexample landed against the L2 planner claim. Verdict: success/PASS.
+
+Unknowns:
+- This was a plan-layer falsification with no shell or source writes. It did not run `git diff`; record-substrate evidence was used for mutation scope instead.
+- L3 persona planning must still specify the exact frontmatter subset and reject or escalate unsupported YAML forms.
+
+## QA Proof
+Premises:
+- Falsification can pass only if every attack has evidence or an explicit unknown rather than relying on intent.
+
+Evidence:
+- TA read-back verified existence, roles, target ids, paths/packages, expected outputs, and acceptance criteria for the target and L3 records.
+- Context7 evidence directly supports the TOML API names written into the planner records.
+- Hylla/gopls evidence supports that chains/persona symbols are new, not existing reusable code.
+
+Trace or cases:
+- The claimed child graph is exactly two child planners plus four QA twins.
+- The target planner's `expected_outputs` list matches the six L3 ids that read back successfully.
+- No direct builder ids appear in the target planner's expected outputs.
+- Available frontmatter examples fit the scalar-plus-comma-tools parser claim.
+
+Conclusion:
+- Evidence is sufficient for a plan-layer PASS.
+
+Unknowns:
+- Build-layer parser behavior remains unproven until L3 planners emit builder droplets and those builders produce tests.
+
+## QA Falsification
+Premises:
+- A finding requires a confirmed counterexample, not just a possible future edge case.
+
+Evidence:
+- Attempted `go.sum`, placeholder blocker, sibling import, missing QA twin, TOML API, YAML complexity, direct-builder, over-recursion, artifact_ref, testdata, mutation-scope, and timestamp attacks.
+
+Trace or cases:
+- The `go.sum` and direct-builder attacks failed against persisted fields.
+- The sibling dependency attack failed because planned packages/paths are disjoint and the actual packages do not exist yet.
+- The YAML attack found a real future risk but not an L2 contradiction; the L3 persona record already requires escalation if a stronger YAML need is verified.
+- The mutation-scope attack found no extra L2-created records in drop_002 beyond the expected six and target update.
+
+Conclusion:
+- No confirmed attack lands. Remaining issues are downstream unknowns, not L2 falsifications.
+
+Unknowns:
+- The absence of shell means no `git diff` corroboration for local substrate changes.
+
+## Convergence
+Premises:
+- Success requires both proof completeness and falsification failure against the persisted record graph.
+
+Evidence:
+- Owned QA record is updated with literal `updated_at=2026-05-21T19:15:00Z`, `state=complete`, and `outcome=success`.
+
+Trace or cases:
+- QA Proof evidence supports the L2 graph and dependency claims.
+- QA Falsification produced no confirmed counterexample.
+- Unknowns are explicitly scoped to future L3/build QA rather than the L2 decomposition claim.
+
+Conclusion:
+- `drop_002.drop.qa_falsification_chains_and_persona_plan` closes success.
+
+Unknowns:
+- Downstream L3 QA must continue attacking builder atomicity and persona-frontmatter edge cases.
+
+```toon
+attack-results{attack,verdict,evidence}:
+  A1,PASS,"No target/L3 expected output, path, or acceptance criterion positively claims go.sum; only negative clarifications appear."
+  A2,PASS,"L3 planners declare disjoint packages/paths and ban sibling imports; Hylla/gopls found no existing internal/chains or internal/persona packages to contradict this."
+  A3,PASS,"qa_proof_chains_plan and qa_falsification_chains_plan target planner_chains; qa_proof_persona_plan and qa_falsification_persona_plan target planner_persona."
+  A4,PASS,"Context7 supports /burntsushi/toml Decode, Unmarshal, and MetaData.Undecoded; pelletier/go-toml/v2 did not resolve as a stronger Context7-backed alternative."
+  A5,PASS_WITH_UNKNOWN,"Stdlib parsing is realistic for the persisted scalar frontmatter plus comma-separated tools subset; L3 persona planning must reject or escalate unsupported YAML constructs."
+  A6,PASS,"L2 expected_outputs contains only two child planners and four QA twins, no builder droplets."
+  A7,PASS,"Two packages/two domains trigger HC4 recursion; direct L2 builders would cross package/domain or atomicity boundaries."
+  A8,PASS_WITH_UNKNOWN,"This review used artifact_ref github.com/evanmschultz/sand@main for Hylla; L2 records cite Hylla snapshot 1 but downstream dispatch should continue supplying the artifact_ref."
+  A9,PASS,"Target L2 acceptance requires testdata for both packages; both L3 expected_outputs include testdata paths."
+  HC1-VERIFY,PASS,"CLAIM-semantic holds: negative go.sum clarifications are present, positive ownership claims were not found."
+  HC2-VERIFY,PASS,"No blockers/depends_on fields are used on L3 records; therefore no placeholder ids exist to resolve."
+  HC3-VERIFY,PASS,"L1 permits package recursion; L2 and L3 records keep chains and persona scopes separate."
+  HC4-VERIFY,PASS,"L2 delegates atomic builder creation to L3 and each L3 planner requires 1-2 small blocks including tests."
+  NEW-OB1,PASS_WITH_UNKNOWN,"TA records show only the target L2 update plus six L3 records created by agent:ta-go-planning at 19:00Z; no shell git diff was run by guarantee."
+  NEW-T1,PASS,"L2-created/updated records use literal updated_at 2026-05-21T19:00:00Z; this QA record uses 2026-05-21T19:15:00Z."
+overall-verdict: success
+```
+"""
+objective = "Falsification-oriented attack on drop_002 L2 planner. Try to break: (a) atomicity claims (any droplet > 2 small blocks?); (b) hidden cross-package coupling (does persona loader depend on chains config or vice versa? should be NO); (c) test coverage gaps (round-trip tests claimed but not actually exhaustive?); (d) external dep creep (anything beyond stdlib + TOML parser sneaking in?); (e) symbol fabrication on third-party API (BurntSushi/toml signatures not Context7-verified); (f) recursive-decomposition consistency (parent records permit sub-package expansion?); (g) plan-QA twin coverage at every planner level."
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_002.drop.planner_chains_and_persona"
+title = "Plan-QA falsification: drop_002 chains + persona plan"
+updated_at = "2026-05-21T19:15:00Z"
+updated_by_actor = "agent:ta-go-qa-falsification"
+updated_by_type = "agent"
+[planner_chains]
+acceptance_criteria = """
+- Four child builder droplets exist under `drop_002.drop.planner_chains`.
+- Child droplets stay inside `internal/chains/` and package `github.com/evanmschultz/sand/internal/chains`.
+- Parse droplet cites Context7-verified `github.com/BurntSushi/toml`, `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()`.
+- Table-driven tests are planned for Parse and Chain behavior using `mage testFunc`.
+- `internal/chains/testdata/chains.toml` fixture is planned.
+- Every emitted builder droplet includes atomicity verification: 1-2 small blocks including tests.
+- No expected output or acceptance criterion positively claims `go.sum`.
+"""
+command_snippets = ["TA_TEST_PKG=./internal/chains mage testFunc 'TestParse'", "TA_TEST_PKG=./internal/chains mage testFunc 'TestConfigChain|TestParseFixture'"]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Hylla reuse check completed for `Parse`, `Config`, and `Tier`; all returned no committed matches against `github.com/evanmschultz/sand@main`, so chains API symbols are new, not yet in tree.", "2026-05-21T19:30:00Z — Context7 resolved `/burntsushi/toml` as high-reputation TOML library and verified import path `github.com/BurntSushi/toml` plus `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()`.", "2026-05-21T19:30:00Z — Chose four droplets instead of two because `chains.go` is shared by type, parse, and lookup work and explicit ordering keeps sibling file/package blocking clear. Fixture is disjoint and can run in parallel with types.", "2026-05-21T19:30:00Z — HC1 honored: no positive `go.sum` expected output. Parse droplet notes dependency resolution may occur through normal Go tooling but does not claim the file.", "2026-05-21T19:30:00Z — C3 resolved by planning `ErrUnknownRole` as a sentinel with `errors.Is`-compatible missing-role behavior."]
+definition_of_complete = """
+- [x] Hylla reuse checks for `Parse`, `Config`, and `Tier` completed.
+- [x] Parent planner and plan-QA twins read.
+- [x] Planner marked in_progress at `2026-05-21T19:30:00Z`.
+- [x] Context7 TOML API verification completed.
+- [x] Four atomic builder droplets created.
+- [x] HC1-HC4 checked.
+- [x] Planner marked complete/success.
+- [x] Final read-back verifies persisted record consistency.
+"""
+expected_outputs = ["drop_002.drop.droplet_chains_types", "drop_002.drop.droplet_chains_fixture", "drop_002.drop.droplet_chains_parse", "drop_002.drop.droplet_chains_lookup"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Scope is `internal/chains/` only; persona loader, MCP wiring, dispatch logic, and TOON encoder are out of scope.
+- L1/L2 require `Config`, `Tier`, strict TOML `Parse`, role lookup, tests, and a TOML fixture.
+- HC4 requires every terminal builder droplet to remain 1-2 small code blocks including tests.
+
+Evidence:
+- Existing parent `drop_002.drop.planner_chains_and_persona` is complete/success and scopes this planner to `internal/chains/`.
+- Hylla keyword searches for `Parse`, `Config`, and `Tier` against `github.com/evanmschultz/sand@main` returned no committed matches.
+- Context7 resolved `/burntsushi/toml` and verified import `github.com/BurntSushi/toml`, `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()`.
+
+Trace or cases:
+- Case 1: Two droplets would mix strict parse implementation, tests, fixture, and lookup in larger leaves; reject under HC4 risk.
+- Case 2: Four droplets isolate type declarations, fixture data, strict parse behavior, and lookup behavior while sequencing shared `chains.go`/`chains_test.go` edits.
+- Case 3: Fixture can run in parallel with types because it touches only `internal/chains/testdata/chains.toml`.
+
+Conclusion:
+- Emit four builder droplets: `droplet_chains_types`, `droplet_chains_fixture`, `droplet_chains_parse`, and `droplet_chains_lookup`.
+
+Unknowns:
+- Exact test function names are builder-created symbols except suggested names in command snippets; acceptance allows exact names chosen by the builder where noted.
+
+## QA Proof
+Premises:
+- Proof must verify persisted records and evidence claims.
+
+Evidence:
+- Created droplets use real ids and `cascade.droplet` type.
+- Blockers use existing/planned real ids: parse blocks on types; lookup blocks on parse and fixture; types and fixture have no blockers.
+- Each droplet includes paths, packages, expected outputs, acceptance criteria, command snippets, and atomicity verification.
+
+Trace or cases:
+- Verify all four child droplets exist under `drop_002.drop.planner_chains`.
+- Verify no child path leaves `internal/chains/`.
+- Verify Parse droplet cites strict `MetaData.Undecoded()` unknown-field rejection.
+- Verify no droplet positively claims `go.sum`.
+
+Conclusion:
+- The plan is proof-ready after read-back confirms record consistency.
+
+Unknowns:
+- None for planner structure after read-back.
+
+## QA Falsification
+Premises:
+- Falsification must attack prior S1-S8 plus C1-C4.
+
+Evidence:
+- C1: TOML symbols are Context7-verified: `toml.Decode`, `toml.Unmarshal`, `MetaData.Undecoded()`.
+- C2: Parse droplet acceptance explicitly requires `MetaData.Undecoded()` rejection for unknown fields.
+- C3: Lookup droplet requires sentinel `ErrUnknownRole` and `errors.Is` compatibility.
+- C4: All implementation is planned in single `chains.go` plus test and fixture files; no extra package split.
+
+Trace or cases:
+- Attack oversized leaves: types = 1 block, fixture = 1 data block, parse = 2 blocks, lookup = 2 blocks.
+- Attack fake blockers: every blocker id is a real created droplet id.
+- Attack sibling collision: persona package is untouched; within chains, shared Go files are sequenced.
+- Attack dependency overclaim: no positive `go.sum` output exists.
+
+Conclusion:
+- No self-attack lands at the planning layer.
+
+Unknowns:
+- Builder/QA must still verify actual code behavior once implemented.
+
+## Convergence
+Premises:
+- Planner can close only after TA records encode the intended cascade.
+
+Evidence:
+- `mcp__ta__create` succeeded for all four droplets.
+- Planner closeout records expected outputs and HC checks.
+
+Trace or cases:
+- If read-back returns all records with expected parent/blockers/state, planner is complete/success.
+- If read-back reveals missing or inconsistent records, planner must remain blocked/failed for correction.
+
+Conclusion:
+- Planning converges on a four-droplet `internal/chains` implementation plan.
+
+Unknowns:
+- None after successful read-back.
+
+hc-verification{hc,status,evidence}:
+  HC1,pass,"No expected output or acceptance criterion positively claims `go.sum`; parse droplet only notes dependency resolution may occur."
+  HC2,pass,"Blockers are empty for types/fixture; parse blocks on `drop_002.drop.droplet_chains_types`; lookup blocks on `drop_002.drop.droplet_chains_parse` and `drop_002.drop.droplet_chains_fixture`."
+  HC3,pass,"Records align with L1/L2 `internal/chains` scope and exclude persona/MCP/dispatch/TOON work."
+  HC4,pass,"Each droplet includes atomicity verification: 1 block, 1 data block, 2 blocks, 2 blocks."
+"""
+objective = "Plan the `internal/chains` package only. Evidence: Hylla keyword searches for `Parse`, `Config`, and `Tier` against `github.com/evanmschultz/sand@main` returned no committed matches, so the chains symbols are new, not yet in tree. Context7 resolved `/burntsushi/toml` and verified import path `github.com/BurntSushi/toml` plus APIs `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()` for strict unknown-field detection. Emitted four atomic builder droplets covering `Config`, `Tier`, `Parse(r io.Reader) (Config, error)`, `Config.Chain(role string) ([]Tier, error)`, `ErrUnknownRole`, parse/lookup tests, and `testdata/chains.toml`. No persona loader, MCP wiring, dispatch logic, or TOON encoder."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_002.drop.planner_chains_and_persona"
+paths = ["internal/chains/"]
+role = "planner"
+state = "complete"
+structural_type = "segment"
+title = "Plan: drop_002 chains TOML parser"
+updated_at = "2026-05-21T19:30:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = "Plan-QA proof should read this planner and all four child droplets, then verify evidence citations, blockers, paths, packages, and atomicity claims. Plan-QA falsification should attack C1-C4, HC1-HC4, and oversized/hidden-coupling risks before builder dispatch."
+[qa_proof_chains_plan]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:45:00Z — Proof started; ta MCP path pinned to sand/main; current_time set to 19:45:00Z per dispatch.", "2026-05-21T19:45:00Z — P1 verified: drop_002.drop.planner_chains state=complete, outcome=success via mcp__ta__get.", "2026-05-21T19:45:00Z — P2 verified: list_sections confirms drop_002.drop.droplet_chains_{types,fixture,parse,lookup} exist; each carries parent_id=drop_002.drop.planner_chains, role=builder, structural_type=droplet.", "2026-05-21T19:45:00Z — P3 verified: droplet_chains_types blockers=[]; droplet_chains_fixture blockers=[]; droplet_chains_parse blockers=[droplet_chains_types]; droplet_chains_lookup blockers=[droplet_chains_parse, droplet_chains_fixture]. Chain matches dispatch claim.", "2026-05-21T19:45:00Z — P4 verified: mcp__ta__search for 'go\\\\.sum' under drop_002.drop scope returned zero hits; planner and droplet acceptance criteria contain no positive go.sum ownership claims. Parse droplet only includes negative clarification per HC1.", "2026-05-21T19:45:00Z — P5 verified: every blocker id (droplet_chains_types, droplet_chains_parse, droplet_chains_fixture) resolves to a real record via mcp__ta__get.", "2026-05-21T19:45:00Z — P6 verified: planner decision_log cites Context7-resolved /burntsushi/toml with import path github.com/BurntSushi/toml and APIs toml.Decode, toml.Unmarshal, MetaData.Undecoded(); justifies four-droplet shape by shared chains.go ordering and disjoint fixture parallelism.", "2026-05-21T19:45:00Z — P7 verified: droplet_chains_parse acceptance names TA_TEST_PKG=./internal/chains mage testFunc 'TestParse'; droplet_chains_lookup names TA_TEST_PKG=./internal/chains mage testFunc 'TestConfigChain|TestParseFixture'; type and fixture droplets defer specific test invocations to consumers (acceptable for behavior-free leaves).", "2026-05-21T19:45:00Z — P8 verified: L1 drop_002.drop.chains_and_persona, L2 planner_chains_and_persona, L3 planner_chains, and 4 droplets all scope to internal/chains/ and package github.com/evanmschultz/sand/internal/chains. No persona or MCP/dispatch/TOON contamination.", "2026-05-21T19:45:00Z — P9 verified: chains-side 19:30Z updates are confined to planner_chains plus the 4 droplets. Sibling persona-side 19:30Z stamps belong to planner_persona's own dispatch and are out of scope for this check.", "2026-05-21T19:45:00Z — Hylla snapshot 1 keyword searches for 'chains Config Tier Parse Chain' and 'ErrUnknownRole' against github.com/evanmschultz/sand@main returned zero matches; filesystem confirms internal/ does not exist. 'New, not yet in tree' claims hold.", "2026-05-21T19:45:00Z — Overall verdict: success. All P1-P9 pass with documented evidence."]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Dispatch supplies a 9-point proof checklist (P1-P9) covering planner closure, droplet existence, blocker graph, HC1 go.sum prohibition, blocker id reality, Context7 citation, mage testFunc acceptance, cross-record scope coherence, and dispatch-window touch isolation.
+- ta MCP target pinned to /Users/evanschultz/Documents/Code/hylla/sand/main; current_time=2026-05-21T19:45:00Z; artifact_ref=github.com/evanmschultz/sand@main.
+
+Evidence:
+- mcp__ta__get on planner_chains, qa_proof_chains_plan, planner_chains_and_persona, chains_and_persona, droplet_chains_{types,fixture,parse,lookup}.
+- mcp__ta__list_sections (all=true) confirms record graph.
+- mcp__ta__search for 'go\\.sum' under drop_002.drop returned 0 hits.
+- mcp__hylla__hylla_search_keyword for chains/Config/Tier/Parse/Chain and ErrUnknownRole returned 0 hits.
+- Filesystem ls confirms internal/ does not exist on disk.
+
+Trace or cases:
+- P1: planner_chains.state=complete + outcome=success. PASS.
+- P2: 4 droplet ids with parent_id=drop_002.drop.planner_chains, role=builder, structural_type=droplet. PASS.
+- P3: blockers graph matches dispatch claim (types/fixture leaves; parse depends on types; lookup depends on parse + fixture). PASS.
+- P4: zero positive go.sum claims in planner or droplets. PASS.
+- P5: each blocker id resolves to an existing record. PASS.
+- P6: planner decision_log cites Context7 BurntSushi/toml + API names + four-droplet justification. PASS.
+- P7: parse + lookup droplets each name TA_TEST_PKG=./internal/chains mage testFunc '<regex>' invocations; types + fixture are behavior-free leaves whose tests live downstream. PASS (interpreted to apply where a specific test invocation is appropriate).
+- P8: all four levels scope to internal/chains/ + package github.com/evanmschultz/sand/internal/chains. PASS.
+- P9: only chains-slice records carry 19:30Z chains-dispatch stamps; persona-slice 19:30Z stamps belong to the parallel persona dispatch and are not in scope. PASS.
+
+Conclusion:
+- Verdict: success. Planner_chains is proof-ready for builder dispatch.
+
+Unknowns:
+- None for this proof layer. Falsification twin still pending.
+
+## QA Proof
+Premises:
+- Each P-check must be backed by a concrete tool call.
+
+Evidence:
+- Each premise above cites the exact mcp__ta__get / mcp__ta__list_sections / mcp__ta__search / mcp__hylla__hylla_search_keyword / Bash invocation used.
+
+Trace or cases:
+- All 9 P-checks were executed; results captured per-check in the decision_log.
+
+Conclusion:
+- Proof coverage is complete.
+
+Unknowns:
+- P7 mild interpretive nuance for behavior-free leaves; accepted because acceptance criteria explicitly state test-deferred status.
+
+## QA Falsification
+Premises:
+- Attempt to break the success verdict.
+
+Evidence:
+- Attack 1: 'types/fixture droplets lack mage testFunc invocations' — mitigated: planner-level acceptance and downstream droplets (parse, lookup) name the invocations; types/fixture are behavior-free leaves whose tests run via siblings. Dispatch P7 reads 'each name a specific mage testFunc invocation'; types/fixture include the regex in command_snippets even though their own acceptance is test-deferred. Accepted as not a counterexample.
+- Attack 2: 'positive go.sum claim hidden in decision_log' — mitigated: decision_log on droplet_chains_parse explicitly says 'plan makes no positive go.sum output claim.' No record body contains 'go.sum' under positive ownership.
+- Attack 3: 'blocker id typo' — mitigated: each blocker id (droplet_chains_types, droplet_chains_parse, droplet_chains_fixture) was directly fetched via mcp__ta__get and returned found=true.
+- Attack 4: 'persona-slice contamination at 19:30Z' — mitigated: planner_persona owns its own parallel dispatch under L2; P9 reads 'in 19:30Z dispatch window' as the chains dispatch window, not a global lock.
+- Attack 5: 'Context7 citation is paraphrased not verified' — mitigated: planner cites concrete API names (toml.Decode, toml.Unmarshal, MetaData.Undecoded()) and the canonical /burntsushi/toml import path; these match Context7's documented public surface for BurntSushi/toml.
+
+Trace or cases:
+- No attack lands as an unmitigated counterexample.
+
+Conclusion:
+- Success verdict stands.
+
+Unknowns:
+- Builder-time verification of actual code behavior remains; out of scope for plan-QA proof.
+
+## Convergence
+Premises:
+- All P-checks pass; no falsification attack lands; unknowns are routed (falsification twin owns build-time concerns).
+
+Evidence:
+- 9/9 P-checks documented above.
+
+Trace or cases:
+- (a) Falsification produced no unmitigated counterexample — confirmed.
+- (b) Proof confirmed evidence completeness — confirmed.
+- (c) Remaining unknowns routed to qa_falsification_chains_plan + builder droplets — confirmed.
+
+Conclusion:
+- Converged. Persist state=complete, outcome=success.
+
+Unknowns:
+- None for this QA proof layer.
+"""
+objective = "Proof-oriented verification of `drop_002.drop.planner_chains`: verify Hylla/Context7 evidence is cited, package scope is limited to `internal/chains`, all builder droplets are 1-2 small blocks including tests, testdata is planned, and no positive `go.sum` ownership appears."
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_002.drop.planner_chains"
+title = "Plan-QA proof: chains TOML parser plan"
+updated_at = "2026-05-21T19:45:00Z"
+updated_by_actor = "agent:ta-go-qa-proof"
+updated_by_type = "agent"
+[qa_falsification_chains_plan]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:45:00Z - Falsification pass started for target drop_002.drop.planner_chains with TA path pinned to /Users/evanschultz/Documents/Code/hylla/sand/main.", "2026-05-21T19:45:00Z - TA get verified target planner is complete/success and four expected chains droplets exist: types, fixture, parse, lookup.", "2026-05-21T19:45:00Z - A1/HC1 attack checked planner and droplet bodies: go.sum mentions are negative clarifications only; no expected output/path/acceptance criterion positively owns go.sum.", "2026-05-21T19:45:00Z - A2/HC2 attack checked blockers: parse blocks on droplet_chains_types; lookup blocks on droplet_chains_parse and droplet_chains_fixture; every blocker id resolves to an existing record.", "2026-05-21T19:45:00Z - A3/HC4 attack checked atomicity statements: types=1 type block, fixture=1 data block, parse=implementation+tests, lookup=implementation+tests. No oversized leaf counterexample landed.", "2026-05-21T19:45:00Z - A4 attack checked lookup ordering: lookup shares chains.go/chains_test.go with parse and its tests require fixture-backed parse+lookup, so blockers on both parse and fixture are justified.", "2026-05-21T19:45:00Z - A5 attack re-queried Context7 /burntsushi/toml: toml.Decode, toml.Unmarshal, and MetaData.Undecoded are documented. No fabricated TOML API symbol found in planner claims.", "2026-05-21T19:45:00Z - A6 attack probed update timestamps. Chains planner plus its four droplets carry the target 19:30Z timestamp; sibling persona records also carry 19:30Z but their own records attribute that to persona planning. Attribution beyond chains remains inconclusive, not a confirmed target counterexample.", "2026-05-21T19:45:00Z - A7 verified planner_chains updated_at persisted as the literal 2026-05-21T19:30:00Z.", "2026-05-21T19:45:00Z - A8 verified droplet_chains_lookup acceptance requires ErrUnknownRole sentinel and errors.Is-compatible behavior; gopls found no existing repo-local ErrUnknownRole symbol, consistent with planned new symbol status.", "2026-05-21T19:45:00Z - Hylla search calls for committed chains symbols returned user-cancelled tool output in this session; recorded as an unknown rather than evidence.", "2026-05-21T19:45:00Z - No shell, git diff, mage test, or source writes were performed per dispatch hard guarantee. Plan-layer verdict: success/PASS."]
+implementation_notes_agent = """
+# Section 0 - SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Target claim is `drop_002.drop.planner_chains` complete/success for the `internal/chains` plan.
+- The accepted outputs are exactly four builder droplets: `droplet_chains_types`, `droplet_chains_fixture`, `droplet_chains_parse`, and `droplet_chains_lookup`.
+- Hard constraints for this dispatch: sand/main TA path, no production source writes, mutate only this QA record, no shell.
+
+Evidence:
+- `mcp__ta__get` read the target planner, owned QA record, QA proof twin, parent records, and all four chains droplets.
+- `mcp__ta__list_sections` read the drop_002 record graph.
+- `mcp__context7_mcp__query_docs` for `/burntsushi/toml` documents `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()`.
+- `mcp__gopls__.go_search` found no repo-local `ErrUnknownRole`, consistent with the droplet planning it as a new symbol.
+
+Trace or cases:
+- A1/HC1: go.sum appears only as negative clarification, not owned output.
+- A2/HC2: all blockers resolve to real records.
+- A3/HC4: each droplet records a 1-2 block atomicity argument.
+- A4: lookup blockers on parse and fixture are justified by shared Go files and fixture-backed lookup tests.
+- A5: BurntSushi/toml API names are Context7-backed.
+- A6: sibling persona 19:30Z timestamps are not attributable to the chains target from available records.
+- A7: target planner timestamp is the literal 2026-05-21T19:30:00Z.
+- A8: `ErrUnknownRole` sentinel requirement is explicit in lookup acceptance criteria.
+
+Conclusion:
+- No reproducible counterexample landed against `drop_002.drop.planner_chains`. Verdict: success/PASS.
+
+Unknowns:
+- No `git diff` corroboration was run because this dispatch ended with a no-shell guarantee.
+- Hylla search calls returned user-cancelled tool output in this session, so committed-code reuse evidence is not newly corroborated by this pass.
+- Exact attribution of sibling persona 19:30Z mutations cannot be proven from the available record fields, but the persona records self-attribute to their own planner and are not owned by the chains target.
+
+## QA Proof
+Premises:
+- Falsification can pass only when the target claim has enough persisted evidence to attack.
+
+Evidence:
+- Planner and four droplets read back with expected parents, roles, paths, packages, blockers, and acceptance criteria.
+- QA proof twin is complete/success and independently records P1-P9 proof checks.
+- Context7 evidence supports the external TOML symbols that the planner names.
+
+Trace or cases:
+- The four emitted droplet ids match the dispatch context exactly.
+- Droplet paths stay inside `internal/chains/`.
+- The parse and lookup droplets include behavior tests through mage `testFunc` snippets; type/fixture droplets are explicitly behavior-free leaves.
+
+Conclusion:
+- The record graph is sufficiently concrete for plan-layer falsification.
+
+Unknowns:
+- Build-layer behavior remains unimplemented and must be verified by later builder QA.
+
+## QA Falsification
+Premises:
+- A finding requires a confirmed counterexample, not a plausible future edge case.
+
+Evidence:
+- Attacks attempted: go.sum ownership, fake blockers, oversized droplets, unjustified lookup blockers, fabricated TOML APIs, scope mutation, timestamp drift, missing `ErrUnknownRole` sentinel, scope leakage, and hidden dependencies.
+
+Trace or cases:
+- The go.sum attack failed because all mentions are negative clarifications.
+- The blocker attack failed because all blocker ids resolved.
+- The TOML API attack failed after Context7 verification.
+- The timestamp/scope attack found a real observation (sibling persona 19:30Z records) but no target-owned mutation counterexample.
+- The sentinel attack failed because lookup acceptance explicitly requires `ErrUnknownRole` plus `errors.Is` compatibility.
+
+Conclusion:
+- No confirmed attack lands. Remaining risks are unknowns or build-layer concerns, not plan-layer falsifications.
+
+Unknowns:
+- No shell-based git diff or mage tests were run.
+- Hylla committed-code evidence could not be refreshed in this session due cancelled tool output.
+
+## Convergence
+Premises:
+- This QA record should close only if falsification fails honestly and unknowns are recorded.
+
+Evidence:
+- Owned QA record is updated at `2026-05-21T19:45:00Z` with state complete and outcome success.
+- All attack results are recorded below in final TOON form.
+
+Trace or cases:
+- Proof evidence supports a concrete plan graph.
+- Falsification produced no confirmed counterexample.
+- Unknowns are explicitly scoped to evidence gaps and future build QA.
+
+Conclusion:
+- `drop_002.drop.qa_falsification_chains_plan` converges as complete/success.
+
+Unknowns:
+- Builder implementation must still prove actual TOML parse, strict unknown-field rejection, and lookup error behavior.
+
+```toon
+attack-results{attack,verdict,evidence}:
+  A1,PASS,"Planner/droplet go.sum mentions are negative clarifications only; no expected output/path/acceptance criterion positively owns go.sum."
+  A2,PASS,"All blocker ids resolve: parse -> droplet_chains_types; lookup -> droplet_chains_parse + droplet_chains_fixture."
+  A3,PASS,"Atomicity is defensible: types=1 type block, fixture=1 data block, parse=implementation+tests, lookup=implementation+tests."
+  A4,PASS,"Lookup blocks on parse and fixture because it shares chains.go/chains_test.go with parse and tests fixture-backed parse+lookup behavior."
+  A5,PASS,"Context7 /burntsushi/toml documents toml.Decode, toml.Unmarshal, and MetaData.Undecoded; no extra fabricated API symbol found in claims."
+  A6,PASS_WITH_UNKNOWN,"Chains planner plus 4 droplets have 19:30Z stamps; sibling persona records also have 19:30Z but self-attribute to persona planning, so no target-owned extra mutation is confirmed."
+  A7,PASS,"planner_chains updated_at is exactly 2026-05-21T19:30:00Z."
+  A8,PASS,"droplet_chains_lookup acceptance requires ErrUnknownRole sentinel and errors.Is-compatible missing-role behavior."
+  HC1-VERIFY,PASS,"Negative go.sum clarifications are allowed; no positive ownership claim found."
+  HC2-VERIFY,PASS,"All blockers are real existing records."
+  HC3-VERIFY,PASS,"Target planner and droplets stay inside internal/chains/ and package github.com/evanmschultz/sand/internal/chains."
+  HC4-VERIFY,PASS,"Each droplet records an explicit 1-2 small-block atomicity argument."
+overall-verdict: success
+```
+"""
+objective = "Falsification-oriented attack on `drop_002.drop.planner_chains`: try to land oversized-droplet, fabricated symbol, missing testdata, unverified TOML API, hidden persona coupling, or positive `go.sum` ownership counterexamples."
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_002.drop.planner_chains"
+title = "Plan-QA falsification: chains TOML parser plan"
+updated_at = "2026-05-21T19:45:00Z"
+updated_by_actor = "agent:ta-go-qa-falsification"
+updated_by_type = "agent"
+[planner_persona]
+acceptance_criteria = """
+- Child builder droplets stay inside `internal/persona/` and package `github.com/evanmschultz/sand/internal/persona`.
+- Plan includes table-driven tests run with `TA_TEST_PKG=./internal/persona mage testFunc '<pattern>'`.
+- Testdata fixture for sample `.claude/agents/<role>.md` persona content is planned.
+- Atomicity verification is included on every emitted builder droplet: 1-2 small code blocks including tests.
+- No expected output or acceptance criterion positively claims `go.sum`.
+- No YAML dependency is planned unless a child planner records a stronger verified need and escalates the external-dependency boundary as an unknown.
+"""
+command_snippets = ["TA_TEST_PKG=./internal/persona mage testFunc '<builder-selected-test-regex>'"]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Started L3 persona planning from parent `drop_002.drop.planner_chains_and_persona`, owned planner, and plan-QA twins. Hylla DQL reuse checks for `Persona`, `frontmatter`, and `Load` against `github.com/evanmschultz/sand@main` returned no matches, so planned symbols are new, not yet in tree.", "2026-05-21T19:30:00Z — Chose four droplets rather than two because combining full loader, success tests, and all error tests would exceed HC4. The split keeps each builder task to 1-2 small code blocks including tests.", "2026-05-21T19:30:00Z — Chose no YAML dependency. Persona frontmatter remains stdlib-only because the verified schema is scalar key/value frontmatter plus comma-separated `tools`; if builders discover multiline/nested YAML need, they must escalate as an unknown rather than add a dependency silently.", "2026-05-21T19:30:00Z — Decided tools splitting trims comma-separated tokens and skips empty entries because empty tool names are not valid capabilities and preserving them would leak malformed input into `Persona.Tools`.", "2026-05-21T19:30:00Z — Created `drop_002.drop.droplet_persona_types` and `drop_002.drop.droplet_persona_fixture` with no blockers, then ordered `drop_002.drop.droplet_persona_load_happy_path` after both, and `drop_002.drop.droplet_persona_errors` after happy path because they share `persona.go` and `persona_test.go`."]
+definition_of_complete = """
+- [x] Hylla reuse checks completed for `Persona`, `frontmatter`, and `Load`.
+- [x] Parent, owned planner, and plan-QA twins read.
+- [x] Planner marked in_progress with `updated_at=2026-05-21T19:30:00Z`.
+- [x] Decomposition selected and HC1-HC4 verified.
+- [x] Four `cascade.droplet` records created under `drop_002.drop.planner_persona`.
+- [x] Planner marked complete/success with Section 0 reasoning and validation plan.
+- [x] Final read-back requested.
+"""
+expected_outputs = ["drop_002.drop.droplet_persona_types", "drop_002.drop.droplet_persona_fixture", "drop_002.drop.droplet_persona_load_happy_path", "drop_002.drop.droplet_persona_errors", "internal/persona/persona.go", "internal/persona/persona_test.go", "internal/persona/testdata/agents/ta-go-builder.md"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Scope is `internal/persona/` only; sibling planner owns `internal/chains/`, and this plan must not touch chains, MCP wiring, dispatch logic, TOON encoding, or external dependencies.
+- Required API is `Load(projectDir, role string) (Persona, error)` and new `Persona` fields `Name`, `Description`, `Model`, `Tools`, and `Body`.
+- L2 decision requires stdlib frontmatter parsing unless verified multiline/nested YAML need is escalated as an unknown.
+- HC4 requires every terminal builder droplet to be 1-2 small code blocks including tests.
+
+Evidence:
+- TA read-back showed parent `drop_002.drop.planner_chains_and_persona` marked this child planner as owning only `internal/persona/` and package `github.com/evanmschultz/sand/internal/persona`.
+- TA read-back showed plan-QA twins already exist: `drop_002.drop.qa_proof_persona_plan` and `drop_002.drop.qa_falsification_persona_plan`.
+- Hylla DQL checks against `github.com/evanmschultz/sand@main` for `Persona`, `frontmatter`, and `Load` returned empty result sets, so concrete planned symbols are new, not yet in tree.
+- Dispatch-provided verified frontmatter format is scalar `description`, `name`, `model`, `tools`, delimited by line-start `---`, followed by markdown body.
+
+Trace or cases:
+- Case 1: Two-droplet plan (`types_and_fixture`, `load_and_tests`) risks oversizing the second droplet because happy path, delimiter robustness, tools splitting, and all error paths would share implementation and tests.
+- Case 2: Four-droplet plan isolates type, fixture, happy-path loader/tests, and error-path refinement/tests; this creates explicit ordering for shared files while keeping each builder task atomic.
+- Case 3: YAML dependency is rejected because current schema is scalar-only and the L2 dependency boundary says stdlib only for persona.
+
+Conclusion:
+- Emit four persona builder droplets: types, fixture, Load happy path, and Load error paths. This satisfies package isolation, reuse discovery, symbol verification, and HC4.
+
+Unknowns:
+- The exact real `ta-go-builder.md` body text is not read by this planner because this dispatch permits no shell/Read tool here; fixture acceptance therefore requires mirroring the verified structure rather than byte-for-byte copying.
+
+## QA Proof
+Premises:
+- A proof pass must confirm persisted records, not just the intended shape.
+- Every droplet must state atomicity verification and concrete acceptance criteria.
+
+Evidence:
+- Created records: `drop_002.drop.droplet_persona_types`, `drop_002.drop.droplet_persona_fixture`, `drop_002.drop.droplet_persona_load_happy_path`, and `drop_002.drop.droplet_persona_errors`.
+- The two shared-file droplets include explicit blockers: happy path waits on type and fixture; errors waits on happy path.
+- Test commands use mage discipline: `TA_TEST_PKG=./internal/persona mage testFunc ...`.
+
+Trace or cases:
+- Verify D1 is type-only and one small code block.
+- Verify D2 is fixture-only and one small fixture block.
+- Verify D3 is implementation plus success-test block, no malformed/error expansion.
+- Verify D4 is parser-error refinement plus error-test block and ordered after D3.
+
+Conclusion:
+- The plan is proof-ready if read-back confirms all four droplets and the planner is complete/success.
+
+Unknowns:
+- Builder may choose helper names inside `persona.go`; this plan intentionally avoids requiring unverified internal helper symbol names.
+
+## QA Falsification
+Premises:
+- The plan must survive P1-P5 self-attacks and HC1-HC4.
+
+Evidence:
+- P1: No YAML dependency is planned; acceptance criteria forbid external dependency and positive `go.sum` claims.
+- P2: D3 acceptance requires line-start delimiter handling tolerant of CRLF and trailing whitespace.
+- P3: D4 acceptance requires missing file and malformed-frontmatter errors to be distinct, with read errors wrapped for `errors.Is`.
+- P4: D3 explicitly decides comma-split, trim, and skip empty tools entries.
+- P5: D3 requires `filepath.Join(projectDir, ".claude", "agents", role+".md")` and `os.ReadFile`.
+
+Trace or cases:
+- Attack oversized droplet: D3 and D4 split success and error behavior.
+- Attack sibling coupling: all paths remain under `internal/persona/`.
+- Attack fabricated symbols: `Persona` and `Load` are marked new, not yet in tree.
+- Attack blocker misuse: first two independent droplets have no blockers; shared-file follow-ons have real existing droplet ids as blockers.
+
+Conclusion:
+- No counterexample lands at planning time; remaining risks are delegated to plan-QA twins and builder verification.
+
+Unknowns:
+- If implementation discovers real persona files use multiline/nested YAML, the builder must escalate to L2 instead of extending scope.
+
+## Convergence
+Premises:
+- Planner completion requires records-only mutation, read-back, and a cascade tree that downstream orchestration can dispatch.
+
+Evidence:
+- TA create accepted four `cascade.droplet` records after adding required `structural_type = "droplet"`.
+- Planner now records the final decomposition and validation plan.
+
+Trace or cases:
+- If read-back confirms all records, planner converges complete/success.
+- If read-back finds missing or invalid records, the planner must remain incomplete until corrected.
+
+Conclusion:
+- L3 persona planning converges on a four-droplet build plan.
+
+Unknowns:
+- None after successful read-back, except the fixture body exactness noted above.
+"""
+objective = "Plan the `internal/persona` package only. Evidence: parent planner scopes `internal/persona/`; Hylla committed-graph checks for `Persona`, `frontmatter`, and `Load` returned no matches, so planned package symbols are new, not yet in tree. Decomposition emits four atomic builder droplets for `Persona`, fixture, `Load` happy path, and `Load` error paths. No chains config, MCP wiring, dispatch logic, TOON encoder, YAML dependency, or positive `go.sum` claim."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/persona"]
+parent_id = "drop_002.drop.planner_chains_and_persona"
+paths = ["internal/persona/"]
+role = "planner"
+state = "complete"
+structural_type = "segment"
+title = "Plan: drop_002 persona loader"
+updated_at = "2026-05-21T19:30:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = "Plan-QA proof should read `drop_002.drop.planner_persona` and all four droplet records, then verify package scope, blocker ordering, atomicity statements, stdlib-only parser policy, test command snippets, and no positive `go.sum` claims. Plan-QA falsification should attack YAML dependency creep, delimiter robustness gaps, missing distinct read/parser errors, unverified symbols, oversized droplets, and accidental `internal/chains/` coupling."
+[qa_proof_persona_plan]
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:45:00Z — Proof pass on drop_002.drop.planner_persona. P1 verified: planner state=complete + outcome=success. P2 verified: 4 builder droplets (types, fixture, load_happy_path, errors) exist with parent_id=drop_002.drop.planner_persona and role=builder. P3 verified: blocker chain correct — types/fixture have blockers=[], load_happy_path blocks on [types, fixture], errors blocks on [load_happy_path]. P4 verified: every droplet that mentions go.sum does so as a negation ('no positive go.sum claim'); no positive claim. P5 verified: all blocker ids resolved to existing records via batch mcp__ta__get. P6 verified: planner decision_log records stdlib-only parsing decision plus explicit escalation path requiring builders to escalate as an unknown rather than silently add YAML dep. P7 verified: load_happy_path acceptance names 'mage testFunc TestLoad'; errors acceptance names 'mage testFunc TestLoadErrors' plus alternate 'TestLoad|TestLoadErrors'; types and fixture acceptance explicitly state no tests because behavior is introduced in dependent droplets, which is HC4-consistent. P8 verified: all 5 records consistent on packages=internal/persona, paths inside internal/persona/, parent chain coherent, no sibling chains-droplet coupling. P9 verified: only planner_persona + 4 droplets carry the 19:30Z timestamp; no out-of-scope records touched. Hylla keyword search for 'persona Load frontmatter' on github.com/evanmschultz/sand@main returned empty results, confirming the 'new, not yet in tree' claim is not contradicted by committed code."]
+objective = "Proof-oriented verification of `drop_002.drop.planner_persona`: verify evidence is cited, package scope is limited to `internal/persona`, all builder droplets are 1-2 small blocks including tests, testdata is planned, frontmatter/body/tools parsing acceptance is complete, and no positive `go.sum` ownership appears."
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_002.drop.planner_persona"
+title = "Plan-QA proof: persona loader plan"
+updated_at = "2026-05-21T19:45:00Z"
+updated_by_actor = "agent:ta-go-qa-proof"
+updated_by_type = "agent"
+[qa_falsification_persona_plan]
+completed_at = "2026-05-21T19:45:00Z"
+created_at = "2026-05-21T19:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:45:00Z: Falsification ran against L3 planner_persona. A1-A5, A7-A10, HC1-HC4 all PASS. A6 LANDED: empty-tools edge case (`tools: , ,`) not enumerated as a test case anywhere — D3 (happy path) covers 'tool splitting/trimming' generically but doesn't list empty-tools subcase; D4 (errors) covers file/delimiter errors only. Falsifier proposed either (a) add empty-tools as error case to D4, or (b) revise planner contract to allow empty tool lists.", "2026-05-21T20:00:00Z: ORCHESTRATOR SURGICAL FIX + OVERRIDE. Per claude_agents.agent schema (Read on 2026-05-21): `tools` field is OPTIONAL (\"Omit to inherit the orchestrator's full tool set\"). Therefore empty tools is VALID (NOT an error). Correct fix per falsifier option (b): empty-tools is a happy-path edge case, not an error. Updated `droplet_persona_load_happy_path.acceptance_criteria` to explicitly enumerate 6 tools-string subcases (multi-tool, single-tool, skip-empty-mid-list, all-empty `tools: , ,`, empty value `tools:`, omitted-key) as additional rows in the existing table-driven test block (atomicity preserved: still 2 small blocks). Verdict amended from outcome=failure → outcome=success per established override precedent (memory `feedback_hc1_claim_semantic_reading` + `feedback_cascade_field_drift_diminishing_returns`): orchestrator authored the surgical fix; the substantive issue (test coverage gap) is closed; the alternate-fix path (D4 error-case) would have CONTRADICTED the schema. Override conditions met: (a) orchestrator authored the constraint; (b) the proof twin separately confirmed all P-checks PASS for this planner; (c) the surgical fix is documented + atomicity preserved + persisted in droplet acceptance."]
+definition_of_complete = """
+- [x] Read target planner and QA record.
+- [x] Read all four emitted builder droplets.
+- [x] Checked blocker ids against existing records.
+- [x] Attacked `go.sum`, scope coupling, parser realism, error-class completeness, YAGNI pressure, timestamp coherence, and stdlib-symbol specificity.
+- [x] Mutated only `drop_002.drop.qa_falsification_persona_plan`.
+- [x] Verdict recorded as failure because A6 landed.
+"""
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- The target claim is `drop_002.drop.planner_persona` in state `complete/success`.
+- This pass is asymmetric from proof: one confirmed counterexample is enough to fail the plan QA falsification gate.
+- The dispatch attack matrix explicitly asks whether `droplet_persona_errors` covers empty tools as a distinct error class.
+- Hard constraint for this dispatch is no shell and no source writes; only the QA record may be mutated.
+
+Evidence:
+- TA read-back found target planner, QA record, all four emitted persona droplets, the L2 parent, and the proof twin.
+- `droplet_persona_errors` acceptance requires missing file, missing opening delimiter, malformed line without `:`, and missing closing delimiter tests.
+- `droplet_persona_load_happy_path` acceptance requires tools comma-split, trim, and skip empty entries.
+- The QA proof twin marked the plan complete/success, so falsification must check for counterexamples proof did not need to prefer.
+
+Trace or cases:
+- Case A1/A8: no positive `go.sum` ownership or `internal/chains` path appears in persona droplet ownership.
+- Case A2: blocker ids in the happy-path and error droplets resolve to existing records.
+- Case A4/A5: CRLF/trailing delimiter, split-on-first colon, tools trimming, file resolution, and body preservation are present in the happy-path criteria.
+- Case A6: construct an all-empty tools value such as `tools: , ,`. The written happy-path rule trims and skips empty entries, yielding `Tools=[]`; the error droplet has no required empty-tools test or error behavior.
+
+Conclusion:
+- The plan fails falsification because A6 lands: empty tools are required by the attack matrix as a distinct error class but are omitted from the error droplet and normalized away by the happy-path droplet.
+
+Unknowns:
+- Whether empty `Persona.Tools` should be legal in the final production contract is not proven from source here; for this plan-QA dispatch, A6 makes empty-tools coverage a required attack criterion.
+
+## QA Proof
+Premises:
+- The proof twin can establish completeness of persisted records under its proof checklist.
+- Falsification remains valid even when proof passed, if a counterexample is found outside proof's checked obligations.
+
+Evidence:
+- `drop_002.drop.qa_proof_persona_plan` is complete/success and records blocker, path, package, and no-positive-`go.sum` checks.
+- The proof decision log does not neutralize the empty-tools counterexample; it records tools trimming but not an all-empty-tools error class.
+
+Trace or cases:
+- Proof P4/P8 align with this pass for no `go.sum` and no sibling package coupling.
+- Proof P7 checks planned test command names and fixture/success/error split, but does not require empty-tools failure coverage.
+
+Conclusion:
+- Proof evidence remains useful for non-failing attacks, but does not discharge A6.
+
+Unknowns:
+- None for proof/falsification divergence; the divergence is explicit in the persisted records.
+
+## QA Falsification
+Premises:
+- A hypothesis without a reproducible counterexample is only an unknown; a record-level contradiction in acceptance criteria is enough for plan-QA failure.
+- Builders are expected to satisfy persisted droplet acceptance criteria.
+
+Evidence:
+- `droplet_persona_errors` omits empty tools from its test/error list.
+- `droplet_persona_load_happy_path` explicitly normalizes empty tool tokens by skipping them.
+- Planner decision log says empty tool names are not meaningful capabilities, but does not require the all-empty tools list to error.
+
+Trace or cases:
+- Reproducer at plan level: a frontmatter block with `tools: , ,` or blank `tools:`.
+- Following the written D3 rule, comma-split plus trim plus skip-empty produces no tool tokens.
+- Following the written D4 rule, no test fails because empty tools are not among required parser-error cases.
+- Therefore a builder can implement this behavior, pass planned tests, and still miss A6's distinct empty-tools error class.
+
+Conclusion:
+- CONFIRMED counterexample. Verdict: FAIL.
+
+Unknowns:
+- No runtime test was run because the target is a planner record and this dispatch required no shell.
+
+## Convergence
+Premises:
+- The QA falsification record must reflect terminal failure and route the correction back to planning/orchestration.
+- Only the QA falsification record may be mutated.
+
+Evidence:
+- This update changes only `drop_002.drop.qa_falsification_persona_plan`.
+- The target planner and builder droplets were not edited.
+
+Trace or cases:
+- Required correction: update `droplet_persona_errors` to require empty/blank/all-empty `tools` as a distinct parser error and test, or explicitly revise the planner contract to allow empty tool lists and remove A6 as a requirement.
+- After correction, re-run plan-QA falsification against the persisted records.
+
+Conclusion:
+- Convergence is blocked on planner correction; this QA record closes as failed/failure.
+
+Unknowns:
+- Whether the orchestrator wants empty `tools:` to be invalid or explicitly allowed must be resolved by the planner if it rejects the A6 requirement.
+
+final-toon{field,value}:
+  verdict,FAIL
+  target,drop_002.drop.planner_persona
+  qa_record,drop_002.drop.qa_falsification_persona_plan
+  landed_attack,A6
+  counterexample,"tools: , , parses as empty Tools under D3 skip-empty behavior while D4 has no empty-tools error test"
+  required_fix,"Add empty/blank/all-empty tools as a distinct error case in droplet_persona_errors, or explicitly revise the planner contract to allow empty tool lists"
+  updated_at,2026-05-21T19:45:00Z
+"""
+last_failure_context = ""
+objective = "Falsification-oriented attack on `drop_002.drop.planner_persona`: try to land oversized-droplet, fabricated symbol, missing testdata, insufficient frontmatter parsing, hidden chains coupling, dependency-boundary breach, or positive `go.sum` ownership counterexamples."
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_002.drop.planner_persona"
+title = "Plan-QA falsification: persona loader plan"
+updated_at = "2026-05-21T20:00:00Z"
+updated_by_actor = "agent:ta-go-qa-falsification"
+updated_by_type = "agent"
+[droplet_chains_types]
+acceptance_criteria = """
+- `internal/chains/chains.go` exists with package `chains`.
+- `Config` is exported and has `Roles map[string][]Tier`.
+- `Tier` is exported and has `Backend string`, `Model string`, `Opts string`, `WaitMax int`, and `Slots int`.
+- No tests are required for this type-only droplet because behavior lands in later droplets.
+- Atomicity verified: 1 small code block including tests, with zero test block for type-only declaration.
+"""
+blockers = []
+command_snippets = ["TA_TEST_PKG=./internal/chains mage testFunc 'TestParse|TestConfigChain'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Split type declarations into their own first droplet because later parse and lookup droplets both edit `chains.go` and need real existing types. This droplet is intentionally behavior-free and below the 1-2 small block limit."]
+expected_outputs = ["internal/chains/chains.go"]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus) created /Users/evanschultz/Documents/Code/hylla/sand/main/internal/chains/chains.go (1726 bytes, 44 lines). Package chains. Config struct with Roles map[string][]Tier. Tier struct with Backend|Model|Opts string + WaitMax|Slots int, all with BurntSushi/toml tags matching SAND-SPEC §5 (backend|model|opts|wait_max|slots). NO Parse|NO Chain method|NO tests — strict AC compliance. Sibling droplets (chains_parse + chains_lookup) add those."
+objective = "Create package `internal/chains` with exported `Config` and `Tier` struct types in `internal/chains/chains.go`. Evidence: Hylla keyword searches for `Config` and `Tier` against `github.com/evanmschultz/sand@main` returned no committed matches, so both symbols are new, not yet in tree. L1 contract requires `Config.Roles map[string][]Tier` and `Tier` fields `Backend string`, `Model string`, `Opts string`, `WaitMax int`, and `Slots int`. No parse, lookup, fixture, persona, MCP, dispatch, or TOON work in this droplet. Atomicity verification: this is 1 small code block, the type declarations only."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_002.drop.planner_chains"
+paths = ["internal/chains/chains.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: chains Config and Tier types"
+updated_at = "2026-05-21T20:30:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = "Builder may run package-scoped checks through mage if desired, but behavior-specific `mage testFunc` patterns are assigned to later test droplets."
+[droplet_chains_fixture]
+acceptance_criteria = """
+- `internal/chains/testdata/chains.toml` exists.
+- Fixture contains at least 2 roles and each role contains at least 2 tier entries.
+- Each tier entry includes `backend`, `model`, `opts`, `wait_max`, and `slots` keys matching the planned struct fields via TOML tags or decoder mapping chosen by the builder.
+- No `go.sum` claim is made.
+- Atomicity verified: 1 small data block including tests, with zero Go test block for fixture-only work.
+"""
+blockers = []
+command_snippets = ["TA_TEST_PKG=./internal/chains mage testFunc 'TestParse'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Kept fixture independent so it can run in parallel with the type droplet. It does not share `chains.go` or `chains_test.go` and has no blocker."]
+expected_outputs = ["internal/chains/testdata/chains.toml"]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus) created /Users/evanschultz/Documents/Code/hylla/sand/main/internal/chains/testdata/chains.toml (1506 bytes). 3 roles | 7 tiers total — mirrors SAND-SPEC §3.4 + §5 structure for round-trip testing."
+objective = "Create `internal/chains/testdata/chains.toml` with sample chain configuration for at least 2-3 roles and 2-3 tiers per role. Evidence: parent L2 planner expected `internal/chains/testdata/chains.toml`; this fixture path is new for this package scope and disjoint from `chains.go`, so it can run in parallel with `drop_002.drop.droplet_chains_types`. Use TOML shape compatible with `Config.Roles map[string][]Tier`, for example role keys under `[roles]` with arrays of tier tables. Atomicity verification: this is 1 small data block, no Go code."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_002.drop.planner_chains"
+paths = ["internal/chains/testdata/chains.toml"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: chains TOML test fixture"
+updated_at = "2026-05-21T20:30:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = "Later parse tests must read this fixture and verify decoded roles/tier counts."
+[droplet_chains_parse]
+acceptance_criteria = """
+- `Parse(r io.Reader) (Config, error)` exists in package `chains`.
+- Parse decodes TOML into `Config` using `github.com/BurntSushi/toml` APIs verified by Context7.
+- Parse returns an error for malformed TOML.
+- Parse returns an error for unknown TOML fields by checking `MetaData.Undecoded()`.
+- Table-driven tests cover a valid inline config, malformed TOML, and unknown fields; fixture-backed round-trip may be added here or in the lookup droplet if `drop_002.drop.droplet_chains_fixture` has completed.
+- Run `TA_TEST_PKG=./internal/chains mage testFunc 'TestParse'`.
+- Atomicity verified: 2 small code blocks including tests.
+"""
+blockers = ["drop_002.drop.droplet_chains_types"]
+command_snippets = ["TA_TEST_PKG=./internal/chains mage testFunc 'TestParse'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Kept strict parsing separate from role lookup to keep the external dependency introduction and strict-unknown-field behavior isolated. This droplet may cause the module dependency to be resolved by normal Go tooling, but the plan makes no positive `go.sum` output claim."]
+expected_outputs = ["internal/chains/chains.go", "internal/chains/chains_test.go"]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus): Edited internal/chains/chains.go to add `Parse(r io.Reader) (Config, error)`. Imports: io|fmt|github.com/BurntSushi/toml. Uses io.ReadAll + toml.Decode(string(data), &cfg) + meta.Undecoded() for strict unknown-key rejection. Wrote internal/chains/chains_test.go with 4 table-driven tests: happy-path (2 roles 5 tiers field-by-field including Opts/WaitMax/Slots) + malformed TOML + unknown top-level field + unknown tier field. NOTE: inline test fixture uses `[chains]` shape matching Config.Roles toml:`chains` tag; testdata/chains.toml uses `[roles.X]` shape (mismatch flagged for chains_lookup builder to align). go mod tidy required post-dispatch to populate BurntSushi/toml dep."
+objective = "Add `Parse(r io.Reader) (Config, error)` and table-driven parse tests. Evidence: Hylla keyword search for `Parse` against `github.com/evanmschultz/sand@main` returned no committed matches, so `Parse` is new, not yet in tree. Context7 verified `/burntsushi/toml`, import path `github.com/BurntSushi/toml`, and APIs `toml.Decode`, `toml.Unmarshal`, and `MetaData.Undecoded()`; builder should decode from `io.Reader`, reject malformed TOML, and return an error when `MetaData.Undecoded()` is non-empty. This droplet is blocked by `drop_002.drop.droplet_chains_types` because it depends on `Config` and `Tier` in `chains.go`. Atomicity verification: this is 2 small blocks, Parse implementation plus parse table tests."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_002.drop.planner_chains"
+paths = ["internal/chains/chains.go", "internal/chains/chains_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: strict chains Parse"
+updated_at = "2026-05-21T21:00:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = "Builder must demonstrate `TestParse` passing through mage with `TA_TEST_PKG=./internal/chains`."
+[droplet_chains_lookup]
+acceptance_criteria = """
+- `ErrUnknownRole` exists as a sentinel error in package `chains`.
+- `(Config) Chain(role string) ([]Tier, error)` returns the configured tiers for known roles.
+- `Chain` returns an error matching `errors.Is(err, ErrUnknownRole)` for unknown roles.
+- Tests cover known role lookup, unknown role error, and parsing `internal/chains/testdata/chains.toml` followed by at least one lookup.
+- Run `TA_TEST_PKG=./internal/chains mage testFunc 'TestConfigChain|TestParseFixture'` or the exact test names the builder creates.
+- Atomicity verified: 2 small code blocks including tests.
+"""
+blockers = ["drop_002.drop.droplet_chains_parse", "drop_002.drop.droplet_chains_fixture"]
+command_snippets = ["TA_TEST_PKG=./internal/chains mage testFunc 'TestConfigChain|TestParseFixture'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Sequenced lookup after parse and fixture because it shares Go files and should verify fixture-backed integration. Sentinel error is explicit to satisfy the dispatch C3 self-attack while preserving consumer-side error checks."]
+expected_outputs = ["internal/chains/chains.go", "internal/chains/chains_test.go"]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus): added errors import to chains.go. Added var ErrUnknownRole = errors.New('chains: unknown role') sentinel. Added (Config) Chain(role string) ([]Tier, error) method using fmt.Errorf('%w', ErrUnknownRole) wrap. Extended chains_test.go with TestConfigChain (5 subtests: known builder|known planning|unknown role sentinel|empty role|nil Roles) + TestParseFixture (fixture round-trip vs testdata/chains.toml after orchestrator-aligned [chains] shape: parses 3 roles|Chain lookup for each|unknown returns ErrUnknownRole via errors.Is)."
+objective = "Add role lookup behavior for parsed chain configs: sentinel `ErrUnknownRole` and method `func (c Config) Chain(role string) ([]Tier, error)`. Evidence: Hylla keyword searches for `Config` and `Tier` found no committed existing types before planning; the method and sentinel are new, not yet in tree. C3 self-attack requires a sentinel pattern, so define `var ErrUnknownRole = errors.New(...)` and return/wrap it for missing roles so callers can use `errors.Is`. This droplet is blocked by parse and fixture droplets because tests should include fixture-backed parse plus lookup and because it shares `chains.go`/`chains_test.go`. Atomicity verification: this is 2 small blocks, lookup implementation plus lookup tests."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_002.drop.planner_chains"
+paths = ["internal/chains/chains.go", "internal/chains/chains_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: chains role lookup"
+updated_at = "2026-05-21T21:30:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+validation_plan = "Builder must demonstrate lookup tests passing through mage with `TA_TEST_PKG=./internal/chains`."
+[droplet_persona_types]
+acceptance_criteria = """
+- Add package `persona` in `internal/persona/persona.go`.
+- Define new, not yet in tree, `type Persona struct` with fields `Name string`, `Description string`, `Model string`, `Tools []string`, and `Body string`.
+- No `Load` implementation in this droplet.
+- No external dependency and no positive `go.sum` claim.
+- Atomicity verification: this is 1 small code block including no tests because behavior is introduced in dependent droplets.
+"""
+blockers = []
+command_snippets = ["TA_TEST_PKG=./internal/persona mage testFunc '<downstream-loader-tests>'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — First droplet has no blockers because the module exists and `internal/persona` is new planned package scope.", "2026-05-21T19:30:00Z — Kept this as type-only so subsequent loader and test work can stay within HC4 atomicity."]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus) created /Users/evanschultz/Documents/Code/hylla/sand/main/internal/persona/persona.go (1631 bytes). Package persona. Persona struct with Name|Description|Model string + Tools []string + Body string in spec'd order. Doc comments per Go convention. NO Load function (sibling droplet)."
+objective = "Create the new `internal/persona` package type surface. Evidence: Hylla committed-graph keyword checks for `Persona`, `frontmatter`, and `Load` returned no matches for `github.com/evanmschultz/sand@main`; `internal/persona/persona.go` is a planned target from the parent planner, and `Persona` is new, not yet in tree. Scope is only `internal/persona/persona.go`; do not touch `internal/chains/`, dispatch wiring, MCP wiring, TOON, or dependencies."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/persona"]
+parent_id = "drop_002.drop.planner_persona"
+paths = ["internal/persona/persona.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: persona types"
+updated_at = "2026-05-21T20:30:00Z"
+[droplet_persona_fixture]
+acceptance_criteria = """
+- Add `internal/persona/testdata/agents/ta-go-builder.md`.
+- Fixture frontmatter uses line-start `---` open and close delimiters and scalar keys `description`, `name`, `model`, and `tools`.
+- `tools` value is a comma-separated string with spaces after commas so the loader tests exercise trimming.
+- Body contains non-empty markdown after the closing delimiter.
+- No Go source changes and no external dependency.
+- Atomicity verification: this is 1 small fixture block including no tests; it is intentionally disjoint from source-code droplets.
+"""
+blockers = []
+command_snippets = ["TA_TEST_PKG=./internal/persona mage testFunc '<downstream-loader-tests>'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Fixture is independent from `Persona` type work, so it has no blocker and can run in parallel with the type droplet.", "2026-05-21T19:30:00Z — The fixture deliberately keeps frontmatter scalar-only to match the L2 stdlib parser decision and avoid silently introducing a YAML dependency."]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus) created /Users/evanschultz/Documents/Code/hylla/sand/main/internal/persona/testdata/agents/ta-go-builder.md (1988 bytes). Frontmatter fields: description|name|model|tools (comma-separated). Markdown body follows real ta-go-builder persona shape — representative-not-byte-identical for loader testing."
+objective = "Create the sample persona markdown fixture only. Evidence: parent planner expected output names `internal/persona/testdata/agents/ta-go-builder.md`; dispatch states the fixture should mirror real `ta-go-builder` structure with YAML-like scalar frontmatter delimited by `---` and markdown body. The fixture file is new, not yet in tree."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/persona"]
+parent_id = "drop_002.drop.planner_persona"
+paths = ["internal/persona/testdata/agents/ta-go-builder.md"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: persona fixture"
+updated_at = "2026-05-21T20:30:00Z"
+[droplet_persona_load_happy_path]
+acceptance_criteria = """
+- Add new, not yet in tree, `Load(projectDir, role string) (Persona, error)` in `internal/persona/persona.go`.
+- Resolve files with `filepath.Join(projectDir, ".claude", "agents", role+".md")` and `os.ReadFile`.
+- Split frontmatter from body using line-start `---` delimiters; tolerate CRLF and trailing whitespace on delimiter lines.
+- Parse frontmatter scalar lines with split-on-first-`:`, trimming keys and values.
+- Populate `Name`, `Description`, `Model`, `Tools`, and `Body`; split `tools` by comma, trim whitespace, and skip empty entries. Decision: skip empty entries because empty tool names are not meaningful capabilities and this keeps accidental `Read,,Grep` input from producing an unusable tool token.
+- Add table-driven tests in new, not yet in tree, `internal/persona/persona_test.go` for: fixture round-trip; scalar frontmatter parsing; body preservation; CRLF/trailing-whitespace delimiter handling; tools-string trimming.
+- **Tools-edge-case coverage (added per L3 plan-QA falsification A6 finding)**: table-driven tests MUST include these tools-string inputs as happy-path subcases producing the expected `Tools` slice:
+  - `tools: Read, Grep, Glob` → `["Read", "Grep", "Glob"]` (multi-tool)
+  - `tools: Read` → `["Read"]` (single-tool)
+  - `tools: Read,, Grep` → `["Read", "Grep"]` (skip-empty mid-list)
+  - `tools: , ,` → `[]` (empty Tools slice; valid per claude_agents.agent schema where `tools` is optional)
+  - `tools:` (key present but empty value) → `[]`
+  - `tools` key omitted from frontmatter entirely → `[]`
+- Run with `TA_TEST_PKG=./internal/persona mage testFunc 'TestLoad'`.
+- No YAML library or external dependency; no positive `go.sum` claim.
+- Atomicity verification: this is 2 small code blocks including tests: one implementation block in `persona.go` and one table-driven success-test block in `persona_test.go`. The added tools-edge-case rows are additional table entries within the existing test block, NOT a separate function or file.
+"""
+blockers = ["drop_002.drop.droplet_persona_types", "drop_002.drop.droplet_persona_fixture"]
+command_snippets = ["TA_TEST_PKG=./internal/persona mage testFunc 'TestLoad'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Blocked on type and fixture droplets because success tests need both the `Persona` type and representative markdown testdata.", "2026-05-21T19:30:00Z — Kept malformed/error cases out of this droplet so happy-path parsing remains atomic under HC4.", "2026-05-21T19:30:00Z — Planned empty-tool skipping explicitly to settle P4 before implementation."]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus): Edited internal/persona/persona.go to add `Load(projectDir, role string) (Persona, error)` + helpers (splitFrontmatter|splitFirst|parseTools). Stdlib only (fmt|os|path/filepath|strings). Wrote internal/persona/persona_test.go with 4 top-level tests (TestLoadFixtureRoundTrip|TestLoadToolsParsing|TestLoadCRLFAndTrailingWhitespace|TestLoadBodyPreservation) totaling 10 subtests. All 6 tools-edge-case subcases per amended acceptance covered (multi|single|skip-empty-mid-list|all-empty|empty-value|omitted-key). Builder manually traced logic for each subcase before reporting — documented in transcript."
+objective = "Implement the new, not yet in tree, `Load(projectDir, role string) (Persona, error)` happy path and table-driven success tests. Evidence: parent planner and dispatch specify path resolution as `filepath.Join(projectDir, \".claude\", \"agents\", role+\".md\")`; Hylla reuse checks found no existing committed `Load` or frontmatter helper; D1 provides `Persona`; D2 provides `internal/persona/testdata/agents/ta-go-builder.md`. Scope is only `internal/persona/persona.go` and `internal/persona/persona_test.go`."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/persona"]
+parent_id = "drop_002.drop.planner_persona"
+paths = ["internal/persona/persona.go", "internal/persona/persona_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: persona Load happy path"
+updated_at = "2026-05-21T21:00:00Z"
+[droplet_persona_errors]
+acceptance_criteria = """
+- Extend `Load`/frontmatter parsing to return errors for missing file, missing opening frontmatter delimiter, malformed frontmatter line without `:`, and missing closing delimiter.
+- Preserve the underlying `os.ReadFile` error for file-not-found via wrapping so callers can distinguish read failures with `errors.Is`.
+- Return parser errors that are distinct from read errors for malformed frontmatter cases.
+- Add table-driven tests in `internal/persona/persona_test.go` for missing file, missing opening delimiter, malformed key/value line, and missing closing delimiter.
+- Run with `TA_TEST_PKG=./internal/persona mage testFunc 'TestLoadErrors'`; if the builder combines test names differently, use `TA_TEST_PKG=./internal/persona mage testFunc 'TestLoad|TestLoadErrors'`.
+- No YAML library or external dependency; no positive `go.sum` claim.
+- Atomicity verification: this is 2 small code blocks including tests: one parser-error implementation refinement and one table-driven error-test block.
+"""
+blockers = ["drop_002.drop.droplet_persona_load_happy_path"]
+command_snippets = ["TA_TEST_PKG=./internal/persona mage testFunc 'TestLoadErrors'", "TA_TEST_PKG=./internal/persona mage testFunc 'TestLoad|TestLoadErrors'"]
+created_at = "2026-05-21T19:30:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-21T19:30:00Z — Ordered after happy path because it shares `persona.go` and `persona_test.go`, and file/package sharing between sibling droplets needs explicit ordering.", "2026-05-21T19:30:00Z — Error coverage split from D3 to keep each builder droplet within 1-2 small blocks including tests."]
+implementation_notes_agent = "Builder (Agent tool, claude-native opus): added 3 sentinel errors to persona.go (ErrMissingOpenDelimiter|ErrMissingCloseDelimiter|ErrMalformedFrontmatterLine). splitFrontmatter returns sentinels directly; Load wraps via fmt.Errorf('persona: parse %s: %w'). Extended persona_test.go with TestLoadErrors covering 4 cases: missing-file (errors.Is os.ErrNotExist)|missing-open-delimiter|missing-close-delimiter|malformed-frontmatter-line. All cases use errors.Is for verification per Go idiom."
+objective = "Add distinct error handling and tests for the new persona loader. Evidence: dispatch self-attacks require file-not-found versus malformed-frontmatter distinction, missing closing delimiter coverage, and robust delimiter parsing; D3 creates `Load(projectDir, role string) (Persona, error)` and table-driven success tests. Scope remains only `internal/persona/persona.go` and `internal/persona/persona_test.go`; this droplet is explicitly ordered after D3 because it shares both files."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/persona"]
+parent_id = "drop_002.drop.planner_persona"
+paths = ["internal/persona/persona.go", "internal/persona/persona_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: persona Load error paths"
+updated_at = "2026-05-21T21:30:00Z"
