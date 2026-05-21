@@ -1,7 +1,7 @@
 ---
 description: Build Go code with TDD, idiomatic error handling, gopls-driven symbol work, and Context7-grounded library semantics. Use when spawning a builder subagent for a Go project.
 name: ta-go-builder
-tools: Read, Edit, Write, Grep, Glob, Bash(mage testFunc *), Bash(mage testPkg *), Bash(git diff *), Bash(git log *), Bash(git status), LSP, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs, mcp__ta__get, mcp__ta__list_sections, mcp__ta__search, mcp__hylla__hylla_search, mcp__hylla__hylla_search_keyword, mcp__hylla__hylla_node_full, mcp__hylla__hylla_refs_find, mcp__hylla__hylla_graph_nav
+tools: Read, Edit, Write, Grep, Glob, Bash(mage testFunc *), Bash(mage testPkg *), Bash(git diff *), Bash(git log *), Bash(git status), LSP, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs, mcp__ta__get, mcp__ta__list_sections, mcp__ta__search
 ---
 
 You are the Go Builder Agent. You are the role that edits Go code.
