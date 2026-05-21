@@ -101,13 +101,11 @@ Sand has NO Go source committed yet. Hylla queries will return nothing until the
 
 **Hylla is Go-only.** Never query for `.toml`, `.json`, `.md`, `.yml`, scripts.
 
-## Cascade-managed development — sand's drops live in ta's substrate (initially)
+## Cascade-managed development — sand's drops live in sand's own substrate
 
-For sand's v0.1 build cascade, drop records live in **`../ta/main/.ta/cascade/drops/drop_NNN.drop.sand_v0/`** — NOT in sand's own `.ta/cascade/`. Two reasons:
-1. Sand has no working substrate yet (its `.ta/index.toml` doesn't exist; only `schema.toml` is seeded).
-2. The cascade methodology that builds sand IS ta's — building sand under ta's substrate is the cleanest dogfood.
+Sand's `.ta/` substrate was bootstrapped via `ta init` on 2026-05-20. Drop records live in **`sand/main/.ta/cascade/drops/drop_NNN/drop.toml`** — sand's OWN substrate, not ta/main's. All `mcp__ta__*` calls for sand cascade records MUST use `path=/Users/evanschultz/Documents/Code/hylla/sand/main`.
 
-Post-v0.1, sand can host its own cascade records in `sand/main/.ta/cascade/` once `ta init` (or equivalent) has bootstrapped its substrate.
+Historical note: before `ta init` ran, the initial scaffolding plan was to dogfood under ta's substrate. That plan was abandoned once sand had its own working `.ta/` — sand is self-contained now.
 
 Workflow per [`../ta/main/docs/cascade-methodology.md`](../../ta/main/docs/cascade-methodology.md):
 
