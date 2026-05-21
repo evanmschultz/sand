@@ -174,16 +174,16 @@ updated = 2026-05-21T18:00:02.645442Z
 created = 2026-05-21T04:59:59.032204Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-21T06:29:59.527336Z
+updated = 2026-05-21T18:45:42.623243Z
 
 [ta-go-qa-falsification]
 created = 2026-05-21T04:59:59.05287Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-21T06:29:59.548384Z
+updated = 2026-05-21T18:45:42.645163Z
 
 [ta-go-qa-proof]
 created = 2026-05-21T04:59:59.043108Z
 db_name = 'claude_agents'
 type = 'agent'
-updated = 2026-05-21T06:29:59.538398Z
+updated = 2026-05-21T18:45:42.63434Z
