@@ -38,7 +38,7 @@ import (
 // is a required `role` string.
 func PersonaGetTool(projectDir string) (mcp.Tool, server.ToolHandlerFunc) {
 	tool := mcp.NewTool(
-		"sand.persona_get",
+		"persona_get",
 		mcp.WithDescription("Read and parse a role persona file as TOON (SAND-SPEC §3.3). Wraps internal/persona.Load against the caller project tree."),
 		mcp.WithString(
 			"role",

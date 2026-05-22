@@ -13,10 +13,11 @@ acceptance_criteria = """
 - Test fixtures live under `internal/dispatch/testdata/`. Tests cover: happy path (fake claude CLI stub or table-driven envelope parse), claude-not-on-PATH, role-not-found-in-chain, role-found-but-no-claude-native-tier, JSON envelope malformed, persona load error, mcp.json missing.
 - Unsupported backend (ollama/codex) returns ErrUnsupportedBackend WITHOUT invoking the backend.
 """
+completed_at = "2026-05-22T01:05:00Z"
 created_at = "2026-05-21T22:42:27Z"
 created_by_actor = "user:ev"
 created_by_type = "user"
-decision_log = ["2026-05-21T22:42:27Z: Drop_003 created — L1 root for sand.dispatch against claude-native ONLY. This is the first drop that produces a USABLE sand binary; drops 001-002 were config/skeleton layers. Drop_003 deliberately scopes to ONE backend to keep the L2-L3 decomposition tractable; ollama + codex are drops 004 + 005."]
+decision_log = ["2026-05-21T22:42:27Z: Drop_003 created — L1 root for sand.dispatch against claude-native ONLY. This is the first drop that produces a USABLE sand binary; drops 001-002 were config/skeleton layers. Drop_003 deliberately scopes to ONE backend to keep the L2-L3 decomposition tractable; ollama + codex are drops 004 + 005.", "2026-05-22T01:05:00Z: CLOSEOUT. All 10 builder droplets + 20 build-QA twins state=complete/outcome=success. L2 planner (planner_claude_native_l2) + 3 L3 planners (dispatch_contract_l3 / claude_exec_l3 / mcp_wire_l3) + 8 plan-QA twins state=complete. Source: internal/dispatch/{dispatch.go, mcp_config.go, claude.go, envelope.go, backend.go, tool_dispatch.go} + tests + testdata fixtures. internal/toon/{encoder.go, encoder_test.go}. cmd/sand/main.go updated to register sand.dispatch. Build gate: mage check GREEN. Binary installed to ~/.local/bin/sand (11M) via mage install. Commit ebe9b72c9029fe9a429c914b0ce4f04b297da797 captures source + cascade records. SAND.DISPATCH IS LIVE — callable as mcp__sand__dispatch(role, prompt, ...) from any project that registers sand in its .mcp.json."]
 definition_of_complete = """
 - [ ] internal/dispatch/ package compiles + tests pass
 - [ ] cmd/sand/main.go registers the dispatch tool + mage check green (binary builds)
@@ -29,15 +30,16 @@ definition_of_complete = """
 - [ ] Commit on sand main + push + hylla ingest from remote BEFORE marking drop_003 closed
 """
 drop_number = 3.0
+end_commit = "ebe9b72c9029fe9a429c914b0ce4f04b297da797"
 expected_outputs = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/mcp_config.go (or merged into dispatch.go per planner judgement)", "internal/dispatch/persona_wire.go (or merged)", "internal/dispatch/envelope.go", "internal/dispatch/toon.go (or stdlib encoding inline)", "internal/dispatch/testdata/", "cmd/sand/main.go (updated to register dispatch tool)"]
 labels = ["v0.1", "dispatch", "claude-native", "first-usable-milestone"]
 objective = "Land the first usable sand MCP server feature: the `sand.dispatch` tool wired to the claude-native backend ONLY. After this drop ships, sand can replace claude-native-served roles (qa-proof + closeout + builder) in ta's bash dispatcher, proving the architecture end-to-end before adding the other two backends (drop_004 ollama, drop_005 codex). Per SAND-SPEC §3.1 the tool MUST accept `prompt: string` as an MCP param (NOT a prompt-file path — that pattern is the antipattern memory `handoff_session_2026-05-21` calls out). Per memory `project_sand_mcp_per_project_configurable` sand is workflow-agnostic: it reads the CALLER project's `.mcp.json` to learn the MCP server set and the CALLER's `.claude/agents/<role>.md` for persona content. Sand bundles NO MCP servers, hardcodes NO ta/hylla references. Per memory `feedback_always_verify_tool_calls`, the TOON response MUST include `tools_used[N]{name,count}` and `permission_denials[N]{tool,count}` populated from PARSED EVENTS in the spawned claude CLI's output, NOT from the agent's narrative self-report."
+outcome = "success"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "drop"
 title = "Sand v0.1 — sand.dispatch against claude-native ONLY (first usable milestone)"
-updated_at = "2026-05-21T22:42:27Z"
-
+updated_at = "2026-05-22T01:05:00Z"
 [planner_claude_native_l2]
 acceptance_criteria = """
 - L3 planners cover the dispatch core contract, Claude-native execution/envelope parsing, and MCP command wiring without adding Ollama, Codex, preflight, persona_get, chains_list, log-file polish, or slot-lock behavior.

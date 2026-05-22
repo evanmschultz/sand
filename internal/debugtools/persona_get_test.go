@@ -156,7 +156,7 @@ func writeFixture(t *testing.T, projectDir, role, content string) {
 func callPersonaGet(t *testing.T, handler func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error), role string) *mcp.CallToolResult {
 	t.Helper()
 	req := mcp.CallToolRequest{}
-	req.Params.Name = "sand.persona_get"
+	req.Params.Name = "persona_get"
 	req.Params.Arguments = map[string]any{"role": role}
 
 	res, err := handler(context.Background(), req)

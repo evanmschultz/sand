@@ -7,6 +7,10 @@
     "hylla": {
       "command": "/Users/evanschultz/go/bin/hylla",
       "args": ["mcp"]
+    },
+    "sand": {
+      "command": "sand",
+      "args": ["--project", "/Users/evanschultz/Documents/Code/hylla/sand/main"]
     }
   }
 }

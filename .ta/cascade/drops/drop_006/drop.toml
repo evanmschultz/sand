@@ -9,10 +9,11 @@ acceptance_criteria = """
 - Test fixtures live under each new package's testdata/. Tests cover: persona_get happy + role-not-found + malformed-frontmatter; chains_list happy + file-missing + parse-error; preflight happy (mocked exec.LookPath / fake bin in PATH + mocked HTTP client) + version-flag-unrecognized + backend-not-installed + ollama daemon-down.
 - ZERO new external deps beyond drop_001-002 baseline (stdlib + BurntSushi/toml + mcp-go).
 """
+completed_at = "2026-05-22T01:05:00Z"
 created_at = "2026-05-21T22:42:27Z"
 created_by_actor = "user:ev"
 created_by_type = "user"
-decision_log = ["2026-05-21T22:42:27Z: Drop_006 created — 3 read-only debug/introspection MCP tools (preflight + persona_get + chains_list). Structurally independent of drop_003-005. Can plan + build in PARALLEL with drop_003 since file paths are disjoint.", "2026-05-21T23:10:00Z: ORCHESTRATOR SURGICAL FIX (F6 from drop_006 L2 plan-QA-proof b5b3dpgov) — my original L1 record diverged from SAND-SPEC §3.2 on 3 points: (1) said `role` was optional; spec says required. (2) gave response shape `{role,tier,backend,model,reachable,version_string,blocking_error}`; spec says `tiers[N]{tier,backend,model,ok,reason}`. (3) implied ollama HTTP probe endpoint was loose; spec specifies `GET /api/version`. Fixed all 3 in objective + acceptance_criteria. L2 + L3 records mirror same fix in companion mcp__ta__update calls."]
+decision_log = ["2026-05-21T22:42:27Z: Drop_006 created — 3 read-only debug/introspection MCP tools (preflight + persona_get + chains_list). Structurally independent of drop_003-005.", "2026-05-21T23:10:00Z: ORCHESTRATOR SURGICAL FIX (F6 from drop_006 L2 plan-QA-proof b5b3dpgov) — aligned L1+L2+L3 records to SAND-SPEC §3.2: role required, response {tier,backend,model,ok,reason}, ollama endpoint /api/version.", "2026-05-22T01:05:00Z: CLOSEOUT. All 7 builder droplets + 14 build-QA twins state=complete/outcome=success. L2 planner + 3 L3 planners (planner_persona_get / planner_chains_list / planner_preflight) + 8 plan-QA twins state=complete. Source: internal/debugtools/{persona_get.go, chains_list.go} + tests. internal/preflight/{preflight.go, preflight_tool.go} + tests. cmd/sand/main.go updated to register all 3 debug tools. Build gate: mage check GREEN. Commit ebe9b72c9029fe9a429c914b0ce4f04b297da797 captures source + cascade. sand.persona_get / sand.chains_list / sand.preflight all callable as MCP tools."]
 definition_of_complete = """
 - [ ] internal/preflight/ (or planner-chosen) package compiles + tests pass
 - [ ] persona_get + chains_list tool implementations compile + tests pass
@@ -25,14 +26,16 @@ definition_of_complete = """
 - [ ] Commit + push + hylla ingest BEFORE marking drop_006 closed
 """
 drop_number = 6.0
+end_commit = "ebe9b72c9029fe9a429c914b0ce4f04b297da797"
 expected_outputs = ["internal/preflight/preflight.go (or planner-chosen path)", "internal/preflight/preflight_test.go", "internal/preflight/testdata/", "internal/dispatch/tools/persona_get.go (or planner-chosen path — sibling of dispatch's tool wiring)", "internal/dispatch/tools/persona_get_test.go", "internal/dispatch/tools/chains_list.go", "internal/dispatch/tools/chains_list_test.go", "cmd/sand/main.go (3 additional tool registrations)"]
 labels = ["v0.1", "debug-tools", "preflight", "persona_get", "chains_list", "parallel-with-drop_003"]
 objective = "Land the 3 read-only MCP tools that complete sand's debug/introspection surface per SAND-SPEC §3.2-§3.4. (1) `sand.persona_get(role)` per SAND-SPEC §3.3 — wraps internal/persona.Load + emits Persona{Name, Description, Model, Tools, Body} as TOON. (2) `sand.chains_list()` per SAND-SPEC §3.4 — wraps internal/chains.Parse on the caller's chains.toml + emits Config{Roles: map[role][]Tier} as nested TOON. (3) `sand.preflight(role)` per SAND-SPEC §3.2 — ROLE PARAM IS REQUIRED (not optional). For each tier in the role's chain probes backend reachability: `command -v claude` (claude-native), `command -v codex` (codex-exec), HTTP GET `localhost:11434/api/version` + `ollama list <model>` parse for model presence (ollama-local). Returns TOON tabular array `tiers[N]{tier,backend,model,ok,reason}` per SAND-SPEC §3.2 — fields are `ok` (bool, NOT `reachable`) + `reason` (string, NOT split into version_string + blocking_error). `reason` is empty when ok=true; populated with a short diagnostic when ok=false (e.g. \"ollama daemon unreachable at localhost:11434\", \"codex CLI not on PATH\", \"model qwen2.5-coder:7b not pulled locally\"). DROP_006 IS STRUCTURALLY INDEPENDENT OF DROP_003-005: it uses only drop_002's chains+persona packages plus os/exec for CLI probes + net/http for ollama daemon probe. NO dispatch logic, NO backend-specific MCP injection. Can build/test in PARALLEL with drop_003 since file paths and import graphs are disjoint (`internal/preflight/`, plus persona_get/chains_list tool wiring in dedicated files). Per memory `project_sand_mcp_per_project_configurable` these tools also operate on the CALLER's project tree — no baked-in paths."
+outcome = "success"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "drop"
 title = "Sand v0.1 — sand.preflight + sand.persona_get + sand.chains_list (debug + introspection tools)"
-updated_at = "2026-05-21T23:10:00Z"
+updated_at = "2026-05-22T01:05:00Z"
 [planner_debug_tools]
 acceptance_criteria = """
 - Create exactly three L3 planner records under this L2: `drop_006.drop.planner_persona_get`, `drop_006.drop.planner_chains_list`, and `drop_006.drop.planner_preflight`.

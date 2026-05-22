@@ -36,7 +36,7 @@ const chainsConfigRelPath = ".claude/sand-chains.toml"
 // implement a second TOML decoder.
 func ChainsListTool(projectDir string) (mcp.Tool, server.ToolHandlerFunc) {
 	tool := mcp.NewTool(
-		"sand.chains_list",
+		"chains_list",
 		mcp.WithDescription(
 			"Enumerate all sand roles and their fallback chains from the caller "+
 				"project's .claude/sand-chains.toml. Returns a nested TOON document "+

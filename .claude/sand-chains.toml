@@ -1,0 +1,42 @@
+# sand-chains.toml — per-role fallback chains for sand v0.1 dispatch.
+#
+# Ported from .claude/agent-chains.sh (the bash dispatcher's chains).
+# Loaded by sand at dispatch time via internal/chains.Parse.
+#
+# Sand v0.1 supports the claude-native backend ONLY.  Roles whose
+# tier-1 is codex-exec will return ErrUnsupportedBackend on dispatch —
+# the orchestrator should fall back to bash dispatcher (codex tier) or
+# Claude Code's native Agent tool for those roles until drops 004 + 005
+# land ollama + codex backends.
+
+[chains]
+
+# Builder — atomic 1-2 small blocks per cascade methodology.
+# Tier 1 haiku (3x cheaper than sonnet per Anthropic pricing).
+# Tier 2 sonnet fallback if haiku fails.
+"ta-go-builder" = [
+  { backend = "claude-native", model = "haiku",  opts = "", wait_max = 0, slots = 0 },
+  { backend = "claude-native", model = "sonnet", opts = "", wait_max = 0, slots = 0 },
+]
+
+# Planning — codex 5.4 high reasoning. NOT dispatchable by sand v0.1
+# (codex backend lands in drop_005). Listed here for chains_list visibility.
+"ta-go-planning" = [
+  { backend = "codex-exec", model = "gpt-5.4", opts = "--sandbox read-only -c model_reasoning_effort=high", wait_max = 0, slots = 0 },
+]
+
+# QA Falsification — codex 5.4 high reasoning, workspace-write sandbox
+# so mage check / mage testPkg can run. NOT dispatchable by sand v0.1.
+"ta-go-qa-falsification" = [
+  { backend = "codex-exec", model = "gpt-5.4", opts = "--sandbox workspace-write -c model_reasoning_effort=high", wait_max = 0, slots = 0 },
+]
+
+# QA Proof — Agent-tool opus quality floor. Dispatchable by sand v0.1.
+"ta-go-qa-proof" = [
+  { backend = "claude-native", model = "opus", opts = "", wait_max = 0, slots = 0 },
+]
+
+# Closeout — Agent-tool opus quality floor. Dispatchable by sand v0.1.
+"ta-closeout" = [
+  { backend = "claude-native", model = "opus", opts = "", wait_max = 0, slots = 0 },
+]

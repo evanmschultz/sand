@@ -75,7 +75,7 @@ func PreflightTool(projectDir string) (mcp.Tool, server.ToolHandlerFunc) {
 // real-stdlib defaultProbe.
 func NewToolWithProbe(projectDir string, probe Probe) (mcp.Tool, server.ToolHandlerFunc) {
 	tool := mcp.NewTool(
-		"sand.preflight",
+		"preflight",
 		mcp.WithDescription(
 			"Probe a role's fallback chain and report per-tier readiness "+
 				"(SAND-SPEC §3.2). Checks claude/codex CLI presence on PATH and, "+

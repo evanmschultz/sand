@@ -68,7 +68,7 @@ func writeChainsFixture(t *testing.T, projectDir, content string) {
 func callPreflight(t *testing.T, handler func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error), args map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	req := mcp.CallToolRequest{}
-	req.Params.Name = "sand.preflight"
+	req.Params.Name = "preflight"
 	req.Params.Arguments = args
 
 	res, err := handler(context.Background(), req)

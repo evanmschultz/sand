@@ -173,7 +173,7 @@ func writeChainsFixture(t *testing.T, projectDir, content string) {
 func callChainsList(t *testing.T, handler func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)) *mcp.CallToolResult {
 	t.Helper()
 	req := mcp.CallToolRequest{}
-	req.Params.Name = "sand.chains_list"
+	req.Params.Name = "chains_list"
 
 	res, err := handler(context.Background(), req)
 	if err != nil {
@@ -186,12 +186,12 @@ func callChainsList(t *testing.T, handler func(ctx context.Context, req mcp.Call
 }
 
 // assertToolMeta checks the tool descriptor's static metadata once per
-// subtest. The name is pinned to "sand.chains_list" to match the sibling
+// subtest. The name is pinned to "chains_list" to match the sibling
 // PersonaGetTool's "sand.persona_get" naming convention and SAND-SPEC §3.4.
 func assertToolMeta(t *testing.T, tool mcp.Tool) {
 	t.Helper()
-	if tool.Name != "sand.chains_list" {
-		t.Fatalf("tool.Name = %q, want %q", tool.Name, "sand.chains_list")
+	if tool.Name != "chains_list" {
+		t.Fatalf("tool.Name = %q, want %q", tool.Name, "chains_list")
 	}
 	if strings.TrimSpace(tool.Description) == "" {
 		t.Fatalf("tool.Description is empty; want a non-empty description for the MCP tool catalog")
