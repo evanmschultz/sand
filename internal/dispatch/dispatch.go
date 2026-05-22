@@ -24,9 +24,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/evanmschultz/sand/internal/chains"
 	"github.com/evanmschultz/sand/internal/persona"
+	"github.com/evanmschultz/sand/internal/slots"
 )
 
 // backendClaudeNative is the chains.Tier.Backend value sand's drop_003
@@ -34,28 +36,41 @@ import (
 // can compare without re-typing the literal.
 const backendClaudeNative = "claude-native"
 
-// chainsConfigRelPath is the caller-project-relative path to sand's chain
-// configuration file. SAND-SPEC §5 fixes the filename at
-// `.claude/sand-chains.toml`; sand reads it from the caller project tree on
-// every dispatch so multiple projects can carry distinct chains.
-var chainsConfigRelPath = filepath.Join(".claude", "sand-chains.toml")
-
-// loadChainsConfig reads and parses the caller project's chain config from
-// `<cwd>/.claude/sand-chains.toml`. The returned Config is the parsed result
-// of chains.Parse; errors wrap the underlying I/O or parse failure with %w so
-// callers can use errors.Is for classification (notably os.ErrNotExist for the
-// "no chains file in this project" case).
+// loadChainsConfig resolves the caller's chain config via the v0.2
+// hierarchical rules (project → XDG → $HOME/.config → $HOME/.sand — see
+// chains.Resolve) and parses the winning file.
 //
-// loadChainsConfig is a small private seam — it exists so Dispatch keeps its
-// caller-config resolution alongside the existing resolveMCPConfig helper
-// rather than reaching directly into chains.Parse from a deeper call site.
+// When no config exists on any rung, chains.Resolve returns
+// ErrChainConfigNotFound; loadChainsConfig surfaces an error that satisfies
+// BOTH errors.Is(err, chains.ErrChainConfigNotFound) AND
+// errors.Is(err, os.ErrNotExist). The dual-target wrap is intentional: the
+// drop_003 tests pin os.ErrNotExist for the "no chains config" case and we
+// keep that contract intact while the v0.2 hierarchical resolver lands.
+//
+// Errors from parse propagate via %w so callers can use errors.Is / errors.As
+// against the underlying toml package errors.
 func loadChainsConfig(cwd string) (chains.Config, error) {
 	absCwd, err := filepath.Abs(cwd)
 	if err != nil {
 		return chains.Config{}, fmt.Errorf("dispatch: resolve chains config cwd %q: %w", cwd, err)
 	}
 
-	path := filepath.Join(absCwd, chainsConfigRelPath)
+	path, _, err := chains.Resolve(absCwd)
+	if err != nil {
+		if errors.Is(err, chains.ErrChainConfigNotFound) {
+			// Preserve drop_003-era os.ErrNotExist contract AND the v0.2
+			// ErrChainConfigNotFound sentinel via errors.Join. The literal
+			// "sand-chains.toml" string is preserved in the error text so
+			// the existing TestDispatchSelectionErrors substring assertion
+			// remains satisfied.
+			return chains.Config{}, fmt.Errorf(
+				"dispatch: locate sand-chains.toml: %w",
+				errors.Join(err, os.ErrNotExist),
+			)
+		}
+		return chains.Config{}, fmt.Errorf("dispatch: resolve chains config: %w", err)
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return chains.Config{}, fmt.Errorf("dispatch: open chains config %q: %w", path, err)
@@ -144,15 +159,36 @@ func strconvQuote(s string) string {
 	return b.String()
 }
 
+// nowFn is the package-level clock seam Dispatch uses to stamp
+// Attempt.AttemptedAt. Tests may override it to make per-attempt timestamps
+// deterministic; production keeps it pointed at time.Now.
+var nowFn = time.Now
+
 // Dispatch is the public entry point for sand's `sand.dispatch` MCP tool.
 //
-// drop_003 implements the dry-run-only path: when params.DryRun is true,
-// Dispatch loads the caller persona, loads the caller's chain config, selects
-// the first claude-native tier in the role's chain, resolves the caller's
-// optional .mcp.json, and returns a Response whose Result carries the
-// would-be claude command shape. The real backend spawn (runClaudeNative)
-// is intentionally NOT invoked in dry-run mode — the wet-run path lands in a
-// later droplet.
+// Per SAND-V02-SPEC §1.4, Dispatch walks the role's fallback chain tier-by-tier:
+// for each tier it (a) optionally acquires a cross-project slot via
+// slots.AcquireSlot when tier.Slots > 0, (b) calls runTier — which preserves
+// the drop_003 ErrUnsupportedBackend guard for non-claude-native backends —
+// (c) classifies the outcome via ClassifyExitError, and (d) records an
+// Attempt row in Response.FallbackChain regardless of success or failure.
+//
+// Outcome policy (mirrors SAND-V02-SPEC §1.4 + §3.3):
+//
+//   - success            : record Attempt + return populated Response.
+//   - slot_timeout       : record Attempt + advance to next tier.
+//   - unsupported_backend: record Attempt + advance (drop_003 behavior
+//     preserved while drops 004/005 wire ollama + codex).
+//   - rate_limit / auth_failure / network / timeout: record Attempt + advance.
+//   - crash / unknown    : record Attempt + return wrapped error (chain HALTS
+//     for unrecoverable spawn failures per §3.3).
+//
+// When the chain exhausts without success, Dispatch returns ErrChainExhausted
+// (wrapped) with FallbackChain populated for every tier attempted.
+//
+// Dry-run mode (params.DryRun == true) is preserved as a pre-loop branch:
+// drop_003's TestDispatchDryRun contract still pins Tier=0 + ServedBy naming
+// the first claude-native tier in the chain, with no actual spawn invoked.
 //
 // Failure modes (each wraps the underlying cause with %w so callers may use
 // errors.Is):
@@ -162,13 +198,11 @@ func strconvQuote(s string) string {
 //   - chains config load / parse failure propagates from loadChainsConfig.
 //   - role not in chain config returns a wrapped ErrRoleNotInChains.
 //   - role chain contains zero claude-native tiers returns a wrapped
-//     ErrNoClaudeNativeTier.
-//   - MCP config resolution errors propagate from resolveMCPConfig (missing
-//     .mcp.json is NOT an error — it surfaces as exists=false and Dispatch
-//     simply omits --mcp-config from the rendered command).
-//
-// The ctx parameter is accepted for future symmetry with the wet-run path; in
-// dry-run mode it is honored only as a cancellation gate before any I/O.
+//     ErrNoClaudeNativeTier (preserved guard until drops 004/005 broaden the
+//     supported-backend set).
+//   - MCP config resolution errors propagate from resolveMCPConfig.
+//   - All tiers fail returns wrapped ErrChainExhausted with FallbackChain
+//     populated.
 func Dispatch(ctx context.Context, params Params) (Response, error) {
 	if err := ctx.Err(); err != nil {
 		return Response{}, fmt.Errorf("dispatch: aborted before start: %w", err)
@@ -192,14 +226,16 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		return Response{}, fmt.Errorf("dispatch: chain lookup for role %q: %w", params.Role, err)
 	}
 
-	tier, tierIdx, err := selectClaudeNativeTier(params.Role, tiers)
+	// drop_003 compatibility: until drops 004/005 light up ollama/codex, a
+	// chain consisting entirely of non-claude-native tiers cannot serve. The
+	// pre-loop guard surfaces ErrNoClaudeNativeTier so the existing test
+	// contract (TestDispatchSelectionErrors/no claude-native tier) stays
+	// green. Once drops 004/005 broaden runTier's supported set, this guard
+	// can be removed — chain exhaustion will then surface as
+	// ErrChainExhausted.
+	cnTier, _, err := selectClaudeNativeTier(params.Role, tiers)
 	if err != nil {
 		return Response{}, err
-	}
-
-	model := tier.Model
-	if params.ModelOverride != "" {
-		model = params.ModelOverride
 	}
 
 	mcpPath, mcpExists, err := resolveMCPConfig(params.CWD)
@@ -212,31 +248,135 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 	}
 
 	if params.DryRun {
+		// Dry-run preserves the drop_003 contract: Tier=0 sentinel +
+		// ServedBy naming the first claude-native tier. ModelOverride wins
+		// over the tier's configured model. No FallbackChain rows because
+		// no real attempt happens.
+		dryRunModel := cnTier.Model
+		if params.ModelOverride != "" {
+			dryRunModel = params.ModelOverride
+		}
 		return Response{
-			Result:   renderDryRunCommand(params.Prompt, p, model, renderedMCPPath),
-			ServedBy: backendClaudeNative + ":" + model,
+			Result:   renderDryRunCommand(params.Prompt, p, dryRunModel, renderedMCPPath),
+			ServedBy: backendClaudeNative + ":" + dryRunModel,
 			Tier:     0,
 		}, nil
 	}
 
-	// Wet-run path: spawn the claude-native backend, parse the JSON envelope
-	// it emits, and populate Response strictly from PARSED EVENTS (per memory
-	// note feedback_always_verify_tool_calls — agent narrative is never the
-	// source of tool-use or permission-denial counts).
-	//
-	// tier.Model is replaced by params.ModelOverride for the spawn so the
-	// rendered argv and ServedBy stay in lockstep.
-	spawnTier := tier
-	spawnTier.Model = model
+	// Wet-run path: loop over tiers, recording an Attempt per iteration.
+	chain := make([]Attempt, 0, len(tiers))
+	for i, tier := range tiers {
+		tierIdx := i + 1
+		attempt := Attempt{
+			Tier:        tierIdx,
+			Backend:     tier.Backend,
+			Model:       tier.Model,
+			AttemptedAt: nowFn().UTC(),
+		}
 
-	result, err := runClaudeNative(ctx, params, p, spawnTier, renderedMCPPath)
-	if err != nil {
-		return Response{}, fmt.Errorf("dispatch: spawn claude-native for role %q: %w", params.Role, err)
+		// Slot acquisition is a per-tier ceiling on concurrent spawns
+		// across all sand processes. slots=0 is the explicit "unlimited"
+		// sentinel — AcquireSlot returns (nil, nil) without touching the
+		// filesystem.
+		var slot *slots.Slot
+		if tier.Slots > 0 {
+			waitMax := time.Duration(tier.WaitMax) * time.Second
+			s, slotErr := slots.AcquireSlot(tier.Backend, tier.Model, tier.Slots, waitMax)
+			if slotErr != nil {
+				if errors.Is(slotErr, slots.ErrSlotTimeout) {
+					attempt.Outcome = "slot_timeout"
+					attempt.Reason = fmt.Sprintf("all %d slots busy for %s", tier.Slots, waitMax)
+					chain = append(chain, attempt)
+					continue
+				}
+				attempt.Outcome = "unknown"
+				attempt.Reason = slotErr.Error()
+				chain = append(chain, attempt)
+				return Response{FallbackChain: chain}, fmt.Errorf("dispatch: acquire slot for tier %d (%s:%s): %w", tierIdx, tier.Backend, tier.Model, slotErr)
+			}
+			slot = s
+		}
+
+		// Model override replaces the served tier's model. Attempt rows
+		// for non-served tiers still record the chain's CONFIGURED model
+		// (set before this branch) so the FallbackChain audit reflects
+		// the actual chain layout, not the override.
+		spawnTier := tier
+		if params.ModelOverride != "" {
+			spawnTier.Model = params.ModelOverride
+		}
+
+		result, runErr := runTier(ctx, params, p, spawnTier, renderedMCPPath, nil)
+
+		// Per-tier slot release: must happen BEFORE we continue or return.
+		// defer would batch all releases until function return, which is
+		// wrong — we need the next tier (or test) to see freed slots
+		// immediately.
+		if slot != nil {
+			slot.Release()
+		}
+
+		if runErr != nil {
+			if errors.Is(runErr, ErrUnsupportedBackend) {
+				attempt.Outcome = "unsupported_backend"
+				attempt.Reason = fmt.Sprintf("sand does not yet spawn %q", tier.Backend)
+				chain = append(chain, attempt)
+				continue
+			}
+			// Spawn-level failure (e.g. claude binary not on PATH, ctx
+			// cancelled). Classify with exit code -1 / empty stderr — both
+			// land as Crash/Unknown. We treat ctx.Canceled / DeadlineExceeded
+			// distinctly because the caller asked us to stop.
+			if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+				attempt.Outcome = ErrClassTimeout.String()
+				attempt.Reason = runErr.Error()
+				chain = append(chain, attempt)
+				return Response{FallbackChain: chain}, fmt.Errorf("dispatch: tier %d spawn cancelled: %w", tierIdx, runErr)
+			}
+			// Unrecoverable spawn plumbing failure — halt chain.
+			attempt.Outcome = ErrClassUnknown.String()
+			attempt.Reason = runErr.Error()
+			chain = append(chain, attempt)
+			return Response{FallbackChain: chain}, fmt.Errorf("dispatch: spawn tier %d (%s:%s): %w", tierIdx, tier.Backend, tier.Model, runErr)
+		}
+
+		// Classify by exit code + stderr (errors_class.go). Non-zero exit
+		// is NOT a Go error at runTier's layer — it lives in
+		// claudeResult.ExitCode and stderr.
+		class := ClassifyExitError(result.Stderr, result.ExitCode)
+		switch class {
+		case ErrClassSuccess:
+			attempt.Outcome = class.String()
+			chain = append(chain, attempt)
+			return buildSuccessResponse(params, spawnTier, tierIdx, result, chain)
+		case ErrClassRateLimit, ErrClassAuthFailure, ErrClassNetwork, ErrClassTimeout:
+			attempt.Outcome = class.String()
+			attempt.Reason = summarizeStderr(result.Stderr)
+			chain = append(chain, attempt)
+			continue
+		default:
+			// ErrClassCrash / ErrClassUnknown — unrecoverable per
+			// SAND-V02-SPEC §3.3. Record + halt with FallbackChain
+			// preserved.
+			attempt.Outcome = class.String()
+			attempt.Reason = summarizeStderr(result.Stderr)
+			chain = append(chain, attempt)
+			return Response{FallbackChain: chain}, fmt.Errorf("dispatch: tier %d (%s:%s) %s: exit %d", tierIdx, tier.Backend, tier.Model, class.String(), result.ExitCode)
+		}
 	}
 
+	// Chain exhausted — every tier recorded a non-success Attempt.
+	return Response{FallbackChain: chain}, fmt.Errorf("dispatch: role %q: %w", params.Role, ErrChainExhausted)
+}
+
+// buildSuccessResponse populates Response from a successful claude-native
+// spawn result. Extracted from Dispatch's main body so the success path is
+// inspectable in isolation; the dispatch loop only owns control flow + the
+// FallbackChain accumulator.
+func buildSuccessResponse(params Params, tier chains.Tier, tierIdx int, result claudeResult, chain []Attempt) (Response, error) {
 	env, err := ParseEnvelope(result.Stdout)
 	if err != nil {
-		return Response{}, fmt.Errorf("dispatch: parse envelope for role %q: %w", params.Role, err)
+		return Response{FallbackChain: chain}, fmt.Errorf("dispatch: parse envelope for role %q: %w", params.Role, err)
 	}
 
 	durationMs := int64(env.DurationMS)
@@ -246,7 +386,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 
 	return Response{
 		Result:            env.Result,
-		ServedBy:          backendClaudeNative + ":" + model,
+		ServedBy:          tier.Backend + ":" + tier.Model,
 		Tier:              tierIdx,
 		Fallback:          tierIdx > 1,
 		DurationMs:        durationMs,
@@ -254,7 +394,24 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		Tokens:            tokensFromEnvelope(env.Usage),
 		ToolsUsed:         toolUsesFromMap(env.ToolsUsed),
 		PermissionDenials: permissionDenialsFromMap(env.PermissionDenials),
+		FallbackChain:     chain,
 	}, nil
+}
+
+// summarizeStderr collapses the captured stderr to a single trimmed line
+// suitable for Attempt.Reason. The TOON encoder renders the reason column
+// inline, so multi-line stderr would break the table layout; we take the
+// first non-empty line (or fall back to the whole trimmed text when stderr
+// is single-line).
+func summarizeStderr(stderr []byte) string {
+	trimmed := strings.TrimSpace(string(stderr))
+	if trimmed == "" {
+		return ""
+	}
+	if idx := strings.IndexByte(trimmed, '\n'); idx >= 0 {
+		return strings.TrimSpace(trimmed[:idx])
+	}
+	return trimmed
 }
 
 // tokensFromEnvelope copies the claude CLI Usage block into the dispatch
@@ -351,6 +508,14 @@ type Params struct {
 //     usage they did not perform.
 //   - PermissionDenials is a tabular aggregate of permission-denial events,
 //     same sourcing rule as ToolsUsed.
+//   - FallbackChain is the per-tier audit trail of the dispatch. Every
+//     attempted tier (including the successful one) contributes one row.
+//     Empty on dry-run and on selection errors (chain config / persona /
+//     role-not-in-chain) where no tier was attempted.
+//   - ToolCalls is the ordered per-call breakdown of the dispatched agent's
+//     tool invocations. drop_007 wires it from the full envelope stream;
+//     drop_008 introduces the field on Response so downstream TOON encoders
+//     can shape the row layout now.
 //   - LogPath is the absolute path to the per-dispatch log file in
 //     /tmp/sand-dispatch/log/<uuid>.json; the file is the source of truth for
 //     deep inspection.
@@ -364,7 +529,36 @@ type Response struct {
 	Tokens            Tokens
 	ToolsUsed         []ToolUse
 	PermissionDenials []PermissionDenial
+	FallbackChain     []Attempt
+	ToolCalls         []ToolCall
 	LogPath           string
+}
+
+// Attempt is one row of Response.FallbackChain. Each row records the
+// per-tier outcome — backend, model, attempt timestamp, outcome class, and
+// a one-line human reason — so callers (and the TOON encoder) can render the
+// full chain walk per SAND-V02-SPEC §4. Outcome values mirror ErrClass.String()
+// plus the slot-only "slot_timeout" and "unsupported_backend" values that
+// classification does not produce.
+type Attempt struct {
+	Tier        int
+	Backend     string
+	Model       string
+	AttemptedAt time.Time
+	Outcome     string
+	Reason      string
+}
+
+// ToolCall is one row of Response.ToolCalls. drop_007 populates this from
+// the dispatched agent's full event stream; drop_008 introduces the type so
+// downstream TOON encoders and Response consumers can compile against the
+// final shape now. The Index field is the 1-based call order so callers can
+// reconstruct the sequence regardless of slice-mutation downstream.
+type ToolCall struct {
+	Index      int
+	Name       string
+	DurationMs int64
+	IsError    bool
 }
 
 // Tokens is the per-dispatch token-usage aggregate. Field names mirror the
@@ -417,4 +611,12 @@ var (
 	// will never serve under drop_003" from "the current tier names a
 	// backend we don't support yet".
 	ErrNoClaudeNativeTier = errors.New("dispatch: chain contains no claude-native tier")
+
+	// ErrChainExhausted is returned (wrapped) when every tier in a role's
+	// fallback chain produced a non-success Attempt. Per SAND-V02-SPEC §1.4
+	// it signals "this dispatch had no winner" — distinct from a single
+	// unrecoverable spawn failure (which halts the chain mid-walk with the
+	// underlying error) because exhaustion means the caller-supplied chain
+	// itself was insufficient for this role.
+	ErrChainExhausted = errors.New("dispatch: chain exhausted; every tier failed")
 )

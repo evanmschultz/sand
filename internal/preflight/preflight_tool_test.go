@@ -173,10 +173,16 @@ func TestPreflightToolEmptyRole(t *testing.T) {
 // branch: the handler must surface IsError=true with a message naming the
 // missing path. The probe must not be invoked because chain lookup fails
 // before any tier is walked.
+//
+// Sequential (no t.Parallel) because the handler now resolves via
+// chains.Resolve, which walks 4 rungs including $HOME-anchored ones; we
+// isolate HOME/XDG via t.Setenv so a developer's real ~/.config/sand/
+// chains.toml cannot satisfy a higher rung and break this case.
 func TestPreflightToolChainConfigMissing(t *testing.T) {
-	t.Parallel()
-
 	projectDir := t.TempDir()
+	homeDir := t.TempDir() // empty — no rung-3/4 fixtures
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	// Deliberately do NOT write a fixture.
 
 	_, handler := NewToolWithProbe(projectDir, &panicProbe{t: t})
@@ -193,6 +199,54 @@ func TestPreflightToolChainConfigMissing(t *testing.T) {
 		if !strings.Contains(msg, w) {
 			t.Errorf("error message missing substring %q\nfull message:\n%s", w, msg)
 		}
+	}
+}
+
+// TestPreflightToolResolvesFromHomeConfigRung verifies the
+// drop_008.drop.build_chains_resolve_callers acceptance criterion: when no
+// project-rung chains.toml exists but a HOME-rung config does, preflight
+// must find it via chains.Resolve and probe the role's chain successfully.
+// Sequential because t.Setenv mutates process-global env.
+func TestPreflightToolResolvesFromHomeConfigRung(t *testing.T) {
+	projectDir := t.TempDir() // no .claude/sand-chains.toml
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	// Seed only the home-config rung (rung 3).
+	homeCfgDir := filepath.Join(homeDir, ".config", "sand")
+	if err := os.MkdirAll(homeCfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", homeCfgDir, err)
+	}
+	homeCfgPath := filepath.Join(homeCfgDir, "chains.toml")
+	if err := os.WriteFile(homeCfgPath, []byte(happyChainsTOML), 0o644); err != nil {
+		t.Fatalf("write %s: %v", homeCfgPath, err)
+	}
+
+	probe := &stubProbe{
+		lookPath: func(name string) (string, error) {
+			return "/usr/local/bin/" + name, nil
+		},
+		httpGet: stubHTTPGet200(`{"version":"0.1.34"}`),
+		ollamaList: func(ctx context.Context) (string, error) {
+			return "NAME                  ID      SIZE\nqwen2.5-coder:7b      abc     4.7 GB\n", nil
+		},
+	}
+
+	_, handler := NewToolWithProbe(projectDir, probe)
+	res := callPreflight(t, handler, map[string]any{"role": "ta-go-builder"})
+	if res.IsError {
+		t.Fatalf("expected IsError=false when home-config rung satisfies resolve; got error: %s", resultText(t, res))
+	}
+
+	got := resultText(t, res)
+	want := "role: ta-go-builder\n" +
+		"tiers[3]{tier,backend,model,ok,reason}:\n" +
+		"  1,ollama-local,qwen2.5-coder:7b,true,\n" +
+		"  2,codex-exec,gpt-5.5,true,\n" +
+		"  3,claude-native,haiku,true,\n"
+	if got != want {
+		t.Fatalf("TOON output mismatch when resolved from home-config rung\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 

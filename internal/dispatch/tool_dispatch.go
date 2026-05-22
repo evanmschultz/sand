@@ -26,6 +26,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/evanmschultz/sand/internal/toon"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -130,13 +131,21 @@ func DispatchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	return mcp.NewToolResultText(string(encoded)), nil
 }
 
-// responseToTOON builds the toon.Object that mirrors the SAND-SPEC §3.1
-// dispatch response layout. Field order matches the spec's golden example
-// so encoder output stays byte-stable for orchestrator-side fixtures.
+// responseToTOON builds the toon.Object that mirrors the SAND-SPEC §3.1 +
+// SAND-V02-SPEC §4 dispatch response layout. Field order matches the spec's
+// golden example so encoder output stays byte-stable for orchestrator-side
+// fixtures.
 //
-// Tokens is emitted as a nested object; tools_used / permission_denials
-// are emitted as tabular arrays whose length header is always present (the
-// encoder writes `name[0]{...}:` when there are zero rows, per spec).
+// Tokens is emitted as a nested object; tools_used / permission_denials /
+// fallback_chain / tool_calls are emitted as tabular arrays whose length
+// header is always present (the encoder writes `name[0]{...}:` when there are
+// zero rows, per spec).
+//
+// Field order (SAND-V02-SPEC §4):
+//
+//	result, served_by, tier, fallback, duration_ms, cost_usd, tokens,
+//	fallback_chain[N], tools_used[N], permission_denials[N], tool_calls[N],
+//	log_path.
 func responseToTOON(r Response) toon.Object {
 	return toon.Object{
 		{Key: "result", Value: toon.Block(r.Result)},
@@ -151,8 +160,10 @@ func responseToTOON(r Response) toon.Object {
 			{Key: "cache_read", Value: r.Tokens.CacheRead},
 			{Key: "cache_creation", Value: r.Tokens.CacheCreation},
 		}},
+		{Key: "fallback_chain", Value: fallbackChainTabular(r.FallbackChain)},
 		{Key: "tools_used", Value: toolsUsedTabular(r.ToolsUsed)},
 		{Key: "permission_denials", Value: permissionDenialsTabular(r.PermissionDenials)},
+		{Key: "tool_calls", Value: toolCallsTabular(r.ToolCalls)},
 		{Key: "log_path", Value: r.LogPath},
 	}
 }
@@ -175,4 +186,45 @@ func permissionDenialsTabular(denials []PermissionDenial) toon.Tabular {
 		rows[i] = []any{d.Tool, d.Count}
 	}
 	return toon.Tabular{Fields: []string{"tool", "count"}, Rows: rows}
+}
+
+// fallbackChainTabular converts a []Attempt into the tabular array shape per
+// SAND-V02-SPEC §4 `fallback_chain[N]{tier,backend,model,attempted_at,outcome,reason}:`.
+//
+// Attempt.AttemptedAt is rendered as an RFC3339 timestamp (UTC). An empty
+// FallbackChain still emits the `fallback_chain[0]{...}:` header — the
+// encoder enforces the length-header-always rule.
+func fallbackChainTabular(chain []Attempt) toon.Tabular {
+	rows := make([][]any, len(chain))
+	for i, a := range chain {
+		rows[i] = []any{
+			a.Tier,
+			a.Backend,
+			a.Model,
+			a.AttemptedAt.UTC().Format(time.RFC3339),
+			a.Outcome,
+			a.Reason,
+		}
+	}
+	return toon.Tabular{
+		Fields: []string{"tier", "backend", "model", "attempted_at", "outcome", "reason"},
+		Rows:   rows,
+	}
+}
+
+// toolCallsTabular converts a []ToolCall into the tabular array shape per
+// SAND-V02-SPEC §4 `tool_calls[N]{idx,name,duration_ms,is_error}:`.
+//
+// The `idx` column is populated from ToolCall.Index — the 1-based ordering
+// captured at envelope-parse time. An empty ToolCalls still emits the
+// `tool_calls[0]{...}:` header.
+func toolCallsTabular(calls []ToolCall) toon.Tabular {
+	rows := make([][]any, len(calls))
+	for i, c := range calls {
+		rows[i] = []any{c.Index, c.Name, c.DurationMs, c.IsError}
+	}
+	return toon.Tabular{
+		Fields: []string{"idx", "name", "duration_ms", "is_error"},
+		Rows:   rows,
+	}
 }

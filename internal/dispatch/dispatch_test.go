@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/evanmschultz/sand/internal/chains"
 )
@@ -505,6 +506,10 @@ func TestDispatchSelectionErrors(t *testing.T) {
 	t.Run("missing chains config errors", func(t *testing.T) {
 		t.Parallel()
 
+		// NOTE: dispatch.loadChainsConfig migrated to chains.Resolve in
+		// drop_008. The drop_003 contract (os.ErrNotExist substring
+		// matched) is preserved by wrapping chains.ErrChainConfigNotFound
+		// with errors.Join(os.ErrNotExist) — see loadChainsConfig.
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		// No sand-chains.toml.
@@ -817,4 +822,340 @@ func TestDispatchHappyPath(t *testing.T) {
 			t.Errorf("ServedBy = %q, want %q (override should win)", resp.ServedBy, "claude-native:opus")
 		}
 	})
+}
+
+// installFakeClaudeSequence installs the fake-claude-sequence script on PATH
+// and primes FAKE_CLAUDE_FIXTURE_SEQUENCE + FAKE_CLAUDE_INVOCATION_FILE so a
+// single test can drive multi-tier behavior across consecutive runTier spawns.
+// The sequence is a comma-separated list of fixture names (rate-limit,
+// auth-fail, timeout, network, crash, success); each invocation of the fake
+// CLI consumes the next entry.
+//
+// t.Setenv prohibits parallel tests so failover sub-tests run serially.
+func installFakeClaudeSequence(t *testing.T, sequence string) {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-CLI seam uses /bin/sh and is not portable to windows")
+	}
+
+	srcDir := filepath.Join("testdata", "fake-claude-sequence")
+	content, err := os.ReadFile(filepath.Join(srcDir, "claude.sh"))
+	if err != nil {
+		t.Fatalf("read fake-claude-sequence/claude.sh: %v", err)
+	}
+
+	binDir := t.TempDir()
+	scriptPath := filepath.Join(binDir, "claude")
+	if err := os.WriteFile(scriptPath, content, 0o755); err != nil {
+		t.Fatalf("write fake claude script: %v", err)
+	}
+
+	// Fresh per-test invocation counter file so sub-tests do not see each
+	// other's accumulated invocations.
+	invocationFile := filepath.Join(t.TempDir(), "invocations")
+	if err := os.WriteFile(invocationFile, nil, 0o644); err != nil {
+		t.Fatalf("seed invocation counter file: %v", err)
+	}
+
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+origPath)
+	t.Setenv("FAKE_CLAUDE_FIXTURE_SEQUENCE", sequence)
+	t.Setenv("FAKE_CLAUDE_INVOCATION_FILE", invocationFile)
+}
+
+// failoverChainsTOML is a two-tier claude-native chain used by the failover
+// tests. Both tiers spawn the same fake CLI; the test drives the per-tier
+// behavior by sequencing fixture names. Slots are 0 (unlimited) so neither
+// tier touches /tmp/sand-slots — slot semantics are covered by the slots
+// package tests, not here.
+const failoverChainsTOML = `
+[chains]
+"ta-go-builder" = [
+  { backend = "claude-native", model = "haiku",  opts = "", wait_max = 0, slots = 0 },
+  { backend = "claude-native", model = "sonnet", opts = "", wait_max = 0, slots = 0 },
+]
+`
+
+// TestDispatchFailoverChain exercises the new SAND-V02-SPEC §1.4 fallback
+// loop: tier-1 fails with a classifiable error, tier-2 succeeds, and the
+// Response carries a FallbackChain with both attempts recorded.
+//
+// Each sub-test serializes the per-tier behavior through
+// installFakeClaudeSequence so the fake CLI returns different outcomes on
+// consecutive invocations within a single Dispatch call.
+func TestDispatchFailoverChain(t *testing.T) {
+	t.Run("rate_limit_advances_to_next_tier", func(t *testing.T) {
+		installFakeClaudeSequence(t, "rate-limit,success")
+
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		writeChainsConfig(t, cwd, failoverChainsTOML)
+
+		resp, err := Dispatch(context.Background(), Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err != nil {
+			t.Fatalf("Dispatch with rate-limit fallback: %v", err)
+		}
+		if resp.Result != "failover succeeded" {
+			t.Errorf("Result = %q, want %q", resp.Result, "failover succeeded")
+		}
+		if resp.ServedBy != "claude-native:sonnet" {
+			t.Errorf("ServedBy = %q, want %q (tier 2 served after tier 1 rate-limit)", resp.ServedBy, "claude-native:sonnet")
+		}
+		if resp.Tier != 2 {
+			t.Errorf("Tier = %d, want 2", resp.Tier)
+		}
+		if !resp.Fallback {
+			t.Errorf("Fallback = false, want true")
+		}
+		if len(resp.FallbackChain) != 2 {
+			t.Fatalf("FallbackChain len = %d, want 2; chain=%#v", len(resp.FallbackChain), resp.FallbackChain)
+		}
+		if resp.FallbackChain[0].Outcome != "rate_limit" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "rate_limit")
+		}
+		if resp.FallbackChain[0].Tier != 1 || resp.FallbackChain[0].Backend != "claude-native" || resp.FallbackChain[0].Model != "haiku" {
+			t.Errorf("FallbackChain[0] tier/backend/model = %d/%q/%q; want 1/claude-native/haiku",
+				resp.FallbackChain[0].Tier, resp.FallbackChain[0].Backend, resp.FallbackChain[0].Model)
+		}
+		if resp.FallbackChain[0].Reason == "" {
+			t.Errorf("FallbackChain[0].Reason is empty; want stderr summary")
+		}
+		if resp.FallbackChain[0].AttemptedAt.IsZero() {
+			t.Errorf("FallbackChain[0].AttemptedAt is zero time; want non-zero stamp")
+		}
+		if resp.FallbackChain[1].Outcome != "success" {
+			t.Errorf("FallbackChain[1].Outcome = %q, want %q", resp.FallbackChain[1].Outcome, "success")
+		}
+		if resp.FallbackChain[1].Tier != 2 || resp.FallbackChain[1].Backend != "claude-native" || resp.FallbackChain[1].Model != "sonnet" {
+			t.Errorf("FallbackChain[1] tier/backend/model = %d/%q/%q; want 2/claude-native/sonnet",
+				resp.FallbackChain[1].Tier, resp.FallbackChain[1].Backend, resp.FallbackChain[1].Model)
+		}
+	})
+
+	t.Run("auth_failure_advances_to_next_tier", func(t *testing.T) {
+		installFakeClaudeSequence(t, "auth-fail,success")
+
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		writeChainsConfig(t, cwd, failoverChainsTOML)
+
+		resp, err := Dispatch(context.Background(), Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err != nil {
+			t.Fatalf("Dispatch with auth-fail fallback: %v", err)
+		}
+		if resp.Tier != 2 {
+			t.Errorf("Tier = %d, want 2", resp.Tier)
+		}
+		if len(resp.FallbackChain) != 2 {
+			t.Fatalf("FallbackChain len = %d, want 2", len(resp.FallbackChain))
+		}
+		if resp.FallbackChain[0].Outcome != "auth_failure" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "auth_failure")
+		}
+		if resp.FallbackChain[1].Outcome != "success" {
+			t.Errorf("FallbackChain[1].Outcome = %q, want %q", resp.FallbackChain[1].Outcome, "success")
+		}
+	})
+
+	t.Run("all_tiers_fail_returns_ErrChainExhausted", func(t *testing.T) {
+		installFakeClaudeSequence(t, "rate-limit,timeout")
+
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		writeChainsConfig(t, cwd, failoverChainsTOML)
+
+		resp, err := Dispatch(context.Background(), Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err == nil {
+			t.Fatalf("expected ErrChainExhausted, got nil err with resp=%#v", resp)
+		}
+		if !errors.Is(err, ErrChainExhausted) {
+			t.Errorf("err must satisfy errors.Is(err, ErrChainExhausted); got %v", err)
+		}
+		if len(resp.FallbackChain) != 2 {
+			t.Fatalf("FallbackChain len = %d, want 2 (both attempts recorded on exhaustion); chain=%#v",
+				len(resp.FallbackChain), resp.FallbackChain)
+		}
+		if resp.FallbackChain[0].Outcome != "rate_limit" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "rate_limit")
+		}
+		if resp.FallbackChain[1].Outcome != "timeout" {
+			t.Errorf("FallbackChain[1].Outcome = %q, want %q", resp.FallbackChain[1].Outcome, "timeout")
+		}
+		// Success-path fields must be zero on exhaustion — the dispatch
+		// never produced a winning Response.
+		if resp.Result != "" {
+			t.Errorf("Result = %q, want empty on exhaustion", resp.Result)
+		}
+		if resp.ServedBy != "" {
+			t.Errorf("ServedBy = %q, want empty on exhaustion", resp.ServedBy)
+		}
+		if resp.Tier != 0 {
+			t.Errorf("Tier = %d, want 0 on exhaustion", resp.Tier)
+		}
+	})
+
+	t.Run("crash_halts_chain_with_partial_FallbackChain", func(t *testing.T) {
+		// First tier crashes (exit 137, empty stderr -> ErrClassCrash).
+		// Per SAND-V02-SPEC §3.3, Crash is unrecoverable: the loop must
+		// halt mid-walk and surface a wrapped error WITHOUT exhausting
+		// the remaining tiers. Sequence only needs the first entry; the
+		// second is never consumed.
+		installFakeClaudeSequence(t, "crash,success")
+
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		writeChainsConfig(t, cwd, failoverChainsTOML)
+
+		resp, err := Dispatch(context.Background(), Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err == nil {
+			t.Fatalf("expected unrecoverable error on crash, got nil; resp=%#v", resp)
+		}
+		if errors.Is(err, ErrChainExhausted) {
+			t.Errorf("crash should HALT (not exhaust) the chain; got ErrChainExhausted: %v", err)
+		}
+		if len(resp.FallbackChain) != 1 {
+			t.Fatalf("FallbackChain len = %d, want 1 (chain halted after first tier crashed); chain=%#v",
+				len(resp.FallbackChain), resp.FallbackChain)
+		}
+		if resp.FallbackChain[0].Outcome != "crash" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "crash")
+		}
+	})
+
+	t.Run("unsupported_backend_tier_records_attempt_and_advances", func(t *testing.T) {
+		// Chain: ollama-local first (unsupported in drop_003/008 — runTier
+		// rejects with ErrUnsupportedBackend) then claude-native. The
+		// fake CLI is only consumed once (for the claude-native tier).
+		installFakeClaudeSequence(t, "success")
+
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		writeChainsConfig(t, cwd, builderChainsTOML)
+
+		resp, err := Dispatch(context.Background(), Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err != nil {
+			t.Fatalf("Dispatch with unsupported-backend advance: %v", err)
+		}
+		if resp.Tier != 2 {
+			t.Errorf("Tier = %d, want 2", resp.Tier)
+		}
+		if len(resp.FallbackChain) != 2 {
+			t.Fatalf("FallbackChain len = %d, want 2; chain=%#v", len(resp.FallbackChain), resp.FallbackChain)
+		}
+		if resp.FallbackChain[0].Outcome != "unsupported_backend" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "unsupported_backend")
+		}
+		if resp.FallbackChain[0].Backend != "ollama-local" {
+			t.Errorf("FallbackChain[0].Backend = %q, want %q", resp.FallbackChain[0].Backend, "ollama-local")
+		}
+		if resp.FallbackChain[1].Outcome != "success" {
+			t.Errorf("FallbackChain[1].Outcome = %q, want %q", resp.FallbackChain[1].Outcome, "success")
+		}
+	})
+}
+
+// TestDispatchSentinelErrChainExhausted pins ErrChainExhausted's surface area
+// alongside the other dispatch sentinels (TestDispatchSentinels covers the
+// pre-existing trio; this sub-test adds the v0.2 sentinel without re-running
+// the full distinctness matrix).
+func TestDispatchSentinelErrChainExhausted(t *testing.T) {
+	t.Parallel()
+
+	if ErrChainExhausted == nil {
+		t.Fatal("ErrChainExhausted is nil; expected initialised package-level error")
+	}
+	if ErrChainExhausted.Error() == "" {
+		t.Errorf("ErrChainExhausted.Error() is empty; want diagnostic message")
+	}
+
+	wrapped := fmt.Errorf("dispatch test: %w", ErrChainExhausted)
+	if !errors.Is(wrapped, ErrChainExhausted) {
+		t.Errorf("errors.Is(wrapped, ErrChainExhausted) = false; want true via %%w")
+	}
+
+	// Cross-match: ErrChainExhausted must not collapse onto the existing
+	// sentinels.
+	for _, other := range []error{ErrUnsupportedBackend, ErrRoleNotInChains, ErrNoClaudeNativeTier} {
+		if errors.Is(ErrChainExhausted, other) {
+			t.Errorf("ErrChainExhausted should not errors.Is-match %v", other)
+		}
+		if errors.Is(other, ErrChainExhausted) {
+			t.Errorf("%v should not errors.Is-match ErrChainExhausted", other)
+		}
+	}
+}
+
+// TestResponseV02Fields exercises the v0.2 fields added to Response:
+// FallbackChain []Attempt and ToolCalls []ToolCall. Verifies the field names,
+// element-type field names, and zero-value behavior so the sibling
+// toon_extension droplet has a stable contract to compile against.
+func TestResponseV02Fields(t *testing.T) {
+	t.Parallel()
+
+	var r Response
+	if r.FallbackChain != nil {
+		t.Errorf("Response.FallbackChain zero value = %#v, want nil slice", r.FallbackChain)
+	}
+	if r.ToolCalls != nil {
+		t.Errorf("Response.ToolCalls zero value = %#v, want nil slice", r.ToolCalls)
+	}
+
+	now := time.Date(2026, 5, 22, 1, 30, 0, 0, time.UTC)
+	r = Response{
+		FallbackChain: []Attempt{
+			{Tier: 1, Backend: "ollama-cloud", Model: "qwen3-coder-cloud-235b", AttemptedAt: now, Outcome: "slot_timeout", Reason: "all 3 slots busy for 10s"},
+			{Tier: 2, Backend: "claude-native", Model: "opus", AttemptedAt: now.Add(15 * time.Second), Outcome: "success"},
+		},
+		ToolCalls: []ToolCall{
+			{Index: 1, Name: "Read", DurationMs: 12, IsError: false},
+			{Index: 2, Name: "Bash", DurationMs: 234, IsError: true},
+		},
+	}
+
+	if len(r.FallbackChain) != 2 {
+		t.Fatalf("FallbackChain len = %d, want 2", len(r.FallbackChain))
+	}
+	if r.FallbackChain[0].Outcome != "slot_timeout" {
+		t.Errorf("FallbackChain[0].Outcome = %q, want %q", r.FallbackChain[0].Outcome, "slot_timeout")
+	}
+	if r.FallbackChain[0].Reason != "all 3 slots busy for 10s" {
+		t.Errorf("FallbackChain[0].Reason = %q, want %q", r.FallbackChain[0].Reason, "all 3 slots busy for 10s")
+	}
+	if !r.FallbackChain[0].AttemptedAt.Equal(now) {
+		t.Errorf("FallbackChain[0].AttemptedAt = %v, want %v", r.FallbackChain[0].AttemptedAt, now)
+	}
+	if r.FallbackChain[1].Outcome != "success" {
+		t.Errorf("FallbackChain[1].Outcome = %q, want %q", r.FallbackChain[1].Outcome, "success")
+	}
+
+	if len(r.ToolCalls) != 2 {
+		t.Fatalf("ToolCalls len = %d, want 2", len(r.ToolCalls))
+	}
+	if r.ToolCalls[0] != (ToolCall{Index: 1, Name: "Read", DurationMs: 12, IsError: false}) {
+		t.Errorf("ToolCalls[0] = %#v", r.ToolCalls[0])
+	}
+	if r.ToolCalls[1] != (ToolCall{Index: 2, Name: "Bash", DurationMs: 234, IsError: true}) {
+		t.Errorf("ToolCalls[1] = %#v", r.ToolCalls[1])
+	}
 }

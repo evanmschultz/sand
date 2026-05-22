@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,7 +45,17 @@ func ChainsListTool(projectDir string) (mcp.Tool, server.ToolHandlerFunc) {
 	)
 
 	handler := func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		cfgPath := filepath.Join(projectDir, chainsConfigRelPath)
+		cfgPath, _, resolveErr := chains.Resolve(projectDir)
+		if resolveErr != nil {
+			if errors.Is(resolveErr, chains.ErrChainConfigNotFound) {
+				return mcp.NewToolResultError(
+					fmt.Sprintf("chains_list: chain config not found: %v", resolveErr),
+				), nil
+			}
+			return mcp.NewToolResultError(
+				fmt.Sprintf("chains_list: resolve chain config: %v", resolveErr),
+			), nil
+		}
 		body, err := renderChainsList(cfgPath)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

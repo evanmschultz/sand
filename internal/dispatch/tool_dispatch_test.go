@@ -16,6 +16,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -139,10 +140,12 @@ func TestDispatchHandlerMissingPrompt(t *testing.T) {
 
 func TestDispatchHandlerHappyPath(t *testing.T) {
 	// No t.Parallel(): mutates package-level dispatchFn.
+	t1 := time.Date(2026, 5, 22, 1, 30, 0, 0, time.UTC)
+	t2 := time.Date(2026, 5, 22, 1, 30, 10, 0, time.UTC)
 	stubResp := Response{
 		Result:     "ok",
 		ServedBy:   "claude-native:opus",
-		Tier:       3,
+		Tier:       2,
 		Fallback:   true,
 		DurationMs: 168793,
 		CostUSD:    0.626,
@@ -158,6 +161,28 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 		},
 		PermissionDenials: []PermissionDenial{
 			{Tool: "Bash", Count: 0},
+		},
+		FallbackChain: []Attempt{
+			{
+				Tier:        1,
+				Backend:     "ollama-cloud",
+				Model:       "qwen3-coder-cloud-235b",
+				AttemptedAt: t1,
+				Outcome:     "rate_limit",
+				Reason:      "HTTP 429 from daemon",
+			},
+			{
+				Tier:        2,
+				Backend:     "claude-native",
+				Model:       "opus",
+				AttemptedAt: t2,
+				Outcome:     "success",
+			},
+		},
+		ToolCalls: []ToolCall{
+			{Index: 1, Name: "Read", DurationMs: 12, IsError: false},
+			{Index: 2, Name: "mcp__ta__get", DurationMs: 89, IsError: false},
+			{Index: 3, Name: "Bash", DurationMs: 234, IsError: true},
 		},
 		LogPath: "/tmp/sand-dispatch/log/abc123.json",
 	}
@@ -189,19 +214,114 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 	}
 
 	text := resultText(t, result)
-	// Spot-check that the TOON encoding embeds the SAND-SPEC §3.1 known
-	// keys. We deliberately do NOT pin the full byte-for-byte output here;
-	// that is the encoder's responsibility (covered by the toon package
-	// tests). What matters at this layer is that the handler ran the
-	// Response through toon.Encode and surfaced the result as text.
+	// Spot-check that the TOON encoding embeds the SAND-SPEC §3.1 +
+	// SAND-V02-SPEC §4 known keys. We deliberately do NOT pin the full
+	// byte-for-byte output here; that is the encoder's responsibility
+	// (covered by the toon package tests). What matters at this layer is
+	// that the handler ran the Response through toon.Encode and surfaced
+	// the result as text with the spec-pinned field set and order.
 	for _, want := range []string{
 		"served_by: claude-native:opus",
-		"tier: 3",
+		"tier: 2",
 		"fallback: true",
 		"duration_ms: 168793",
+		"fallback_chain[2]{tier,backend,model,attempted_at,outcome,reason}:",
+		`1,ollama-cloud,qwen3-coder-cloud-235b,2026-05-22T01:30:00Z,rate_limit,HTTP 429 from daemon`,
+		`2,claude-native,opus,2026-05-22T01:30:10Z,success,""`,
 		"tools_used[2]{name,count}:",
 		"permission_denials[1]{tool,count}:",
+		"tool_calls[3]{idx,name,duration_ms,is_error}:",
+		"1,Read,12,false",
+		"2,mcp__ta__get,89,false",
+		"3,Bash,234,true",
 		"log_path: /tmp/sand-dispatch/log/abc123.json",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("TOON output missing %q; got:\n%s", want, text)
+		}
+	}
+
+	// Pin field order per SAND-V02-SPEC §4: result, served_by, tier,
+	// fallback, duration_ms, cost_usd, tokens, fallback_chain[N],
+	// tools_used[N], permission_denials[N], tool_calls[N], log_path.
+	wantOrder := []string{
+		"served_by:",
+		"tier:",
+		"fallback:",
+		"duration_ms:",
+		"cost_usd:",
+		"tokens:",
+		"fallback_chain[",
+		"tools_used[",
+		"permission_denials[",
+		"tool_calls[",
+		"log_path:",
+	}
+	prev := 0
+	prevKey := ""
+	for _, key := range wantOrder {
+		idx := strings.Index(text, key)
+		if idx < 0 {
+			t.Errorf("TOON output missing key %q; got:\n%s", key, text)
+			continue
+		}
+		if idx < prev {
+			t.Errorf("TOON field %q at offset %d appears BEFORE prior field %q at offset %d; want strict order per SAND-V02-SPEC §4. Got:\n%s",
+				key, idx, prevKey, prev, text)
+		}
+		prev = idx
+		prevKey = key
+	}
+}
+
+// TestDispatchHandlerHappyPathEmptyAuditArrays pins the empty-array TOON shape
+// per SAND-V02-SPEC §4: empty FallbackChain still emits the
+// `fallback_chain[0]{...}:` header with no rows; empty ToolCalls still emits
+// the `tool_calls[0]{...}:` header. This is the contract callers rely on for
+// schema-stable parsing regardless of whether any tier failed or any tools
+// were invoked.
+func TestDispatchHandlerHappyPathEmptyAuditArrays(t *testing.T) {
+	// No t.Parallel(): mutates package-level dispatchFn.
+	t1 := time.Date(2026, 5, 22, 1, 30, 15, 0, time.UTC)
+	stubResp := Response{
+		Result:   "ok",
+		ServedBy: "claude-native:haiku",
+		Tier:     1,
+		FallbackChain: []Attempt{
+			{
+				Tier:        1,
+				Backend:     "claude-native",
+				Model:       "haiku",
+				AttemptedAt: t1,
+				Outcome:     "success",
+			},
+		},
+		// ToolCalls deliberately empty.
+		LogPath: "/tmp/sand-dispatch/log/def456.json",
+	}
+
+	withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+		return stubResp, nil
+	})
+
+	req := callToolRequest(map[string]any{
+		"role":   "ta-go-builder",
+		"prompt": "do the thing",
+	})
+
+	result, err := DispatchHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("DispatchHandler returned Go error = %v; want nil", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected non-error result; got %#v", result)
+	}
+
+	text := resultText(t, result)
+	for _, want := range []string{
+		"fallback_chain[1]{tier,backend,model,attempted_at,outcome,reason}:",
+		`1,claude-native,haiku,2026-05-22T01:30:15Z,success,""`,
+		"tool_calls[0]{idx,name,duration_ms,is_error}:",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("TOON output missing %q; got:\n%s", want, text)

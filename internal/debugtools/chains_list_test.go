@@ -70,32 +70,12 @@ func TestChainsListTool(t *testing.T) {
 		}
 	})
 
-	t.Run("missing chains file returns tool error", func(t *testing.T) {
-		t.Parallel()
-
-		projectDir := t.TempDir()
-		// Deliberately do NOT write a .claude/sand-chains.toml fixture.
-
-		tool, handler := ChainsListTool(projectDir)
-		assertToolMeta(t, tool)
-
-		res := callChainsList(t, handler)
-		if !res.IsError {
-			t.Fatalf("expected IsError=true for missing chains file; got success: %s", textBody(t, res))
-		}
-
-		msg := textBody(t, res)
-		wantSubstrings := []string{
-			"chains_list",
-			"chain config not found",
-			filepath.Join(projectDir, ".claude", "sand-chains.toml"),
-		}
-		for _, want := range wantSubstrings {
-			if !strings.Contains(msg, want) {
-				t.Errorf("missing-file error missing substring %q\nfull message:\n%s", want, msg)
-			}
-		}
-	})
+	// NOTE: the previous "missing chains file" subtest was promoted to a
+	// dedicated top-level test (TestChainsListToolMissingConfigIsolated)
+	// because the post-drop_008 implementation resolves the chain config
+	// via the 4-rung chains.Resolve walk, which means the missing-file
+	// assertion needs HOME + XDG_CONFIG_HOME isolation via t.Setenv —
+	// incompatible with this parent test's t.Parallel().
 
 	t.Run("malformed toml returns tool error", func(t *testing.T) {
 		t.Parallel()
@@ -211,4 +191,88 @@ func textBody(t *testing.T, res *mcp.CallToolResult) string {
 		}
 	}
 	return b.String()
+}
+
+// TestChainsListToolMissingConfigIsolated verifies the missing-file branch
+// post-drop_008: the handler now resolves the chain config via the 4-rung
+// chains.Resolve walk, so a missing config means NONE of project / XDG /
+// $HOME/.config / $HOME/.sand exist. We isolate HOME + XDG via t.Setenv so
+// a developer's real ~/.config/sand/chains.toml on the host machine cannot
+// satisfy a higher rung and silently break the assertion. Sequential
+// because t.Setenv mutates process-global env state.
+func TestChainsListToolMissingConfigIsolated(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir() // empty — no rung-3/4 fixtures
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	// Deliberately do NOT write a .claude/sand-chains.toml fixture.
+
+	tool, handler := ChainsListTool(projectDir)
+	assertToolMeta(t, tool)
+
+	res := callChainsList(t, handler)
+	if !res.IsError {
+		t.Fatalf("expected IsError=true for missing chains file; got success: %s", textBody(t, res))
+	}
+
+	msg := textBody(t, res)
+	wantSubstrings := []string{
+		"chains_list",
+		"chain config not found",
+		filepath.Join(projectDir, ".claude", "sand-chains.toml"),
+		filepath.Join(homeDir, ".config", "sand", "chains.toml"),
+		filepath.Join(homeDir, ".sand", "chains.toml"),
+	}
+	for _, want := range wantSubstrings {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missing-file error missing substring %q\nfull message:\n%s", want, msg)
+		}
+	}
+}
+
+// TestChainsListToolResolvesFromHomeConfigRung verifies the
+// drop_008.drop.build_chains_resolve_callers acceptance criterion: when no
+// project-rung chains.toml exists but a HOME-rung config does, chains_list
+// must find it via chains.Resolve and emit the SAND-SPEC §3.4 TOON shape
+// byte-for-byte. Sequential because t.Setenv mutates process-global env.
+func TestChainsListToolResolvesFromHomeConfigRung(t *testing.T) {
+	projectDir := t.TempDir() // no .claude/sand-chains.toml
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	// Seed only the home-config rung (rung 3).
+	homeCfgDir := filepath.Join(homeDir, ".config", "sand")
+	if err := os.MkdirAll(homeCfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", homeCfgDir, err)
+	}
+	homeCfgPath := filepath.Join(homeCfgDir, "chains.toml")
+	if err := os.WriteFile(homeCfgPath, []byte(happyChainsTOML), 0o644); err != nil {
+		t.Fatalf("write %s: %v", homeCfgPath, err)
+	}
+
+	tool, handler := ChainsListTool(projectDir)
+	assertToolMeta(t, tool)
+
+	res := callChainsList(t, handler)
+	if res.IsError {
+		t.Fatalf("expected IsError=false when home-config rung satisfies resolve; got error: %s", textBody(t, res))
+	}
+
+	got := textBody(t, res)
+	want := "roles[2]:\n" +
+		"  - role: ta-go-builder\n" +
+		"    tiers[3]{tier,backend,model,opts,wait_max,slots}:\n" +
+		"      1,ollama-local,qwen2.5-coder:7b,,20,4\n" +
+		"      2,codex-exec,gpt-5.5,--sandbox workspace-write -c model_reasoning_effort=low,,\n" +
+		"      3,claude-native,haiku,,,\n" +
+		"  - role: ta-go-planning\n" +
+		"    tiers[4]{tier,backend,model,opts,wait_max,slots}:\n" +
+		"      1,codex-exec,gpt-5.5,--sandbox read-only -c model_reasoning_effort=low,,\n" +
+		"      2,codex-exec,gpt-5.5,--sandbox read-only -c model_reasoning_effort=medium,,\n" +
+		"      3,claude-native,sonnet,,,\n" +
+		"      4,claude-native,opus,,,\n"
+	if got != want {
+		t.Fatalf("TOON output mismatch when resolved from home-config rung\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
 }

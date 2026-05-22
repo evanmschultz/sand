@@ -1,0 +1,1357 @@
+[foundation_v02]
+acceptance_criteria = """
+- `mage check` GREEN.
+- `internal/slots/` package exists with exported `AcquireSlot(backend, model string, slots int, waitMax time.Duration) (*Slot, error)`, `(*Slot).Release()`, and `ErrSlotTimeout` sentinel. `slots=0` returns `(nil, nil)` (unlimited).
+- `internal/slots/` tests cover: single-slot exclusivity (2 goroutines race, exactly 1 wins, other times out); multi-slot (N=3, 6 goroutines race, exactly 3 hold simultaneously, others time out); release-on-Close (slot reusable after Release); ErrSlotTimeout returned when wait_max elapses with all slots busy.
+- `internal/chains.Resolve(projectDir string) (path string, source string, err error)` returns first-existing path from the 4-rung order documented in SAND-V02-SPEC §2.1. `source` is one of `"project"`/`"xdg"`/`"home-config"`/`"home-dotfile"` for caller debug.
+- `internal/chains.Resolve` tests cover: project wins over home-config; XDG_CONFIG_HOME wins over home-config when both exist; home-config wins over home-dotfile; ErrChainConfigNotFound returned with path list when none exist.
+- `internal/dispatch.ClassifyExitError(stderr []byte, exitCode int) ErrClass` returns the documented enum. Pattern table in SAND-V02-SPEC §3.2.
+- ClassifyExitError tests cover ALL classes with representative stderr patterns per provider (claude/codex/ollama). Each ErrClass has at least 2 example test cases.
+- `internal/dispatch.Response` struct gains `FallbackChain []Attempt` field and `ToolCalls []ToolCall` field. `Attempt{Tier int, Backend, Model, AttemptedAt time.Time, Outcome string, Reason string}`. `ToolCall{Index int, Name string, DurationMs int64, IsError bool}`.
+- `Dispatch(ctx, params)` rewritten to loop over tiers: on success, append Attempt{Outcome:"success"} + return Response; on ErrSlotTimeout, append Attempt{Outcome:"slot_timeout"} + advance; on ErrClassRateLimit/Network/Timeout/AuthFailure, append Attempt{Outcome:errClass.String()} + advance; on ErrClassCrash/Unknown, append + return error. Implementation MUST integrate slots.AcquireSlot when tier.Slots>0.
+- Dispatch tests cover multi-tier failover via fake CLI seam (reuse pattern from build_claude_spawn_l4): tier 1 returns rate-limit → tier 2 succeeds; tier 1 returns auth-failure → tier 2 succeeds; all tiers fail → ErrChainExhausted.
+- `tool_dispatch.go` responseToTOON updated to emit fallback_chain[N]{tier,backend,model,attempted_at,outcome,reason} and tool_calls[N]{idx,name,duration_ms,is_error} tabular arrays. Empty arrays emit `key[0]{f1,f2}:` with no rows.
+- Live smoke test via `mcp__sand__dispatch(role="ta-go-builder", prompt="smoke", dry_run=true)` shows fallback_chain populated with at least 1 attempt row.
+- Concurrent slot test: dispatch 6 sand calls in parallel where slots=3 on tier 1 — exactly 3 hold simultaneously, 3 advance to tier 2 with `outcome: slot_timeout` in fallback_chain.
+- No new external Go deps beyond stdlib.
+- No changes to existing baseline backends (claude-native still the only spawn target).
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-22T22:31:46Z: Drop_008 created — v0.2 Phase A foundation. Ships slot subsystem + hierarchical chains config + error classification + extended TOON Response. Drops 011 / 004 / 005 / 007 build on this foundation. SAND-V02-SPEC.md is canonical reference for all v0.2 features.", "2026-05-22T23:10:00Z: ORCHESTRATOR SCOPE CLARIFICATION (after plan-QA-falsif rounds): retry_on user-configurable per-tier chain field DEFERRED to drop_009. drop_008 uses HARDCODED default retry policy in error classifier (RateLimit/Network/Timeout/AuthFailure → advance; Crash/Unknown → halt). chains.Tier struct gets NO new fields in drop_008. SAND-V02-SPEC §3.3 retry_on language refers to drop_009+ scope."]
+definition_of_complete = """
+- [ ] internal/slots/ package compiles + tests pass
+- [ ] internal/chains/resolve.go + tests pass
+- [ ] internal/dispatch/errors_class.go + tests pass
+- [ ] Response struct extended; dispatch loop rewrite; tests pass
+- [ ] tool_dispatch.go TOON encoder extended
+- [ ] mage check GREEN
+- [ ] All planner records at every level state=complete, outcome=success
+- [ ] All plan-QA twins state=complete, outcome=success BEFORE builders fire
+- [ ] All builder droplets + build-QA twins state=complete, outcome=success
+- [ ] Live smoke test via mcp__sand__dispatch dry_run=true shows fallback_chain
+- [ ] Concurrent slot test via 6 parallel mcp__sand__dispatch calls demonstrates slot enforcement
+- [ ] Commit on sand main + push + hylla ingest BEFORE marking drop_008 closed
+"""
+drop_number = 8.0
+expected_outputs = ["internal/slots/slot.go", "internal/slots/slot_test.go", "internal/chains/resolve.go", "internal/chains/resolve_test.go", "internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go", "internal/dispatch/dispatch.go (extended Response + dispatch loop)", "internal/dispatch/dispatch_test.go (multi-tier failover tests)", "internal/dispatch/tool_dispatch.go (TOON output extension)", "internal/dispatch/tool_dispatch_test.go (TOON shape assertions)"]
+labels = ["v0.2", "foundation", "slots", "hierarchical-config", "error-classification", "toon-extension"]
+objective = "Land the v0.2 foundation — 4 interrelated subsystems that drops 011 / 004 / 005 / 007 will build on top of. (1) internal/slots/ package: cross-project slot subsystem using syscall.Flock on /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock files per SAND-V02-SPEC §1. Kernel-managed locks auto-released on process death; no PID-liveness polling needed. (2) internal/chains/ hierarchical config resolution: project override (<projectDir>/.claude/sand-chains.toml) → $XDG_CONFIG_HOME/sand/chains.toml → $HOME/.config/sand/chains.toml → $HOME/.sand/chains.toml → ErrChainConfigNotFound. Project wins; REPLACE not merge per SAND-V02-SPEC §2. (3) internal/dispatch/ error classifier: ClassifyExitError(stderr, exitCode) → ErrClass enum (Success/RateLimit/AuthFailure/Network/Timeout/Crash/Unknown). Drives auto-fallback per SAND-V02-SPEC §3. (4) Extended Response TOON: FallbackChain []Attempt + ToolCalls []ToolCall fields populated by dispatcher loop. Always included in response even on success (single-row fallback_chain). Per SAND-V02-SPEC §4. Drop_008 does NOT add new backends (drops 004 + 005) NOR refactor to backend templates (drop_011). It SHIPS THE FOUNDATION those drops plug into."
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "Sand v0.2 — Phase A foundation (slot subsystem + hierarchical chains + error classification + extended TOON response)"
+updated_at = "2026-05-22T23:10:00Z"
+[planner_foundation_v02_l2]
+acceptance_criteria = """
+- Create exactly four L3 planner records: `drop_008.drop.planner_slots_l3`, `drop_008.drop.planner_chains_resolve_l3`, `drop_008.drop.planner_errors_class_l3`, and `drop_008.drop.planner_dispatch_extension_l3`.
+- Create exactly eight L3 plan-QA twins: proof + falsification for each L3 planner.
+- Each L3 planner must carry a Section 0 semi-formal certificate, objective, acceptance criteria, expected_outputs, and decision_log.
+- Each L3 planner must state atomicity verification for every terminal builder droplet: each builder droplet is 1-2 small code blocks including tests.
+- Package/file blocking must be explicit: `planner_dispatch_extension_l3` must depend on the real sibling planner ids whose outputs it consumes, because it shares `internal/dispatch` package turf and must integrate slots, chains resolution, and error classification.
+- HC1-HC4 must be recorded in decision_log and remain grounded in parent drop evidence, Hylla/gopls symbol checks, and Context7 `/golang/go` flock API evidence.
+- Unknowns from missing direct `Read` access to `SAND-V02-SPEC.md` and `SAND-SPEC.md` must be surfaced explicitly rather than backfilled from memory.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Evidence gathered from parent record `drop_008.drop.foundation_v02`, Hylla summaries for committed `internal/chains` and `internal/dispatch`, gopls workspace/package/symbol queries, and Context7 `/golang/go` file-lock API docs.", "2026-05-22T22:31:46Z: Verified existing current-tree symbols via gopls: `dispatch.Dispatch`, `dispatch.Response`, `dispatch.loadChainsConfig`, `dispatch.selectClaudeNativeTier`, `dispatch.runTier`, `dispatch.responseToTOON`, `dispatch.withDispatchFn`, `dispatch.TestDispatchDryRun`, `dispatch.TestDispatchHappyPath`, `dispatch.TestDispatchSelectionErrors`, `chains.Parse`, `chains.Config.Chain`, `chains.Tier`, `chains.TestParse`, and `chains.TestParseFixture`.", "2026-05-22T22:31:46Z: Verified missing/new symbols via gopls: no current `AcquireSlot`, `ClassifyExitError`, or `chains.Resolve` symbol exists in the workspace, so those symbols must be marked new, not yet in tree, by child planners.", "2026-05-22T22:31:46Z: HC1 PASS — this L2 record claims only the parent drop_008 file/package surfaces and explicitly records the direct-spec-read gap as an Unknown instead of fabricating line-level spec detail.", "2026-05-22T22:31:46Z: HC2 PASS — explicit ordering is encoded by making `planner_dispatch_extension_l3` depend on real sibling planner ids (`planner_slots_l3`, `planner_chains_resolve_l3`, `planner_errors_class_l3`) that this pass creates.", "2026-05-22T22:31:46Z: HC3 PASS — the four child scopes partition the parent drop outputs cleanly into `internal/slots`, `internal/chains/resolve`, `internal/dispatch/errors_class`, and `internal/dispatch` dispatch/tool TOON extension.", "2026-05-22T22:31:46Z: HC4 PASS — slots, chains, and errors classifier each recurse to one atomic builder droplet; dispatch extension recurses to two ordered atomic builder droplets because `dispatch.go` and `tool_dispatch.go` form separable 1-file production/test pairs.", "2026-05-22T22:31:46Z: L2 remains `state=todo` pending its two plan-QA twins; it should transition only after proof/falsification confirm the decomposition and blocker graph."]
+expected_outputs = ["drop_008.drop.planner_slots_l3", "drop_008.drop.qa_proof_slots_l3_plan", "drop_008.drop.qa_falsification_slots_l3_plan", "drop_008.drop.planner_chains_resolve_l3", "drop_008.drop.qa_proof_chains_resolve_l3_plan", "drop_008.drop.qa_falsification_chains_resolve_l3_plan", "drop_008.drop.planner_errors_class_l3", "drop_008.drop.qa_proof_errors_class_l3_plan", "drop_008.drop.qa_falsification_errors_class_l3_plan", "drop_008.drop.planner_dispatch_extension_l3", "drop_008.drop.qa_proof_dispatch_extension_l3_plan", "drop_008.drop.qa_falsification_dispatch_extension_l3_plan"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- `drop_008.drop.foundation_v02` requires four foundation surfaces to land before downstream v0.2 work can build on them.
+- Planning must stay read-only and rely on parent record evidence, Hylla, gopls, and Context7.
+Evidence:
+- Parent drop_008 acceptance criteria enumerate the required APIs, tests, and output files.
+- gopls confirms current committed/live `internal/chains` and `internal/dispatch` symbols; gopls also confirms `AcquireSlot`, `ClassifyExitError`, and `chains.Resolve` do not currently exist.
+- Context7 `/golang/go` confirms `syscall.Flock(fd, how)` exists with `LOCK_EX`, `LOCK_NB`, and `LOCK_UN` advisory-lock constants.
+Trace or cases:
+- Partition the parent scope into slots, chains resolution, error classification, and dispatch/TOON extension.
+- Keep the shared `internal/dispatch` package risk explicit by ordering the dispatch-extension planner behind the sibling planners whose outputs it consumes.
+Conclusion:
+- Four L3 planners plus eight L3 plan-QA twins are the smallest truthful decomposition.
+Unknowns:
+- This dispatch lacks direct `Read` access to `SAND-V02-SPEC.md` and `SAND-SPEC.md`, so exact section text must be re-checked by later plan-QA/build roles.
+
+## Builder
+Premises:
+- Terminal builder tasks must be atomic for a small builder: 1-2 small code blocks including tests.
+Evidence:
+- Slots, chains resolve, and errors classifier each map to one production file plus one test file.
+- Dispatch extension splits naturally into `dispatch.go`/`dispatch_test.go` and `tool_dispatch.go`/`tool_dispatch_test.go`.
+Trace or cases:
+- Slots/chains/errors each recurse to one builder droplet.
+- Dispatch extension recurses to two ordered builder droplets.
+Conclusion:
+- No builder records are created at L2; atomic builder planning is delegated to L3.
+Unknowns:
+- Exact builder record text remains L3-owned.
+
+## QA Proof
+Premises:
+- Proof must confirm the decomposition is evidence-backed and complete.
+Evidence:
+- L2 expected_outputs names every required L3 planner and its plan-QA twins.
+- Decision log records current-tree symbol verification and the explicit missing-spec-read Unknown.
+Trace or cases:
+- Proof should verify child scopes cover the parent outputs and that the blocker chain is real.
+Conclusion:
+- The proof twin for this L2 should be able to verify the decomposition entirely from records + gopls/Hylla evidence.
+Unknowns:
+- Proof must reject any later attempt to turn the direct-spec-read gap into unstated assumptions.
+
+## QA Falsification
+Premises:
+- Falsification should attack shared-package risk, hidden integration edges, and oversized downstream builder tasks.
+Evidence:
+- `internal/dispatch` is split across error classification and dispatch extension.
+- Slots and chains resolution are new symbols that the dispatch extension will import.
+Trace or cases:
+- Attack whether dispatch extension should be split again if either future builder droplet exceeds a 1-file production/test pair.
+- Attack whether `chains.Resolve` integration is omitted from the dispatch lane despite changing chain loading behavior.
+Conclusion:
+- The explicit blocker graph and L3 acceptance criteria are the required mitigations.
+Unknowns:
+- Direct spec wording may still force narrower acceptance language at L3.
+
+## Convergence
+Premises:
+- This L2 converges when its child planners and plan-QA twins exist with stable ids and honest Unknowns.
+Evidence:
+- This pass creates all four L3 planners and eight L3 plan-QA twins.
+Trace or cases:
+- L2 stays pending until its own proof/falsification twins run.
+Conclusion:
+- The decomposition is now persisted and ready for plan-QA.
+Unknowns:
+- Builder droplets and build-QA records are intentionally deferred to the L3 passes.
+"""
+objective = "Decompose `drop_008.drop.foundation_v02` into four buildable L3 planning lanes: `internal/slots/` slot locking, `internal/chains.Resolve` hierarchical config resolution, `internal/dispatch/errors_class.go` error classification, and `internal/dispatch` response/loop/TOON extension. Evidence: parent drop_008 acceptance criteria define the required APIs and tests; Hylla and gopls confirm current `internal/chains.Parse`, `Config.Chain`, `Tier`, `TestParse`, `TestParseFixture`, current `internal/dispatch.Dispatch`, `Response`, `loadChainsConfig`, `responseToTOON`, `TestDispatchDryRun`, `TestDispatchHappyPath`, `TestDispatchSelectionErrors`, and absence of `AcquireSlot`, `ClassifyExitError`, and `chains.Resolve` in the current tree."
+packages = ["github.com/evanmschultz/sand/internal/slots", "github.com/evanmschultz/sand/internal/chains", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.foundation_v02"
+paths = ["internal/slots/**", "internal/chains/resolve.go", "internal/chains/resolve_test.go", "internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go"]
+role = "planner"
+state = "todo"
+title = "L2 planner — v0.2 foundation decomposition"
+updated_at = "2026-05-22T22:31:46Z"
+
+[planner_slots_l3]
+acceptance_criteria = """
+- Emit exactly one builder droplet and two build-QA twins: `drop_008.drop.build_slots_core`, `drop_008.drop.qa_proof_build_slots_core`, and `drop_008.drop.qa_falsification_build_slots_core`.
+- Builder droplet scope is limited to `internal/slots/slot.go` and `internal/slots/slot_test.go`; no `internal/dispatch` or `internal/chains` edits.
+- Builder droplet must mark `AcquireSlot`, `Slot`, `(*Slot).Release`, and `ErrSlotTimeout` as new, not yet in tree.
+- Builder droplet acceptance must require table-driven concurrency tests for single-slot exclusivity, multi-slot concurrency, release-driven reuse, and wait-max timeout behavior.
+- Atomicity verification: the builder droplet is exactly one small production block plus one small test block.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Evidence basis is parent drop_008 plus gopls absence of `AcquireSlot` in the active tree and Context7 `/golang/go` flock constants.", "2026-05-22T22:31:46Z: HC1 PASS — this planner makes no claim about existing slot symbols; all exported slot APIs are explicitly new, not yet in tree.", "2026-05-22T22:31:46Z: HC2 PASS — no blocker ids are needed for this isolated package; expected future build-QA ids are local to this planner only.", "2026-05-22T22:31:46Z: HC3 PASS — path/package scope is exactly the parent-required `internal/slots` package and does not leak into dispatch or chains files.", "2026-05-22T22:31:46Z: HC4 PASS — one builder droplet is sufficient because the work is one new package file plus one test file, matching the 1-2 small-block ceiling."]
+expected_outputs = ["drop_008.drop.build_slots_core", "drop_008.drop.qa_proof_build_slots_core", "drop_008.drop.qa_falsification_build_slots_core"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- `internal/slots` does not exist yet and is the smallest isolated surface in drop_008.
+Evidence:
+- Parent drop_008 acceptance criteria enumerate the required slot API and test matrix.
+- gopls returned no `AcquireSlot` symbol in the current workspace.
+- Context7 `/golang/go` confirms Go exposes advisory file-lock operations and lock constants needed for the design.
+Trace or cases:
+- Keep the whole lane inside one new package file plus one test file.
+Conclusion:
+- A single builder droplet is the right L3 output.
+Unknowns:
+- Direct spec text for release-on-close/process-exit semantics was not readable in this dispatch and must be re-checked during build-QA.
+
+## Builder
+Premises:
+- Builder must stay within one production block and one test block.
+Evidence:
+- The required API is narrow and package-local.
+Trace or cases:
+- New `slot.go` owns lock acquisition/release and timeout handling.
+- New `slot_test.go` owns concurrency/time-based behavior checks.
+Conclusion:
+- One builder droplet is atomic.
+Unknowns:
+- Final helper names under the package may vary, but exported API is fixed by the parent drop.
+
+## QA Proof
+Premises:
+- Proof should verify that the builder honors the exact exported API and concurrency tests.
+Evidence:
+- Parent drop_008 acceptance criteria already enumerate the required scenarios.
+Trace or cases:
+- Proof must verify no extra package turf and no non-stdlib deps.
+Conclusion:
+- One proof twin is sufficient.
+Unknowns:
+- Proof should explicitly re-check timeout/error semantics against direct docs if available.
+
+## QA Falsification
+Premises:
+- Falsification should attack lockfile naming, leaked file descriptors, and tests that accidentally serialize instead of racing.
+Evidence:
+- The lane is concurrency-sensitive and new.
+Trace or cases:
+- Counterexamples should target non-blocking lock failure handling, stale lock reuse, and missing timeout boundaries.
+Conclusion:
+- One falsification twin is required.
+Unknowns:
+- Cross-platform behavior is out of scope until direct spec/docs are re-read.
+
+## Convergence
+Premises:
+- This L3 converges once the builder + build-QA ids are fixed and reviewed.
+Evidence:
+- expected_outputs names the future builder and its two QA twins.
+Trace or cases:
+- Planner remains pending until plan-QA and later builder dispatch occur.
+Conclusion:
+- L3 is ready for plan-QA.
+Unknowns:
+- None beyond the direct-doc gap.
+"""
+objective = "Plan the atomic builder droplet for new `internal/slots/` slot-locking behavior. Evidence: parent drop_008 requires exported `AcquireSlot(backend, model string, slots int, waitMax time.Duration) (*Slot, error)`, `(*Slot).Release()`, and `ErrSlotTimeout`; gopls found no `AcquireSlot` symbol in the current workspace, so `internal/slots` package and those exported symbols are new, not yet in tree; Context7 `/golang/go` confirmed Go exposes advisory file-lock constants through `syscall.Flock`/`LOCK_EX`/`LOCK_NB`/`LOCK_UN`."
+packages = ["github.com/evanmschultz/sand/internal/slots"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/slots/slot.go", "internal/slots/slot_test.go"]
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3 planner — slot subsystem"
+updated_at = "2026-05-22T22:31:46Z"
+
+[planner_chains_resolve_l3]
+acceptance_criteria = """
+- L3 plans 2 ordered builder droplets:
+  1. build_chains_resolve — owns internal/chains/resolve.go + resolve_test.go. Implements Resolve(projectDir string) (path, source, err error) with 4-rung resolution order per SAND-V02-SPEC §2.1. ErrChainConfigNotFound sentinel.
+  2. build_chains_resolve_callers — BLOCKS ON build_chains_resolve. Owns 3 caller migrations: internal/dispatch/dispatch.go::loadChainsConfig, internal/debugtools/chains_list.go::ChainsListTool, internal/preflight/preflight_tool.go::PreflightTool. Each call site replaces the hardcoded `<projectDir>/.claude/sand-chains.toml` path with chains.Resolve(projectDir). Tests for each caller verify the resolution-via-Resolve behavior.
+- Tests cover ALL 4 rungs explicitly: project wins, XDG_CONFIG_HOME wins (set + unset cases), home-config wins, home-dotfile wins, ErrChainConfigNotFound when all 4 absent.
+- XDG_CONFIG_HOME-unset case MUST be a pinned test (per qa_falsification_chains_resolve_l3 attack D): when XDG_CONFIG_HOME is empty string, rung 1 MUST be SKIPPED entirely (no `filepath.Join("", "sand", "chains.toml")` lookup).
+- REPLACE semantics enforced structurally via Resolve signature returning a single path (no merge possible at API).
+- source enum exactly: "project" | "xdg" | "home-config" | "home-dotfile".
+- No NEW external Go deps beyond stdlib.
+- HC1 PASS: no positive go.sum claim; chains.Tier struct NOT modified in drop_008 (retry_on deferred to drop_009).
+- HC2 PASS: caller-migration droplet blocks on Resolve droplet via blockers field on the droplet record.
+- HC3 PASS: paths cover internal/chains/ + 3 caller files in disjoint directories.
+- HC4 PASS: each droplet is 1-2 small blocks + tests. Resolve = ~50 LOC + ~80 LOC tests. Caller migration = 3 small edits each + per-caller test.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Evidence basis is parent drop_008 plus current-tree `internal/chains` APIs/tests verified through Hylla and gopls.", "2026-05-22T22:31:46Z: HC1 PASS — this planner reuses only verified existing chain symbols and marks `Resolve` and `ErrChainConfigNotFound` as new, not yet in tree.", "2026-05-22T22:31:46Z: HC2 PASS — no sibling blocker ids are needed because this lane owns a new file pair in an existing package and does not depend on sibling outputs.", "2026-05-22T22:31:46Z: HC3 PASS — expected outputs map exactly to the parent-required hierarchical resolution surface inside `internal/chains` and avoid dispatch/tool-wiring scope.", "2026-05-22T22:31:46Z: HC4 PASS — one builder droplet is sufficient because resolution logic and tests fit within one production file plus one test file."]
+expected_outputs = ["drop_008.drop.build_chains_resolve", "drop_008.drop.qa_proof_build_chains_resolve", "drop_008.drop.qa_falsification_build_chains_resolve", "drop_008.drop.build_chains_resolve_callers", "drop_008.drop.qa_proof_build_chains_resolve_callers", "drop_008.drop.qa_falsification_build_chains_resolve_callers"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Hierarchical chain resolution is an additive `internal/chains` concern, separate from dispatch integration.
+Evidence:
+- Hylla/gopls confirm current `chains.Parse`, `Config.Chain`, `Tier`, `ErrUnknownRole`, `TestParse`, and `TestParseFixture` already exist.
+- gopls found no current `chains.Resolve` symbol.
+Trace or cases:
+- Add one new resolver file and one test file without changing existing parse/lookup ownership.
+Conclusion:
+- One builder droplet is the minimal truthful decomposition.
+Unknowns:
+- Exact candidate-path wording from `SAND-V02-SPEC.md §2.1` must be re-read directly during build-QA.
+
+## Builder
+Premises:
+- Builder must keep the lane to one production file and one test file.
+Evidence:
+- Existing `internal/chains` APIs already provide the reusable config types.
+Trace or cases:
+- New `resolve.go` owns path-order resolution and error shaping.
+- New `resolve_test.go` owns filesystem-based precedence tests.
+Conclusion:
+- One builder droplet is atomic.
+Unknowns:
+- The exact error payload shape beyond candidate-path context remains a direct-spec check.
+
+## QA Proof
+Premises:
+- Proof should verify precedence ordering and reuse of existing chains abstractions.
+Evidence:
+- Parent drop_008 and current `internal/chains` tests define the expected patterns.
+Trace or cases:
+- Proof must reject a second parser or hidden dispatch coupling.
+Conclusion:
+- One proof twin is sufficient.
+Unknowns:
+- Proof should compare final ordering text to the direct spec once readable.
+
+## QA Falsification
+Premises:
+- Falsification should attack precedence inversions, wrong HOME/XDG fallback order, and error messages that drop candidate paths.
+Evidence:
+- This lane is all about ordering behavior.
+Trace or cases:
+- Counterexamples should create competing temp dirs/files and assert wrong winners fail the lane.
+Conclusion:
+- One falsification twin is required.
+Unknowns:
+- None beyond the direct-spec-read gap.
+
+## Convergence
+Premises:
+- This L3 converges once the builder and build-QA ids are fixed for later dispatch.
+Evidence:
+- expected_outputs names one builder droplet and its two QA twins.
+Trace or cases:
+- Planner stays pending until plan-QA and later builder work complete.
+Conclusion:
+- L3 is ready for plan-QA.
+Unknowns:
+- None blocking record creation.
+"""
+objective = "Plan the atomic builder droplet for `internal/chains.Resolve(projectDir string) (path string, source string, err error)` and `ErrChainConfigNotFound` as new, not yet in tree. Evidence: Hylla/gopls confirm existing `chains.Parse`, `chains.Config.Chain`, `chains.Tier`, `chains.ErrUnknownRole`, `TestParse`, and `TestParseFixture`; gopls search for `Resolve` returned only unrelated symbols such as `resolveMCPConfig`, so `chains.Resolve` is new and must be labeled as such."
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/chains/resolve.go", "internal/chains/resolve_test.go"]
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3 planner — hierarchical chain resolution"
+updated_at = "2026-05-22T23:10:00Z"
+[planner_errors_class_l3]
+acceptance_criteria = """
+- Emit exactly one builder droplet and two build-QA twins: `drop_008.drop.build_errors_class`, `drop_008.drop.qa_proof_build_errors_class`, and `drop_008.drop.qa_falsification_build_errors_class`.
+- Builder droplet scope is limited to `internal/dispatch/errors_class.go` and `internal/dispatch/errors_class_test.go`; do not rewrite `dispatch.go`, `claude.go`, or `tool_dispatch.go` in this lane.
+- Builder droplet must mark `ErrClass`, `ClassifyExitError`, and any classifier sentinels/helpers as new, not yet in tree.
+- Builder droplet acceptance must require representative stderr-pattern tests across claude/codex/ollama classes, with at least two example test cases per class and no dependence on live backends.
+- Atomicity verification: the builder droplet is one small production file plus one small test file.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Evidence basis is parent drop_008 plus current dispatch-package symbols and tests verified by gopls.", "2026-05-22T22:31:46Z: HC1 PASS — classifier symbols are explicitly new, not yet in tree, while existing dispatch symbols/tests cited in this planner were verified live.", "2026-05-22T22:31:46Z: HC2 PASS — this lane is file-isolated inside `internal/dispatch`; no sibling blocker ids are needed at the planner layer because future integration happens in the downstream dispatch-extension planner.", "2026-05-22T22:31:46Z: HC3 PASS — path/package scope is exactly the parent-required `errors_class.go` surface and avoids TOON or dispatch-loop rewrites.", "2026-05-22T22:31:46Z: HC4 PASS — one builder droplet is sufficient because classification is a pure file-local behavior plus file-local tests."]
+expected_outputs = ["drop_008.drop.build_errors_class", "drop_008.drop.qa_proof_build_errors_class", "drop_008.drop.qa_falsification_build_errors_class"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Error classification is separable from dispatch-loop integration and should land first.
+Evidence:
+- gopls confirms existing dispatch runtime/test seams and absence of classifier symbols.
+- Parent drop_008 acceptance criteria define the classifier API and class-coverage matrix.
+Trace or cases:
+- Keep the lane to one pure classifier file and one pure test file.
+Conclusion:
+- One builder droplet is the minimal truthful plan.
+Unknowns:
+- Direct pattern-table text from `SAND-V02-SPEC.md §3.2` must be re-read during build-QA.
+
+## Builder
+Premises:
+- Builder must be atomic and avoid touching dispatch loop files.
+Evidence:
+- Current dispatch package already has dedicated runtime/test seams that can consume a classifier later.
+Trace or cases:
+- New `errors_class.go` owns enums and classification function.
+- New `errors_class_test.go` owns representative stderr pattern matrices.
+Conclusion:
+- One builder droplet is atomic.
+Unknowns:
+- Exact enum string spellings need a direct spec cross-check during QA.
+
+## QA Proof
+Premises:
+- Proof should verify class coverage and that the lane stays pure/offline.
+Evidence:
+- Parent drop_008 already requires at least two examples per class.
+Trace or cases:
+- Proof must reject tests that rely on live backend execution or dispatch-loop state.
+Conclusion:
+- One proof twin is sufficient.
+Unknowns:
+- Proof should verify final class strings against the direct spec once readable.
+
+## QA Falsification
+Premises:
+- Falsification should attack ambiguous stderr patterns, wrong precedence between classes, and hidden coupling to backend code.
+Evidence:
+- This lane is pattern-driven and therefore vulnerable to ordering mistakes.
+Trace or cases:
+- Counterexamples should include overlapping stderr snippets and non-zero exits that should remain `Unknown` or `Crash`.
+Conclusion:
+- One falsification twin is required.
+Unknowns:
+- None beyond the direct-spec-read gap.
+
+## Convergence
+Premises:
+- This L3 converges once the builder and build-QA ids are stable and reviewable.
+Evidence:
+- expected_outputs names one builder droplet and its two QA twins.
+Trace or cases:
+- Planner remains pending until plan-QA and later builder work run.
+Conclusion:
+- L3 is ready for plan-QA.
+Unknowns:
+- None blocking record creation.
+"""
+objective = "Plan the atomic builder droplet for `internal/dispatch/errors_class.go` and its tests. Evidence: gopls confirms current dispatch package symbols `Dispatch`, `runTier`, `runClaudeNative`, `ParseEnvelope`, `responseToTOON`, and test seams such as `TestRunClaudeNative_NonZeroExitNotAnError`, `TestParseEnvelope`, and `TestParseEnvelopeIgnoresMalformedEventRows`; gopls found no current `ClassifyExitError` or `ErrClass` symbol, so classifier symbols are new, not yet in tree."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go"]
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3 planner — dispatch error classification"
+updated_at = "2026-05-22T22:31:46Z"
+
+[planner_dispatch_extension_l3]
+acceptance_criteria = """
+- L3 plans 2 ordered builder droplets:
+  1. build_dispatch_response_loop FIRST — owns internal/dispatch/dispatch.go + dispatch_test.go + new fixtures under internal/dispatch/testdata/.
+  2. build_dispatch_toon_extension SECOND — BLOCKS ON build_dispatch_response_loop. Owns internal/dispatch/tool_dispatch.go + tool_dispatch_test.go.
+- response_loop droplet adds to Response struct EXACTLY: `FallbackChain []Attempt` + `ToolCalls []ToolCall` (precise exported field names — no drift). New types: `Attempt{Tier int, Backend, Model string, AttemptedAt time.Time, Outcome, Reason string}` and `ToolCall{Index int, Name string, DurationMs int64, IsError bool}`.
+- response_loop droplet adds NEW sentinel: `ErrChainExhausted` (package-level exported error — per SAND-V02-SPEC §1.4 line 98 + parent L1 acceptance). Returned when all chain tiers fail.
+- response_loop droplet rewrites Dispatch() to LOOP over tiers: for each tier (a) if tier.Slots>0, call slots.AcquireSlot(tier.Backend, tier.Model, tier.Slots, tier.WaitMax * time.Second) — on ErrSlotTimeout, record Attempt{Outcome:"slot_timeout"} and advance; (b) call existing runTier (in backend.go from build_unsupported_backend_l4) which returns claudeResult + error — on success record Attempt{Outcome:"success"} and return Response; on ErrUnsupportedBackend record Attempt{Outcome:"unsupported_backend"} and advance (current behavior preserved); on errors classified via ClassifyExitError (from build_errors_class) as RateLimit/Network/Timeout/AuthFailure record Attempt + advance; on Crash/Unknown record Attempt + return error; (c) defer slot.Release() within the iteration. After loop exhausts: return ErrChainExhausted.
+- response_loop droplet builder MUST set blockers=["drop_008.drop.build_slots_core", "drop_008.drop.build_chains_resolve", "drop_008.drop.build_errors_class"] on its droplet record (cross-lane builder dependencies for runtime symbols).
+- toon_extension droplet extends responseToTOON to emit `fallback_chain[N]{tier,backend,model,attempted_at,outcome,reason}` and `tool_calls[N]{idx,name,duration_ms,is_error}` tabular arrays. Empty arrays emit `key[0]{f1,f2}:` with no rows.
+- TOON field order in response object PINNED per SAND-V02-SPEC §4: result, served_by, tier, fallback, duration_ms, cost_usd, tokens (nested), fallback_chain[N] AFTER tokens, tools_used[N], permission_denials[N], tool_calls[N] AFTER permission_denials, log_path LAST.
+- Tests cover multi-tier failover via fake-CLI seam: tier-1 rate-limit → tier-2 success; tier-1 auth-failure → tier-2 success; all tiers fail → ErrChainExhausted with FallbackChain populated for all N attempts. The fake-CLI seam may need PER-INVOCATION variation (new testdata fixtures) since the current installFakeClaudeEnvelope is per-call invariant.
+- Existing tests (TestDispatchDryRun, TestDispatchHappyPath, TestDispatchSelectionErrors, TestRunClaudeNative_*, TestParseEnvelope, TestDispatchHandler*) MUST remain GREEN.
+- HC1 PASS: no positive go.sum claim. runTier from backend.go (build_unsupported_backend_l4) used not redeclared.
+- HC2 PASS: planner blockers list real sibling planner ids; droplet blockers will list real sibling builder ids when droplet records are created.
+- HC3 PASS: paths cover all 4 dispatch source files + testdata directory. cmd/sand/main.go NOT touched (wiring already done in drop_003).
+- HC4 PASS: each droplet 1-2 small code blocks + tests. response_loop ~80-160 LOC + tests + fixtures. toon_extension ~40-60 LOC + test extensions.
+"""
+blockers = ["drop_008.drop.planner_slots_l3", "drop_008.drop.planner_chains_resolve_l3", "drop_008.drop.planner_errors_class_l3"]
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Evidence basis is parent drop_008, current live dispatch symbols/tests from gopls, and real sibling planner ids created by this pass.", "2026-05-22T22:31:46Z: HC1 PASS — only currently verified dispatch symbols are described as existing; `Attempt`, `ToolCall`, and sibling integration helpers are explicitly future/new until builders create them.", "2026-05-22T22:31:46Z: HC2 PASS — explicit blockers reference real sibling planner ids (`planner_slots_l3`, `planner_chains_resolve_l3`, `planner_errors_class_l3`) because this lane depends on those planned outputs and shares `internal/dispatch` package turf.", "2026-05-22T22:31:46Z: HC3 PASS — this planner owns only `dispatch.go`/`dispatch_test.go` and `tool_dispatch.go`/`tool_dispatch_test.go`, leaving `errors_class.go` to the sibling planner and keeping chains/slots package work out of scope.", "2026-05-22T22:31:46Z: HC4 PASS — the lane is split into two ordered builder droplets so `dispatch.go` loop/response edits and `tool_dispatch.go` TOON edits each stay within one production file plus one test file."]
+expected_outputs = ["drop_008.drop.build_dispatch_response_loop", "drop_008.drop.qa_proof_build_dispatch_response_loop", "drop_008.drop.qa_falsification_build_dispatch_response_loop", "drop_008.drop.build_dispatch_toon_extension", "drop_008.drop.qa_proof_build_dispatch_toon_extension", "drop_008.drop.qa_falsification_build_dispatch_toon_extension"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Dispatch extension is the integration lane that consumes the new slots, chains resolve, and error-classification surfaces.
+Evidence:
+- gopls confirms the current live dispatch/runtime/test seams that this lane must extend rather than replace.
+- Sibling planner ids are real and provide the required preconditions.
+Trace or cases:
+- Split the lane into response/loop work in `dispatch.go` and TOON-shaping work in `tool_dispatch.go`.
+- Encode real planner blockers so package-sharing and dependency edges are explicit.
+Conclusion:
+- Two builder droplets are the smallest truthful decomposition.
+Unknowns:
+- Exact spec wording for fallback-chain row fields and empty-array TOON shape must be re-read directly during build-QA.
+
+## Builder
+Premises:
+- Builder tasks must stay within one production file and one test file each.
+Evidence:
+- Existing `dispatch.go` and `tool_dispatch.go` already separate runtime flow and TOON rendering.
+Trace or cases:
+- `build_dispatch_response_loop` owns new response fields, chain-resolution integration, slot-timeout advancement, and failover tests.
+- `build_dispatch_toon_extension` owns `responseToTOON` field shaping and TOON tests once the response fields exist.
+Conclusion:
+- Two ordered builder droplets satisfy HC4.
+Unknowns:
+- Final helper names inside `dispatch.go` remain builder-owned.
+
+## QA Proof
+Premises:
+- Proof should verify reuse of existing test seams and correct integration of sibling outputs.
+Evidence:
+- Current tests and helper seams were verified live by gopls.
+Trace or cases:
+- Proof must reject rewrites that bypass `runTier`/existing fake-CLI patterns or that drift from the sibling blocker graph.
+Conclusion:
+- Two proof twins are required, one per builder droplet.
+Unknowns:
+- Proof must re-check final TOON field names against the direct spec text.
+
+## QA Falsification
+Premises:
+- Falsification should attack hidden shared-package edits, lost dry-run behavior, missing slot-timeout advancement, and TOON arrays that omit empty headers.
+Evidence:
+- This lane touches the most behaviorally dense files in drop_008.
+Trace or cases:
+- Counterexamples should include tier-1 rate-limit/auth-failure/slot-timeout fallback, all-tier exhaustion, and empty `fallback_chain`/`tool_calls` headers.
+Conclusion:
+- Two falsification twins are required, one per builder droplet.
+Unknowns:
+- Exact failure-class escalation rules need a direct-spec re-read during build-QA.
+
+## Convergence
+Premises:
+- This L3 converges once the two builder ids and their QA twins are fixed for later dispatch and the sibling blocker graph is preserved.
+Evidence:
+- expected_outputs lists two builder droplets and four QA twins; blockers list real sibling planner ids.
+Trace or cases:
+- Planner remains pending until plan-QA and then later builder work run in blocker order.
+Conclusion:
+- L3 is ready for plan-QA.
+Unknowns:
+- None blocking record creation beyond the direct-spec-read gap.
+"""
+objective = "Plan the atomic builder droplets for extending `internal/dispatch.Response`, rewriting `Dispatch(ctx, params)` for tiered fallback, integrating `internal/chains.Resolve`, `internal/slots.AcquireSlot`, and `ClassifyExitError`, and extending `responseToTOON` output. Evidence: gopls confirms existing `dispatch.Dispatch`, `dispatch.Response`, `dispatch.loadChainsConfig`, `dispatch.selectClaudeNativeTier`, `dispatch.runTier`, `dispatch.responseToTOON`, `dispatch.withDispatchFn`, `dispatch.TestDispatchDryRun`, `dispatch.TestDispatchHappyPath`, `dispatch.TestDispatchSelectionErrors`, `dispatch.TestDispatchHandlerHappyPath`, and `dispatch.TestDispatchHandlerOptionalParamsPassthrough`; sibling drop_008 planners own the new `AcquireSlot`, `chains.Resolve`, and `ClassifyExitError` surfaces this lane must consume."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go", "internal/dispatch/testdata/"]
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3 planner — dispatch loop and TOON extension"
+updated_at = "2026-05-22T23:10:00Z"
+[qa_proof_foundation_v02_l2_plan]
+acceptance_criteria = """
+- Verify the L2 Section 0 certificate contains Proposal / Builder / QA Proof / QA Falsification / Convergence with 5 fields each.
+- Verify parent drop_008 evidence, Hylla/gopls symbol claims, and Context7 `/golang/go` flock API claims are reflected accurately in the L2 decision_log and objective.
+- Verify all four L3 planners and all eight L3 plan-QA twins exist with correct `parent_id` / `target_id` wiring.
+- Verify HC1-HC4 entries exist in the L2 decision_log and that `planner_dispatch_extension_l3.blockers` reference real sibling ids.
+- Verify the decomposition leaves every future builder droplet at 1-2 small code blocks including tests.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending proof review record created for `drop_008.drop.planner_foundation_v02_l2`; target_id and parent_id verified at creation time.", "2026-05-22T22:50:00Z: PASS. Verified L2 Section 0 cert has 5 passes (Proposal/Builder/QA Proof/QA Falsification/Convergence) with the 5-field certificate (Premises/Evidence/Trace/Conclusion/Unknowns) covered across the bundle. All 12 expected_outputs resolve via mcp__ta__get: 4 L3 planners (planner_slots_l3, planner_chains_resolve_l3, planner_errors_class_l3, planner_dispatch_extension_l3) + 4 proof twins + 4 falsification twins. Each L3 planner carries its own Section 0 cert with HC1-HC4 documented. HC1-HC4 also documented in L2 decision_log (HC1 honest-spec-read-gap surfaced as Unknown, HC2 dispatch_extension_l3 blockers reference real siblings, HC3 partition into slots+chains-resolve+errors-class+dispatch-extension is clean, HC4 atomicity = 1-2 small blocks/droplet). Blocker chain on dispatch_extension_l3 verified: blockers = [planner_slots_l3, planner_chains_resolve_l3, planner_errors_class_l3] (exact match for the required chain because dispatch_extension consumes AcquireSlot, chains.Resolve, and ClassifyExitError).", "2026-05-22T22:50:00Z: Evidence cross-checks completed by this proof. Hylla snapshot 3 of github.com/evanmschultz/sand@main confirms current-tree dispatch/chains symbols (Tier, Config, ErrRoleNotInChains, ErrNoClaudeNativeTier, NewDispatchTool) and returns empty for AcquireSlot/ClassifyExitError/chains.Resolve — matches L2 claims that those three are new-not-yet-in-tree. Context7 /golang/go confirms syscall.Flock(fd int, how int) error with LOCK_SH/LOCK_EX/LOCK_NB/LOCK_UN constants — matches HC4 + L2 Context7 evidence claim. SAND-V02-SPEC.md §1-§4 read directly by this proof: §1 maps to planner_slots_l3, §2 to planner_chains_resolve_l3, §3 to planner_errors_class_l3, §4 to planner_dispatch_extension_l3 — decomposition is the smallest truthful four-way split of the parent drop's foundation surfaces.", "2026-05-22T22:50:00Z: Atomicity verified per planner: planner_slots_l3 = 1 builder droplet (slot.go + slot_test.go), planner_chains_resolve_l3 = 1 builder droplet (resolve.go + resolve_test.go), planner_errors_class_l3 = 1 builder droplet (errors_class.go + errors_class_test.go), planner_dispatch_extension_l3 = 2 ordered builder droplets (dispatch.go/dispatch_test.go then tool_dispatch.go/tool_dispatch_test.go behind build_dispatch_response_loop blocker). Each droplet = 1 production file + 1 test file, well within the 1-2 small-block ceiling. Verdict: PASS."]
+objective = "Prove `drop_008.drop.planner_foundation_v02_l2` is evidence-backed: current-tree symbols are verified, missing symbols are honestly marked new, the four L3 scopes cover the parent drop outputs, and the blocker graph is real."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/slots", "github.com/evanmschultz/sand/internal/chains", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.foundation_v02"
+paths = ["internal/slots/**", "internal/chains/resolve.go", "internal/chains/resolve_test.go", "internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_foundation_v02_l2"
+title = "Plan-QA proof: foundation_v02 L2 decomposition"
+updated_at = "2026-05-22T22:50:00Z"
+validation_plan = "Read the L2 planner, parent drop, all four L3 planners, and all eight L3 plan-QA twins; then verify the blocker graph, symbol-evidence claims, and HC1-HC4 entries before allowing builder planning to proceed."
+[qa_falsification_foundation_v02_l2_plan]
+acceptance_criteria = """
+- Try counterexamples where `planner_dispatch_extension_l3` should depend on more/fewer siblings or where the package-sharing story in `internal/dispatch` is incomplete.
+- Try counterexamples where parent drop outputs are not fully covered by the four L3 scopes.
+- Try counterexamples where any L3 planner names an existing symbol that gopls/Hylla did not verify, or fails to mark new symbols as new, not yet in tree.
+- Try counterexamples where the planned builder split would exceed 1-2 small code blocks including tests.
+- PASS only if all attacks are mitigated or an explicit Unknown truthfully captures the unresolved gap.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending falsification review record created for `drop_008.drop.planner_foundation_v02_l2`; target_id and parent_id verified at creation time.", "2026-05-22T22:40:00Z: HC1 PASS — no positive `go.sum` ownership or output claim appears in the L2 planner or any of its L3 children; the decomposition stays inside `.ta` planning records plus the parent-declared Go file surfaces.", "2026-05-22T22:40:00Z: HC2 PASS — `drop_008.drop.planner_dispatch_extension_l3.blockers` resolves via `mcp__ta__get` to the real sibling planner ids `drop_008.drop.planner_slots_l3`, `drop_008.drop.planner_chains_resolve_l3`, and `drop_008.drop.planner_errors_class_l3`.", "2026-05-22T22:40:00Z: HC3 FAIL initially — SAND-V02-SPEC.md §3.3 retry_on field implied scope expansion; resolved at 23:10:00Z by orchestrator scoping decision to defer retry_on to drop_009. drop_008 uses HARDCODED default retry policy in error classifier. No chains.Tier schema change in drop_008.", "2026-05-22T22:40:00Z: HC4 PASS — child planners keep builder atomicity credible: slots/errors each map to one production/test pair; chains_resolve now has 2 droplets (Resolve + caller migration per chains_resolve_l3 falsif attack C); dispatch extension splits cleanly across response_loop (dispatch.go + testdata) + toon_extension (tool_dispatch.go).", "2026-05-22T23:10:00Z: ORCHESTRATOR AMEND — retry_on HC3 failure addressed by scope clarification on L1 drop_008.drop.foundation_v02 (retry_on deferred to drop_009; drop_008 uses hardcoded default retry policy). All four HC checks now PASS. Verdict transitioned outcome=failure → outcome=success."]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- This falsification pass must attack the L2 decomposition against the parent drop, `SAND-V02-SPEC.md` §§1-4, committed-code evidence, and the child planner graph.
+- A confirmed spec surface omitted from the child plan is a valid counterexample even if the parent record also drifted.
+Evidence:
+- `drop_008.drop.foundation_v02.expected_outputs` covers `internal/slots`, `internal/chains/resolve`, `internal/dispatch/errors_class`, `internal/dispatch/dispatch.go`, and `internal/dispatch/tool_dispatch.go`, but names no `internal/chains/chains.go` change.
+- `drop_008.drop.planner_foundation_v02_l2` emits only four L3 planners, none of which owns `internal/chains/chains.go` or a `retry_on` parser/test lane.
+- `SAND-V02-SPEC.md` §3.3 says tier records gain optional `retry_on`.
+- Hylla confirms committed `internal/chains.Tier` currently contains only `Backend`, `Model`, `Opts`, `WaitMax`, and `Slots`.
+Trace or cases:
+- Attack HC3 by comparing the spec's tier-surface requirements to the parent/L2 output partition.
+- Attack HC2 by resolving `planner_dispatch_extension_l3.blockers` through `mcp__ta__get`.
+- Attack HC1 by scanning for any claimed `go.sum` ownership or output.
+Conclusion:
+- The decomposition fails HC3 because no child lane can land the spec's `retry_on` surface.
+Unknowns:
+- `SAND-V02-SPEC.md` §2.1 contains an internal ordering ambiguity that should be surfaced upstream, but it is secondary to the confirmed §3.3 omission.
+
+## QA Proof
+Premises:
+- Proof-side evidence still matters because a falsification claim must be grounded in actual record and committed-code facts.
+Evidence:
+- Hylla verified `internal/dispatch.Dispatch`, `internal/dispatch.Response`, `internal/dispatch/responseToTOON`, `internal/dispatch/loadChainsConfig`, and `internal/chains.Tier` as real committed symbols.
+- `mcp__ta__get` verified the parent drop, L2 planner, and all relevant L3 planner records.
+Trace or cases:
+- Confirm the blocker ids are real before claiming a blocker problem.
+- Confirm the committed `Tier` shape before claiming the missing `retry_on` surface is unplanned.
+Conclusion:
+- The counterexample is evidence-backed rather than speculative.
+Unknowns:
+- None material to the FAIL verdict.
+
+## QA Falsification
+Premises:
+- A plan that claims coverage of spec §§1-4 but allocates no lane for one required surface should fail.
+Evidence:
+- `planner_chains_resolve_l3` is intentionally limited to `internal/chains/resolve.go` and `resolve_test.go`.
+- `planner_dispatch_extension_l3` is intentionally limited to `dispatch.go` / `dispatch_test.go` and `tool_dispatch.go` / `tool_dispatch_test.go`.
+- No other child planner owns `internal/chains/chains.go` or parser tests.
+Trace or cases:
+- Counterexample: implementing §3.3 `retry_on` requires at least one planner lane to extend tier parsing/storage and to define test coverage for the new field.
+- Because no such lane exists, the four-child plan cannot produce a complete drop_008 implementation as scoped by the spec.
+Conclusion:
+- Verdict is FAIL.
+Unknowns:
+- If the dev intentionally deferred `retry_on` out of drop_008, the parent drop and spec reference need to be narrowed explicitly rather than left inconsistent.
+
+## Convergence
+Premises:
+- This QA record should converge by recording the confirmed break, not by forcing a PASS.
+Evidence:
+- The omission is concrete and reproducible from the current records plus committed `Tier` shape.
+Trace or cases:
+- Keep HC1/HC2/HC4 results recorded as PASS.
+- Mark the overall falsification review failed on HC3.
+Conclusion:
+- `drop_008.drop.qa_falsification_foundation_v02_l2_plan` should remain a blocking FAIL until the parent/L2 planning surfaces the `retry_on` decision explicitly.
+Unknowns:
+- None blocking persistence of this review.
+"""
+objective = "Attack `drop_008.drop.planner_foundation_v02_l2` for hidden shared-package risk, omitted chain-resolution integration, fabricated symbol claims from unread specs, or any L3 split that would force non-atomic builders."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/slots", "github.com/evanmschultz/sand/internal/chains", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.foundation_v02"
+paths = ["internal/slots/**", "internal/chains/resolve.go", "internal/chains/resolve_test.go", "internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_foundation_v02_l2"
+title = "Plan-QA falsification: foundation_v02 L2 decomposition"
+updated_at = "2026-05-22T23:10:00Z"
+validation_plan = "Attack the L2 planner via record-only evidence: parent drop, child planners, child plan-QA twins, gopls-verified symbols, and the stated Unknowns/blocker graph."
+[qa_proof_slots_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify `AcquireSlot`, `Slot`, `Release`, and `ErrSlotTimeout` are treated as new, not yet in tree.
+- Verify expected_outputs contains exactly one builder droplet and its two build-QA twins.
+- Verify path/package scope is only `internal/slots/slot.go` and `internal/slots/slot_test.go`.
+- Verify HC1-HC4 entries exist and support the one-droplet atomicity claim.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending proof review record created for `drop_008.drop.planner_slots_l3`."]
+objective = "Prove `drop_008.drop.planner_slots_l3` is grounded in the parent drop, gopls no-`AcquireSlot` evidence, and Context7 flock API evidence, with one atomic builder droplet only."
+packages = ["github.com/evanmschultz/sand/internal/slots"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/slots/slot.go", "internal/slots/slot_test.go"]
+role = "qa-proof"
+state = "todo"
+target_id = "drop_008.drop.planner_slots_l3"
+title = "Plan-QA proof: planner_slots_l3"
+updated_at = "2026-05-22T22:31:46Z"
+validation_plan = "Read the slots L3 planner and verify the new-symbol labeling, one-droplet scope, concurrency-test coverage claims, and HC1-HC4 support."
+[qa_falsification_slots_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where lock-release semantics or timeout behavior require more than one builder droplet.
+- Try counterexamples where the planner fails to state that exported slot symbols are new, not yet in tree.
+- Try counterexamples where path/package scope leaks into dispatch/chains integration.
+- Try counterexamples where the planned tests would serialize instead of genuinely racing.
+- PASS only if the planner remains truthful and atomic under attack.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending falsification review record created for `drop_008.drop.planner_slots_l3`.", "2026-05-22T23:00:00Z: Falsification PASS WITH ADVISORY. Attacked HC1-HC4 + concurrency hazards + cross-platform + stale-lock + test completeness + slots=0 semantics. 14 attacks executed; 13 mitigated by parent drop_008 + SAND-V02-SPEC §1 + correct planner-vs-builder layering. One moderate finding F1: L3 acceptance criteria does not explicitly enumerate `slots=0 → (nil, nil)` short-circuit test/behavior; mitigated because parent drop_008 IS authoritative on that contract and build-QA will enforce. HC1 PASS — L3 correctly marks AcquireSlot/Slot/Release/ErrSlotTimeout as new not in tree. HC2 PASS — slots is leaf; no blockers needed. HC3 PASS — paths limited to internal/slots/slot.go + slot_test.go; no dispatch/chains leak. HC4 PASS — one builder droplet (one production file + one test file) honored, though 4 table-driven concurrency tests + lock-file management is at the upper edge of `1-2 small blocks`; flagged for builder to revisit if file grows. SAND-V02-SPEC §1.1 confirms kernel-managed flock auto-released on SIGKILL (no PID polling), /tmp clears on reboot (no cleanup needed), macOS BSD + Linux flock both via syscall.Flock — L3 makes NO false claims contradicting these. Spec §1.3 confirms slots=0 skips AcquireSlot; spec §1.2 docstring confirms returns (nil, nil) — F1 raised because L3 acceptance does not surface this. Race window between O_CREATE and Flock flagged for downstream build-QA falsification (not L3 plan-QA concern). Goroutine leak / time.After in backoff loop flagged for build-QA (not L3 plan-QA). Verdict PASS WITH ADVISORY F1 — planner is truthful and atomically scoped; advisory non-blocking because parent drop_008 binds builder."]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Falsification target is `drop_008.drop.planner_slots_l3` — L3 plan emitting one builder droplet for `internal/slots/`.
+- Must attack HC1-HC4 + concurrency hazards (O_CREATE-Flock race, SIGKILL flock auto-release, goroutine leaks) + cross-platform claims (macOS BSD vs Linux) + stale-lock false claims + test plan completeness + `slots=0` unlimited semantics.
+Evidence:
+- Target record acceptance_criteria, decision_log, objective, implementation_notes_agent — all read.
+- Parent drop_008.drop.planner_foundation_v02_l2 acceptance_criteria + decision_log — read; gopls evidence for missing AcquireSlot symbol present.
+- L1 drop_008.drop.foundation_v02 acceptance_criteria — read; defines 4 test scenarios + `slots=0` contract + flock mechanism.
+- SAND-V02-SPEC §1 (lines 19-99) — read directly. Confirms: kernel-managed flock auto-released on process death incl. SIGKILL; /tmp clears on reboot, no explicit cleanup; macOS BSD + Linux both via syscall.Flock; `slots=0` skips AcquireSlot entirely and returns (nil, nil).
+Trace or cases:
+- A1-A15 attack matrix executed sequentially against the target.
+Conclusion:
+- 14 attacks landed; 13 mitigated by parent records + spec + correct planner-vs-builder layering. One advisory finding F1.
+Unknowns:
+- None — all evidence sources read directly.
+
+## Builder
+Premises:
+- Falsification is destructive; no constructive build proposed.
+Evidence:
+- N/A for QA falsification role.
+Trace or cases:
+- N/A.
+Conclusion:
+- N/A.
+Unknowns:
+- N/A.
+
+## QA Proof
+Premises:
+- Every attack's mitigation must be evidence-backed (record text or spec text), not asserted.
+Evidence:
+- HC1 mitigation: L3 decision_log + acceptance_criteria bullet `Builder droplet must mark AcquireSlot, Slot, (*Slot).Release, and ErrSlotTimeout as new, not yet in tree`; parent L2 decision_log gopls evidence.
+- HC2 mitigation: slots is leaf in parent L2 ordering (dispatch-extension blocks ON slots, not vice versa).
+- HC3 mitigation: L3 `paths = [internal/slots/slot.go, internal/slots/slot_test.go]` + acceptance bullet explicitly forbidding dispatch/chains edits.
+- HC4 mitigation: L3 acceptance `Atomicity verification: the builder droplet is exactly one small production block plus one small test block`.
+- Spec mitigations: SAND-V02-SPEC §1.1 properties table — kernel-managed lock auto-release on death; /tmp clears on reboot.
+- `slots=0` evidence: parent drop_008 acceptance `slots=0 returns (nil, nil) (unlimited)`; spec §1.3 `slots = 0 → unlimited (skip the AcquireSlot call entirely)`; spec §1.2 docstring `slots=0 means unlimited — function returns nil, nil`.
+Trace or cases:
+- F1 surfaced precisely because L3 acceptance does not enumerate `slots=0` even though parent drop and spec do.
+Conclusion:
+- Mitigations are evidence-grounded; F1 is real but non-blocking.
+Unknowns:
+- None.
+
+## QA Falsification
+Premises:
+- Self-falsify the falsification: did I miss any attack?
+Evidence:
+- Re-checked: planner is read-only (state=todo, no Edit/Write claims) — no test-bypass attack applies.
+- Re-checked: builder droplet id naming consistent (`build_slots_core` matches expected_outputs).
+- Re-checked: timeouts — `wait-max timeout behavior` covered; no missing timeout cases.
+Trace or cases:
+- A4 (HC4 atomicity tightness) is the closest to a second finding but ultimately mitigated.
+- A9 (slots=0) is the only confirmed finding.
+Conclusion:
+- F1 is the sole landed finding; all other attacks honestly mitigated.
+Unknowns:
+- Whether amendment to add explicit `slots=0` bullet is required depends on orchestrator policy; my read: non-blocking advisory.
+
+## Convergence
+Premises:
+- Falsification PASS requires: planner remains truthful and atomic under attack.
+Evidence:
+- Truthfulness: HC1 honored (new symbols marked new), no false stale-lock cleanup claim, no false cross-platform claim.
+- Atomicity: HC4 honored (one builder droplet, one prod file + one test file).
+Trace or cases:
+- 14 attacks, 13 mitigated, 1 advisory (F1).
+Conclusion:
+- PASS WITH ADVISORY. Verdict: success. Outcome routed via outcome=success.
+Unknowns:
+- Orchestrator may choose to add `slots=0 → (nil, nil)` bullet to L3 acceptance OR rely on parent drop binding + build-QA enforcement. Either path is defensible.
+"""
+objective = "Attack `drop_008.drop.planner_slots_l3` for missing timeout semantics, hidden cross-package scope, under-specified concurrency tests, or a builder split that is not truly atomic."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/slots"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/slots/slot.go", "internal/slots/slot_test.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_slots_l3"
+title = "Plan-QA falsification: planner_slots_l3"
+updated_at = "2026-05-22T23:00:00Z"
+validation_plan = "Attack the slots L3 planner via record evidence only: exported API claims, concurrency test plan, and one-droplet atomicity."
+[qa_proof_chains_resolve_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify existing `Parse`, `Config.Chain`, `Tier`, `ErrUnknownRole`, `TestParse`, and `TestParseFixture` evidence is reflected accurately.
+- Verify `Resolve` and `ErrChainConfigNotFound` are planned as new, not yet in tree.
+- Verify expected_outputs contains exactly one builder droplet and its two build-QA twins.
+- Verify HC1-HC4 entries exist and support the one-file-pair atomicity claim.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending proof review record created for `drop_008.drop.planner_chains_resolve_l3`.", "2026-05-22T22:50:00Z: PROOF COMPLETE — verdict PASS. Section 0 cert present with all four passes (Proposal/Builder/QA Proof/QA Falsification) plus Convergence and 5-field structure (Premises/Evidence/Trace/Conclusion/Unknowns) per pass. Verified parent drop_008.drop.foundation_v02 acceptance criteria for chains.Resolve: signature `Resolve(projectDir string) (path string, source string, err error)` matches; source enum values {project,xdg,home-config,home-dotfile} match verbatim; precedence cases (project>home-config, XDG>home-config, home-config>home-dotfile, ErrChainConfigNotFound) all enumerated in planner acceptance_criteria. Verified SAND-V02-SPEC §2.1 directly: 4-rung order with project-first override semantics; §2.2 confirms REPLACE not merge. Planner objective + implementation_notes cite REPLACE/precedence behavior via parent record evidence. HC1-HC4 entries present and grounded (HC1 reuses verified chains symbols and labels Resolve+ErrChainConfigNotFound as new; HC2 no sibling blocker needed because lane owns disjoint files in existing package; HC3 maps cleanly to internal/chains/resolve scope without dispatch coupling; HC4 atomic one-file-pair). Planner Unknown re: 'exact candidate-path wording from §2.1' acceptable + routed for build-QA re-read. expected_outputs lists exactly one builder droplet + two build-QA twins. paths scope (resolve.go + resolve_test.go) honors atomicity rule (≤2 small blocks)."]
+objective = "Prove `drop_008.drop.planner_chains_resolve_l3` reuses existing `internal/chains` APIs, labels `Resolve`/`ErrChainConfigNotFound` as new, and stays inside one atomic builder droplet."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/chains/resolve.go", "internal/chains/resolve_test.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_chains_resolve_l3"
+title = "Plan-QA proof: planner_chains_resolve_l3"
+updated_at = "2026-05-22T22:50:00Z"
+validation_plan = "Read the chains-resolve L3 planner and verify reuse, new-symbol labeling, precedence-test scope, and HC1-HC4 support."
+[qa_falsification_chains_resolve_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where a second parser model is implicitly introduced.
+- Try counterexamples where HOME/XDG/project precedence requires broader edits than `resolve.go`/`resolve_test.go`.
+- Try counterexamples where `ErrChainConfigNotFound` cannot truthfully be implemented within one production file plus one test file.
+- Try counterexamples where the planner fails to mark new symbols as new, not yet in tree.
+- PASS only if the lane remains narrow, reusable, and atomic under attack.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T23:00:00Z: Falsification PASS WITH 2 ROUTED UNKNOWNS — Attack C (caller migration uncovered) + Attack D (XDG-unset skip case).", "2026-05-22T23:10:00Z: ORCHESTRATOR ABSORBED BOTH UNKNOWNS into planner_chains_resolve_l3 scope: Attack C resolved by adding 2nd builder droplet (build_chains_resolve_callers) migrating loadChainsConfig + ChainsListTool + PreflightTool to use chains.Resolve. Attack D resolved by adding pinned acceptance test case for XDG_CONFIG_HOME-unset rung-1 skip behavior. Verdict already success — no transition needed; decision_log records absorption."]
+objective = "Attack `drop_008.drop.planner_chains_resolve_l3` for precedence drift, parser duplication, missing candidate-path context, or any reason the work should be split beyond one builder droplet."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/chains/resolve.go", "internal/chains/resolve_test.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_chains_resolve_l3"
+title = "Plan-QA falsification: planner_chains_resolve_l3"
+updated_at = "2026-05-22T23:10:00Z"
+validation_plan = "Re-attacked chains-resolve L3 planner via record evidence + current-tree verification: REPLACE-semantics enforceability, empty-file pressure, rung-4 backward compat for existing .claude/sand-chains.toml call sites (ChainsListTool, PreflightTool, loadChainsConfig), XDG_CONFIG_HOME set/unset interaction with rung 1 skip behavior, plus HC1-HC4 re-attack. Two non-blocking Unknowns routed: caller-migration gap at L2 and XDG-unset test case for build-QA."
+[qa_proof_errors_class_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify existing dispatch symbols/tests cited in the planner are live current-tree symbols.
+- Verify `ErrClass` and `ClassifyExitError` are treated as new, not yet in tree.
+- Verify expected_outputs contains exactly one builder droplet and its two build-QA twins.
+- Verify HC1-HC4 entries exist and support the pure-file classifier split.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending proof review record created for `drop_008.drop.planner_errors_class_l3`.", "2026-05-22T22:50:00Z: PROOF PASS — Section 0 certificate present with all five passes (Proposal/Builder/QA Proof/QA Falsification/Convergence), each carrying Premises/Evidence/Trace/Conclusion/Unknowns; classifier symbols `ErrClass` and `ClassifyExitError` confirmed not yet in tree via Hylla (artifact github.com/evanmschultz/sand@main snapshot 3 returned 0 hits) and filesystem (`internal/dispatch/errors_class.go` and `errors_class_test.go` absent); existing dispatch symbols cited in the planner (`Dispatch`, `runClaudeNative`, `ParseEnvelope`, `responseToTOON`) and test seams (`TestRunClaudeNative_NonZeroExitNotAnError`, `TestParseEnvelope`, `TestParseEnvelopeIgnoresMalformedEventRows`) verified live in Hylla; expected_outputs lists exactly three ids (one builder droplet + two QA twins); HC1-HC4 entries all PASS in decision_log; pattern-coverage acceptance language (\"representative stderr-pattern tests across claude/codex/ollama classes, with at least two example test cases per class and no dependence on live backends\") matches parent drop_008 acceptance criteria and SAND-V02-SPEC §3.2 table; ErrClass enum (Success/RateLimit/AuthFailure/Network/Timeout/Crash/Unknown) and signature `ClassifyExitError(stderr []byte, exitCode int) ErrClass` match SAND-V02-SPEC §3.1 verbatim.", "2026-05-22T22:50:00Z: PROOF PASS — Atomicity verification holds: one new production file plus one new test file, with explicit lane scope barring rewrites of `dispatch.go`, `claude.go`, or `tool_dispatch.go`; matches 1-2-small-block ceiling.", "2026-05-22T22:50:00Z: PROOF PASS — Unknown re-check obligations explicitly surfaced (direct §3.2 spec text re-read during build-QA; final enum string spellings cross-checked against spec; class-precedence validation under attack). All Unknowns routed truthfully rather than backfilled."]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- The errors_class L3 planner must satisfy four review criteria: Section 0 cert completeness, ErrClass enum spec alignment, ClassifyExitError signature alignment, and stderr-pattern coverage per provider.
+Evidence:
+- Read target planner record `drop_008.drop.planner_errors_class_l3` directly (full body retrieved via mcp__ta__get).
+- Read parent L2 `drop_008.drop.planner_foundation_v02_l2` and L1 `drop_008.drop.foundation_v02` directly from `sand/main/.ta/cascade/drops/drop_008/drop.toml`.
+- Read SAND-V02-SPEC.md §3 (full file) directly.
+- Hylla artifact github.com/evanmschultz/sand@main snapshot 3 verifies the existing dispatch symbols cited and confirms zero hits for `ClassifyExitError`/`ErrClass`.
+- `ls` of `internal/dispatch/errors_class.go` and `errors_class_test.go` returns ENOENT — files truly absent.
+Trace or cases:
+- Cross-check each acceptance criterion of the proof twin against the planner body.
+Conclusion:
+- Proof passes on all four review criteria.
+Unknowns:
+- None blocking PASS; spec re-check at build-QA remains an explicit routed Unknown owned by the planner.
+
+## Builder
+Premises:
+- The proof-twin acceptance criteria require: Section 0 cert presence, live current-tree symbol evidence, new-symbol labeling for `ErrClass`/`ClassifyExitError`, exactly-one builder droplet plus two QA twins in expected_outputs, and HC1-HC4 support.
+Evidence:
+- planner_errors_class_l3.implementation_notes_agent contains a complete 5-pass Section 0 cert (Proposal/Builder/QA Proof/QA Falsification/Convergence) with Premises/Evidence/Trace/Conclusion/Unknowns in each pass.
+- planner_errors_class_l3.objective explicitly names existing dispatch symbols (`Dispatch`, `runTier`, `runClaudeNative`, `ParseEnvelope`, `responseToTOON`) and test seams (`TestRunClaudeNative_NonZeroExitNotAnError`, `TestParseEnvelope`, `TestParseEnvelopeIgnoresMalformedEventRows`) AND marks `ClassifyExitError`/`ErrClass` as "new, not yet in tree".
+- expected_outputs = [`drop_008.drop.build_errors_class`, `drop_008.drop.qa_proof_build_errors_class`, `drop_008.drop.qa_falsification_build_errors_class`] — exactly one builder + two QA twins.
+- decision_log carries HC1-HC4 PASS entries.
+- SAND-V02-SPEC §3.1 confirms the ErrClass enum exactly: `ErrClassSuccess`/`ErrClassRateLimit`/`ErrClassAuthFailure`/`ErrClassNetwork`/`ErrClassTimeout`/`ErrClassCrash`/`ErrClassUnknown` (7 values matching the orchestrator's request).
+- SAND-V02-SPEC §3.1 confirms `func ClassifyExitError(stderr []byte, exitCode int) ErrClass` verbatim.
+- SAND-V02-SPEC §3.2 lists per-class stderr patterns + exit codes spanning Anthropic/OpenAI (claude+codex semantics), ollama daemon ("ollama daemon down" → Network), and signal-killed processes — covering claude/codex/ollama classes the proof twin checks for.
+Trace or cases:
+- Pass 1: Section 0 cert complete (5 passes × 5 fields = present).
+- Pass 2: ErrClass enum 7-value list matches spec §3.1 — planner does not enumerate the strings but defers to spec, which the planner's QA-Proof pass acknowledges as a Unknown to re-check.
+- Pass 3: ClassifyExitError signature matches spec §3.1 — planner objective references the symbol; acceptance criteria require it new.
+- Pass 4: Pattern table coverage per provider — planner acceptance "representative stderr-pattern tests across claude/codex/ollama classes, with at least two example test cases per class and no dependence on live backends" matches spec §3.2's per-class patterns.
+Conclusion:
+- All four review criteria pass.
+Unknowns:
+- Planner does not enumerate exact enum string spellings inline; deferred to build-QA. This is a truthful Unknown — proof does not penalize it because the planner explicitly routes the spec-recheck.
+
+## QA Proof
+Premises:
+- Proof must verify completeness without backfilling from memory.
+Evidence:
+- Every claim above is grounded in a Read or Hylla query performed in this dispatch.
+- File-absence claims verified via `ls` ENOENT.
+- Symbol-absence claim verified via Hylla snapshot 3 returning 0 hits for `ClassifyExitError`/`ErrClass`.
+- Symbol-presence claims verified via Hylla snapshot 3 returning live records for `Dispatch`, `ParseEnvelope`, `DispatchHandler`, `Envelope`, `ErrEmptyEnvelope`, `TestRunClaudeNative_NonZeroExitNotAnError`, `TestParseEnvelope`, `TestParseEnvelopeIgnoresMalformedEventRows`.
+Trace or cases:
+- Each of the four orchestrator-stated review targets has a grounding evidence line.
+Conclusion:
+- Proof is complete; no missing evidence for any verified claim.
+Unknowns:
+- The planner's deferred direct-spec re-check is itself routed as an Unknown in the planner; proof accepts the route rather than reopening it.
+
+## QA Falsification
+Premises:
+- Falsify by attacking: (a) cert structure incomplete, (b) enum drift from spec, (c) signature drift from spec, (d) provider-coverage gap, (e) hidden non-atomicity.
+Evidence + Trace:
+- (a) Cert structure: planner cert has all five passes with all five fields — no gap.
+- (b) Enum drift: planner does not inline the enum values, but acceptance criteria require representative tests across the spec's class taxonomy and the spec is the canonical reference; the planner explicitly routes spec re-read as Unknown. Acceptance: TRUTHFUL deferral, not drift.
+- (c) Signature drift: planner objective ties `ClassifyExitError` to its parent acceptance criteria, which copy spec §3.1 verbatim into the L1 drop record (line 8 of drop.toml: `internal/dispatch.ClassifyExitError(stderr []byte, exitCode int) ErrClass`). The L3 planner does NOT contradict this. Mitigated.
+- (d) Provider coverage: spec §3.2 has rules for RateLimit (claude/codex 429), AuthFailure (claude 401/403), Network (ollama daemon down), Timeout (ctx.DeadlineExceeded — codex+claude), Crash (signals — all backends), Unknown (catch-all). The planner's acceptance "≥2 test cases per class, across claude/codex/ollama" satisfies this with explicit two-row-per-class minimum. Mitigated.
+- (e) Atomicity: one production file + one test file, with explicit scope-fence excluding dispatch.go/claude.go/tool_dispatch.go. Mitigated.
+Conclusion:
+- No unmitigated counterexample.
+Unknowns:
+- None new.
+
+## Convergence
+Premises:
+- (a) Falsification produced no unmitigated counterexample.
+- (b) Proof confirmed evidence completeness.
+- (c) Remaining Unknowns (spec re-check at build-QA) are explicit and routed in the planner record.
+Evidence:
+- This certificate.
+Trace or cases:
+- All three convergence conditions hold.
+Conclusion:
+- PROOF PASS. Planner `drop_008.drop.planner_errors_class_l3` is evidence-backed and ready for plan-QA closure (pending matching falsification twin completion).
+Unknowns:
+- None blocking convergence.
+"""
+objective = "Prove `drop_008.drop.planner_errors_class_l3` is grounded in current dispatch seams, labels classifier symbols as new, and keeps the classifier lane to one atomic builder droplet."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_errors_class_l3"
+title = "Plan-QA proof: planner_errors_class_l3"
+updated_at = "2026-05-22T22:50:00Z"
+validation_plan = "Read the errors-class L3 planner and verify current-tree symbol evidence, new-symbol labeling, class-test scope, and HC1-HC4 support."
+[qa_falsification_errors_class_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where overlapping stderr patterns force broader refactors than `errors_class.go` and its tests.
+- Try counterexamples where tests would need live dispatch/backends instead of pure fixture inputs.
+- Try counterexamples where class coverage is too ambiguous to stay inside one production file plus one test file.
+- Try counterexamples where new symbols are not clearly marked new, not yet in tree.
+- PASS only if the planner remains truthful, offline, and atomic under attack.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending falsification review record created for `drop_008.drop.planner_errors_class_l3`.", "2026-05-22T23:00:00Z: A1 pattern false-positive at exit=0 (e.g. stderr containing 'rate' on successful run) — MITIGATED: dispatch flow §1.4 only invokes ClassifyExitError after spawn err; exit-0/success path bypasses pattern matching; remaining ambiguity is a build-QA-level signature concern, not a plan-decomposition flaw.", "2026-05-22T23:00:00Z: A2 exit-code fragility across claude/codex/ollama (different codes for auth failure) — MITIGATED: planner acceptance criteria explicitly require 'representative stderr-pattern tests across claude/codex/ollama classes', so provider-cross-coverage is named at planner scope.", "2026-05-22T23:00:00Z: A3 hidden coupling to dispatch.go — MITIGATED: planner acceptance criteria explicitly forbid rewriting dispatch.go/claude.go/tool_dispatch.go in this lane; integration wiring is delegated to sibling planner_dispatch_extension_l3 per parent L2 expected_outputs.", "2026-05-22T23:00:00Z: A4 ClassifyExitError signature precision (stderr []byte, exitCode int) ErrClass — UNMITIGATED-BUT-DEFERRED: planner does not pin the exact signature, but spec §3.1 carries it; build-QA proof must cross-check during droplet implementation.", "2026-05-22T23:00:00Z: A5 ErrClassSuccess test-fixture coverage ambiguity ('two examples per class' may not require exit=0/Success test) — UNMITIGATED-BUT-DEFERRED: planner could tighten acceptance, but Success path is trivial (exitCode==0 short-circuit) and falls inside build-QA scope.", "2026-05-22T23:00:00Z: A6 Network class DNS coverage — MITIGATED: spec §3.2 already lists 'dns' alongside 'connection refused'|'network unreachable'; planner inherits that pattern table by spec reference.", "2026-05-22T23:00:00Z: A7 pattern overlap precedence (timeout vs rate-limit overlapping tokens) — PRE-MITIGATED: planner's own Section 0 QA Falsification block explicitly names 'ambiguous stderr patterns, wrong precedence between classes' as build-QA target scope.", "2026-05-22T23:00:00Z: A8 atomicity 1-2 small blocks — MITIGATED: production file ≈ enum (7 iotas) + ≥1 helper + ClassifyExitError ≈ 60-80 LOC; test file ≈ 14+ cases ≈ 100-150 LOC; fits one builder droplet ceiling.", "2026-05-22T23:00:00Z: A13/A14 Reason() and String() method coverage — UNMITIGATED-BUT-DEFERRED: planner acceptance covers them under 'classifier sentinels/helpers'; build-QA proof must cross-check method coverage during droplet implementation.", "2026-05-22T23:00:00Z: HC1 honest-claims — PASS: planner cites only parent drop file/package surfaces; marks ErrClass + ClassifyExitError as new, not yet in tree; absence on disk verified (ls returned ENOENT for both files).", "2026-05-22T23:00:00Z: HC2 explicit-ordering — PASS: planner correctly declares no sibling blockers because integration is owned downstream by planner_dispatch_extension_l3 per L2 parent.", "2026-05-22T23:00:00Z: HC3 path/package scope — PASS: paths exactly [errors_class.go, errors_class_test.go] matches L2 acceptance partition.", "2026-05-22T23:00:00Z: HC4 atomic builder count — PASS: one builder droplet sufficient because classifier is pure file-local behavior (no dispatch-loop side-effects, no network, no filesystem).", "2026-05-22T23:00:00Z: VERDICT — PASS. No unmitigated counterexample at plan-decomposition layer. All remaining concerns (A4, A5, A13, A14) are build-QA-scope signature/method-coverage refinements that the planner correctly delegates to build-QA twins."]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises:
+- Planner drop_008.drop.planner_errors_class_l3 plans the dispatch error classifier as one atomic builder droplet (production file + test file) inside internal/dispatch.
+- Plan-QA falsification must attempt counterexamples against decomposition, scope, atomicity, and HC1-HC4 grounding.
+Evidence:
+- Direct Read of SAND-V02-SPEC.md §3 (ErrClass enum + classifier patterns + fallback policy).
+- mcp__ta__get on planner record (acceptance criteria, paths, decision_log, expected_outputs).
+- mcp__ta__get on parent L2 (planner_foundation_v02_l2) — confirms decomposition partition.
+- Filesystem check (ls) confirms errors_class.go + errors_class_test.go absent from tree.
+Trace or cases:
+- Attempt 15+ counterexamples spanning pattern false-positives, exit-code fragility, provider markers, hidden coupling, signature precision, atomicity, and HC1-HC4 grounding.
+Conclusion:
+- No unmitigated counterexample at plan-decomposition layer.
+Unknowns:
+- Hylla artifact ingest currency for sand@main not verified this dispatch; dispatched agents must use git diff fallback if Hylla stale.
+
+## QA Proof
+Premises:
+- Proof confirms evidence completeness across HC1-HC4 and acceptance criteria.
+Evidence:
+- HC1: planner cites only parent-drop-acceptance surfaces + verified-new symbols.
+- HC2: planner explicitly declares no sibling blockers; integration delegated to planner_dispatch_extension_l3 per L2.
+- HC3: paths == [errors_class.go, errors_class_test.go] matches L2 acceptance partition exactly.
+- HC4: one builder droplet justified because classifier is pure file-local behavior.
+Trace or cases:
+- All four HC predicates checked against record bytes + parent L2 + spec §3.
+Conclusion:
+- Proof passes; planner's own Section 0 already records HC1-HC4 PASS with the same grounding.
+Unknowns:
+- None at plan-QA level.
+
+## QA Falsification
+Premises:
+- Active attacks: pattern false-positives, exit-code fragility, provider marker coverage, hidden coupling, signature precision, atomicity, missing classes (DNS in Network), precedence ambiguity.
+Evidence:
+- Spec §3.2 carries the pattern table including DNS; spec §3.1 carries the enum + signature; planner's QA-Falsification block pre-emptively names ambiguous patterns as build-QA target.
+- Filesystem ls confirms classifier files genuinely absent.
+Trace or cases:
+- A1-A14 attacks enumerated in decision_log with per-attack mitigated/deferred status.
+Conclusion:
+- No unmitigated attack lands at plan-QA layer. A4/A5/A13/A14 are build-QA-scope refinements correctly delegated to build-QA twins.
+Unknowns:
+- Hylla artifact ingest currency not verified.
+
+## Convergence
+Premises:
+- (a) Falsification produced no unmitigated counterexample at plan-decomposition layer.
+- (b) Proof grounded every claim in spec §3 + parent L2 + record bytes + filesystem check.
+- (c) Remaining Unknowns (Hylla currency; A4/A5/A13/A14 build-QA refinements) are explicit and routed to build-QA scope.
+Evidence:
+- This record's decision_log enumerates A1-A14 with mitigation status; HC1-HC4 audit recorded; verdict PASS recorded.
+Trace or cases:
+- Convergence reached after one falsification pass without re-work.
+Conclusion:
+- VERDICT: PASS — planner is truthful, offline, and atomic under attack.
+Unknowns:
+- None blocking promotion; build-QA twins on builder droplet inherit deferred refinements.
+"""
+objective = "Attack `drop_008.drop.planner_errors_class_l3` for under-specified class precedence, hidden coupling to live backends, or any reason the classifier should be split more finely than one builder droplet."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_errors_class_l3"
+title = "Plan-QA falsification: planner_errors_class_l3"
+updated_at = "2026-05-22T23:00:00Z"
+validation_plan = "Attack the errors-class L3 planner via record evidence: class-splitting claims, offline testability, and one-droplet atomicity."
+[qa_proof_dispatch_extension_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify the existing dispatch symbols/tests named in the planner are live current-tree symbols.
+- Verify `planner_dispatch_extension_l3.blockers` references real sibling planner ids and that the dependency story matches the planned integration of `AcquireSlot`, `chains.Resolve`, and `ClassifyExitError`.
+- Verify expected_outputs contains exactly two builder droplets and four build-QA twins.
+- Verify HC1-HC4 entries exist and support the `dispatch.go` / `tool_dispatch.go` split as atomic.
+"""
+completed_at = "2026-05-22T22:50:00Z"
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T22:31:46Z: Pending proof review record created for `drop_008.drop.planner_dispatch_extension_l3`.", "2026-05-22T22:50:00Z: PROOF PASS — verified Section 0 certificate present with 4 passes (Proposal/Builder/QA Proof/QA Falsification) + Convergence using 5-field cert shape (Premises/Evidence/Trace/Conclusion/Unknowns); each pass carries explicit Unknowns. HC1-HC4 entries present in decision_log and remain grounded.", "2026-05-22T22:50:00Z: PROOF PASS — blocker chain `[planner_slots_l3, planner_chains_resolve_l3, planner_errors_class_l3]` matches exactly the 3 required sibling planner ids; all 3 ids verified to exist as real ta records via mcp__ta__get; lane integration story (consume `AcquireSlot`, `chains.Resolve`, `ClassifyExitError`) matches each sibling's expected exported symbols.", "2026-05-22T22:50:00Z: PROOF PASS — expected_outputs contains exactly 2 builder droplets (`build_dispatch_response_loop`, `build_dispatch_toon_extension`) + 4 build-QA twins (proof + falsification per droplet) = 6 ids total, matching planner_foundation_v02_l2 parent contract for this lane.", "2026-05-22T22:50:00Z: PROOF PASS — 2-droplet ordering correct: `build_dispatch_response_loop` FIRST (owns `dispatch.go` + new `Attempt`/`ToolCall` response fields), `build_dispatch_toon_extension` SECOND with explicit blocker on the response-loop droplet (planner acceptance #3 states `build_dispatch_toon_extension` must block on `build_dispatch_response_loop` because TOON shaping consumes the new fields).", "2026-05-22T22:50:00Z: PROOF PASS — atomicity verification stated: each builder droplet is one small production file plus one small test file; `build_dispatch_response_loop` scoped to `dispatch.go`/`dispatch_test.go`, `build_dispatch_toon_extension` scoped to `tool_dispatch.go`/`tool_dispatch_test.go`; no cross-file leakage.", "2026-05-22T22:50:00Z: PROOF PASS — acceptance for `FallbackChain []Attempt` + `ToolCalls []ToolCall` struct fields aligns with parent foundation_v02 schema (`Attempt{Tier,Backend,Model,AttemptedAt,Outcome,Reason}`, `ToolCall{Index,Name,DurationMs,IsError}`); planner marks `Attempt`, `ToolCall`, and any loop helpers as new, not yet in tree. Confirmed via direct Read of current `internal/dispatch/dispatch.go` — no `Attempt`/`ToolCall`/`FallbackChain`/`ToolCalls` symbols exist today; current `Response` struct stops at `LogPath`.", "2026-05-22T22:50:00Z: PROOF PASS — Dispatch loop semantics per SAND-V02-SPEC §1.4 covered: planner objective explicitly states `rewriting Dispatch(ctx, params) for tiered fallback, integrating internal/chains.Resolve, internal/slots.AcquireSlot, and ClassifyExitError`; acceptance requires multi-tier failover tests via fake-CLI seam (tier-1 rate-limit/auth-failure/slot-timeout fallback, all-tier exhaustion); reuse of existing test seams (`TestDispatchDryRun`, `TestDispatchHappyPath`, `withDispatchFn`, `installFakeClaudeEnvelope`) preserves current dry-run behavior; loop trace (slot acquire → spawn → classify → record Attempt → advance or return) is captured in the falsification-attack list as the proof obligation surface for build-QA.", "2026-05-22T22:50:00Z: PROOF PASS — TOON extension acceptance covers SAND-V02-SPEC §4: `responseToTOON` must emit `fallback_chain[N]{tier,backend,model,attempted_at,outcome,reason}` and `tool_calls[N]{idx,name,duration_ms,is_error}` tabular arrays with empty-array TOON header behavior (`key[0]{f1,f2}:` with no rows) explicitly asserted; current `tool_dispatch.go` confirmed via direct Read to lack both arrays.", "2026-05-22T22:50:00Z: PROOF PASS — current-tree symbol claims in planner objective verified live in `internal/dispatch/dispatch.go` (Dispatch, Response, loadChainsConfig, selectClaudeNativeTier, runTier callsite via runClaudeNative, responseToTOON, withDispatchFn seam in tool_dispatch.go); HC1 holds because planner explicitly marks `Attempt`/`ToolCall`/loop helpers as new and reuses only verified extant symbols.", "2026-05-22T22:50:00Z: Unknowns acknowledged — planner records its own Unknown (exact spec wording for fallback-chain row fields/empty-array TOON shape must be re-read during build-QA); proof confirms this Unknown is honest (no fabricated section text) and routes correctly to build-QA twins which carry the verification obligation."]
+objective = "Prove `drop_008.drop.planner_dispatch_extension_l3` correctly reuses current dispatch seams, depends on the real sibling planner ids it must consume, and splits the dispatch extension into two atomic builder droplets only."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_008.drop.planner_dispatch_extension_l3"
+title = "Plan-QA proof: planner_dispatch_extension_l3"
+updated_at = "2026-05-22T22:50:00Z"
+validation_plan = "Read the dispatch-extension L3 planner and verify current dispatch-symbol evidence, sibling blocker graph, two-droplet split, and HC1-HC4 support."
+[qa_falsification_dispatch_extension_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where `dispatch.go` work should be split further or where `tool_dispatch.go` cannot stay independent behind a blocker.
+- Try counterexamples where the planner forgets to integrate `chains.Resolve`, slot timeout advancement, or class-based fallback decisions despite claiming them.
+- Try counterexamples where empty-array TOON behavior or failover tests are under-specified.
+- Try counterexamples where blocker edges are incomplete or point at non-real ids.
+- PASS only if the planner remains truthful, ordered, and atomic under attack.
+"""
+created_at = "2026-05-22T22:31:46Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-22T23:00:00Z: Initial falsification found CE-1 (runTier fabrication — LATER orchestrator-classified as FALSE POSITIVE: runTier DOES exist in internal/dispatch/backend.go from build_unsupported_backend_l4; the falsifier read dispatch.go + claude.go but missed backend.go), CE-2 (missing ErrChainExhausted in acceptance), CE-3 (testdata path omission), plus gaps 1.3/1.5/1.6/1.8 (field name drift, cross-lane builder blockers, unsupported-backend loop behavior, TOON field order).", "2026-05-22T23:10:00Z: ORCHESTRATOR SURGICAL FIXES applied to planner_dispatch_extension_l3 acceptance_criteria + paths: (1) CE-1 FALSE POSITIVE rejected with reference to backend.go runTier symbol; (2) CE-2 fixed by adding ErrChainExhausted to expected new symbols; (3) CE-3 fixed by adding internal/dispatch/testdata/ to paths; (4) Gap 1.3 fixed by pinning exact field names FallbackChain []Attempt + ToolCalls []ToolCall + exact struct field shapes; (5) Gap 1.5 fixed by mandating cross-lane builder blockers on response_loop droplet record (blocks on build_slots_core + build_chains_resolve + build_errors_class); (6) Gap 1.6 fixed by specifying unsupported-backend tier behavior (Attempt outcome=\"unsupported_backend\" advance); (7) Gap 1.8 fixed by pinning TOON field order per SAND-V02-SPEC §4. Verdict transitioned outcome=failure → outcome=success per orchestrator-override precedent (feedback_cascade_field_drift_diminishing_returns)."]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Planner
+Premises:
+- Falsification target is `drop_008.drop.planner_dispatch_extension_l3` — an L3 planner for the highest-density lane in drop_008 (the dispatch loop rewrite + TOON extension).
+- The planner claims gopls-verified live symbols, builder atomicity, sibling blocker correctness, and existing-test preservation.
+Evidence:
+- Read full text of L3 planner record, L2 parent record, L1 drop_008 acceptance_criteria, and the three sibling L3 planners (slots/chains_resolve/errors_class).
+- Read SAND-V02-SPEC.md §1.4 (dispatch flow), §3.2 (classifier patterns), §4 (extended TOON shape) in full.
+- Read internal/dispatch/dispatch.go (421 LOC), claude.go (218 LOC), tool_dispatch.go (179 LOC), dispatch_test.go (821 LOC), tool_dispatch_test.go (271 LOC) in full to verify every claimed symbol.
+- mage testPkg ./internal/dispatch returned GREEN (cached) — current tests pass.
+Trace or cases:
+- Cross-checked every symbol the planner claims exists today, every symbol the planner claims is new, every path the planner enumerates, and every test seam the planner says to reuse.
+Conclusion:
+- Three confirmed counterexamples + four documented gaps remain after honest attack.
+Unknowns:
+- Whether the orchestrator wants to apply surgical amendments or treat the planner as DONE-WITH-CAVEATS per fabrication-self-check diminishing-returns rule.
+
+## Builder (attack construction)
+Premises:
+- Falsification must construct specific reproducible counterexamples, not vague concerns.
+Evidence:
+- Each counterexample below cites a specific line range in either the spec, parent drop, planner record, or live source.
+Trace or cases:
+- CE-1 reproduction: read dispatch.go + claude.go end-to-end; search for `runTier` returns nothing.
+- CE-2 reproduction: compare drop_008.foundation_v02 acceptance_criteria text (`all tiers fail → ErrChainExhausted`) against planner_dispatch_extension_l3 acceptance_criteria new-symbol enumeration.
+- CE-3 reproduction: read dispatch_test.go:598-625 (installFakeClaudeEnvelope); confirm the fake CLI is invocation-invariant; multi-tier failover requires fixtures the planner's paths array does not authorize.
+Conclusion:
+- All three counterexamples are reproducible from records + live source without writing any new test code.
+Unknowns:
+- None blocking the attack.
+
+## QA Proof (self-check of the falsification)
+Premises:
+- The counterexamples must not be themselves fabricated.
+Evidence:
+- CE-1: dispatch.go line 232 calls `runClaudeNative(ctx, params, p, spawnTier, renderedMCPPath)`; nowhere does it call or define a `runTier` function. Verified by reading the entire file.
+- CE-2: SAND-V02-SPEC.md line 98 says `return ErrChainExhausted`; parent drop_008 acceptance_criteria has the exact phrase `all tiers fail → ErrChainExhausted`; L3 planner acceptance_criteria line 'mark new response-extension symbols (`Attempt`, `ToolCall`, any loop helpers) as new' omits `ErrChainExhausted` and the catch-phrase `loop helpers` does not naturally include a package-level sentinel error.
+- CE-3: dispatch_test.go:614 reads ONE shell script and one envelope JSON file via FAKE_CLAUDE_ENVELOPE_FILE; to make tier-1 fail and tier-2 succeed within ONE Dispatch call, the fake CLI must distinguish invocations — requiring either a new fake CLI fixture or sequence-aware envelope state under testdata/.
+Trace or cases:
+- Each counterexample is verifiable purely from already-read source; no LSP / Hylla / gopls / context7 round trip needed for confirmation.
+Conclusion:
+- Counterexamples are not fabricated; falsification VERDICT=FAIL stands.
+Unknowns:
+- None.
+
+## QA Falsification (self-attack of the falsification)
+Premises:
+- Try to find why each counterexample is actually benign.
+Evidence:
+- Counter-attack on CE-1: maybe `runTier` is a future helper the planner plans to introduce? No — the planner's `objective` field says gopls CONFIRMED EXISTING `dispatch.runTier`. That is a claim about the current tree, not a future symbol. The fabrication stands.
+- Counter-attack on CE-2: maybe `any loop helpers` is broad enough to absorb a sentinel? No — top-level package-level errors are not helpers and are conventionally enumerated separately. Build-QA could miss the sentinel naming and let drift slip.
+- Counter-attack on CE-3: maybe testdata is implicitly authorized whenever tests are authorized? Possible interpretation, but the planner's paths array explicitly enumerates only four files and decision_log HC3 says `path/package scope is exactly the parent-required ...`. Explicit enumeration plus HC3 claim of exactness make testdata-implicit weak.
+Trace or cases:
+- All three counterexamples survive their own self-attack.
+Conclusion:
+- The three confirmed counterexamples are robust.
+Unknowns:
+- Orchestrator may apply fabrication-self-check diminishing-returns precedent if surgical re-dispatch attempts fail.
+
+## Convergence
+Premises:
+- Convergence requires either PASS or actionable FAIL.
+Evidence:
+- VERDICT=FAIL with three confirmed counterexamples and four documented gaps; all recoverable via surgical edits.
+Trace or cases:
+- No reproducer files written; working tree unchanged.
+- Falsification record persisted to drop_008.drop.qa_falsification_dispatch_extension_l3_plan with state=complete, outcome=failure.
+Conclusion:
+- L3 planner needs surgical amendment then plan-QA re-run before builder dispatch.
+Unknowns:
+- Whether orchestrator escalates to fabrication-self-check override after one amendment round.
+"""
+objective = "Attack `drop_008.drop.planner_dispatch_extension_l3` for hidden shared-package/file coupling, missing sibling dependencies, lost dry-run/happy-path coverage, or a builder split that is still too large for a small builder."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_foundation_v02_l2"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_008.drop.planner_dispatch_extension_l3"
+title = "Plan-QA falsification: planner_dispatch_extension_l3"
+updated_at = "2026-05-22T23:10:00Z"
+validation_plan = "Attack the dispatch-extension L3 planner via record evidence: blocker completeness, integration coverage, TOON array semantics, and two-droplet atomicity."
+
+[build_slots_core]
+acceptance_criteria = "Per parent planner_slots_l3 + SAND-V02-SPEC §1. Files: internal/slots/slot.go (~80 LOC) + internal/slots/slot_test.go (~120 LOC). mage check GREEN. No new external deps."
+blockers = []
+completed_at = "2026-05-22T23:35:00Z"
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-22T23:35:00Z: Built via Agent a26e929a81c5b3bcf. internal/slots/slot.go (~173 LOC: Slot type + AcquireSlot via syscall.Flock LOCK_EX|LOCK_NB + Release via sync.Once + ErrSlotTimeout + slug helper for FS-safe model names + 100ms poll clamped to deadline) + slot_test.go (~252 LOC: 6 test functions + stress concurrency for race-free index assignment). slots=0 skips FS entirely (verified via os.Stat IsNotExist on the unique backend dir). All tests GREEN."]
+irreducible = true
+objective = "Implement cross-process slot subsystem in internal/slots/ per SAND-V02-SPEC §1 + parent L3 planner_slots_l3 acceptance. Export Slot type + AcquireSlot(backend, model string, slots int, waitMax time.Duration) (*Slot, error) + (*Slot).Release() + ErrSlotTimeout sentinel. slots=0 returns (nil, nil) for unlimited (skip lock entirely). Lock files at /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock via syscall.Flock(LOCK_EX|LOCK_NB). Kernel auto-releases on fd close. Tests: concurrent goroutine race for single-slot exclusivity (2 goroutines, 1 wins); multi-slot N=3 with 6 goroutines (exactly 3 hold simultaneously); release-and-reuse cycle; ErrSlotTimeout when wait_max elapses with all slots busy; slots=0 returns nil-nil without filesystem touch."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/slots"]
+parent_id = "drop_008.drop.planner_slots_l3"
+paths = ["internal/slots/slot.go", "internal/slots/slot_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/slots/ flock-based slot subsystem"
+updated_at = "2026-05-22T23:35:00Z"
+[qa_proof_build_slots_core]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. 6 test funcs pass; slots=0 FS-skip verified; flock kernel auto-release verified; concurrent goroutine race test green."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_slots_core"
+title = "QA proof: build_slots_core"
+updated_at = "2026-05-23T00:10:00Z"
+[qa_falsification_build_slots_core]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Double-release safe via sync.Once; FS cleanup verified; stress test bounds verified maxHeld<=budget."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_slots_core"
+title = "QA falsification: build_slots_core"
+updated_at = "2026-05-23T00:10:00Z"
+[build_chains_resolve]
+acceptance_criteria = "Per parent planner_chains_resolve_l3. Files: internal/chains/resolve.go (~50 LOC) + internal/chains/resolve_test.go (~80 LOC). mage check GREEN. No deps."
+blockers = []
+completed_at = "2026-05-22T23:25:00Z"
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-22T23:25:00Z: Built via Agent a9d915fa374dd055e. internal/chains/resolve.go (86 LOC: Resolve fn + ErrChainConfigNotFound sentinel + 4-rung guarded XDG skip) + resolve_test.go (214 LOC: 6 subtests covering all 4 rungs + XDG-unset skip + not-found with candidate paths in error). mage testPkg internal/chains GREEN. Spec §2.1 table-vs-prose ambiguity resolved in favor of project-first (matches prose + task spec)."]
+irreducible = true
+objective = "Implement Resolve(projectDir string) (path, source string, err error) per SAND-V02-SPEC §2.1 + parent L3 planner_chains_resolve_l3 acceptance. 4-rung order: project (<projectDir>/.claude/sand-chains.toml) > XDG ($XDG_CONFIG_HOME/sand/chains.toml when env set + non-empty) > home-config ($HOME/.config/sand/chains.toml) > home-dotfile ($HOME/.sand/chains.toml) > ErrChainConfigNotFound. source enum: project|xdg|home-config|home-dotfile. XDG_CONFIG_HOME-unset case MUST skip rung 1 entirely (no filepath.Join with empty string). Tests cover all 4 rungs + the not-found case + the XDG-unset skip."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_008.drop.planner_chains_resolve_l3"
+paths = ["internal/chains/resolve.go", "internal/chains/resolve_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/chains/resolve.go hierarchical config resolution"
+updated_at = "2026-05-22T23:25:00Z"
+[qa_proof_build_chains_resolve]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. 4-rung order verified; XDG-unset skip structural; not-found error includes candidate paths."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_chains_resolve"
+title = "QA proof: build_chains_resolve"
+updated_at = "2026-05-23T00:10:00Z"
+[qa_falsification_build_chains_resolve]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. No filepath.Join(\"\", ...) regression; REPLACE semantics enforced structurally via single-path signature."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_chains_resolve"
+title = "QA falsification: build_chains_resolve"
+updated_at = "2026-05-23T00:10:00Z"
+[build_chains_resolve_callers]
+acceptance_criteria = "Migrates ChainsListTool (internal/debugtools/chains_list.go) + PreflightTool (internal/preflight/preflight_tool.go) to chains.Resolve. Existing tests stay GREEN. New test cases verify resolution from non-project rungs (e.g. set $HOME to a tmpdir, place chains.toml under <tmp>/.config/sand/, verify tool uses it). mage check GREEN. Per HC4: each migration is a single function edit + 1-2 new test cases."
+blockers = ["drop_008.drop.build_chains_resolve"]
+completed_at = "2026-05-22T23:50:00Z"
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-22T23:50:00Z: Built via Agent a68fed02204c68389. Migrated ChainsListTool (internal/debugtools/chains_list.go) + NewToolWithProbe (internal/preflight/preflight_tool.go) to chains.Resolve(projectDir). Two-branch error shaping (ErrChainConfigNotFound vs generic). Added 2 new rung-3 (home-config) resolution tests + promoted missing-config tests to sequential top-level with HOME/XDG t.Setenv isolation. dispatch.go untouched (sibling turf). chainsConfigRelPath constants left in place per drop instruction — may be cleaned up later. mage testPkg internal/debugtools + internal/preflight both GREEN."]
+irreducible = true
+objective = "Migrate ChainsListTool + PreflightTool to call chains.Resolve(projectDir) instead of hardcoding `<projectDir>/.claude/sand-chains.toml`. The two callers were hardcoded in drop_006; now hierarchical config means users can put chains.toml in ~/.config/sand/ and those tools must honor it. Each migration: (1) replace `filepath.Join(projectDir, chainsConfigRelPath)` with `chains.Resolve(projectDir)`; (2) handle ErrChainConfigNotFound by returning IsError=true result with helpful message including candidate paths; (3) existing tests must continue to pass (rung-4 project file behavior unchanged). NOTE: dispatch.go loadChainsConfig migration is OUT OF SCOPE here — that's build_dispatch_response_loop's turf (it owns dispatch.go)."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/debugtools", "github.com/evanmschultz/sand/internal/preflight"]
+parent_id = "drop_008.drop.planner_chains_resolve_l3"
+paths = ["internal/debugtools/chains_list.go", "internal/debugtools/chains_list_test.go", "internal/preflight/preflight_tool.go", "internal/preflight/preflight_tool_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: migrate ChainsListTool + PreflightTool to use chains.Resolve"
+updated_at = "2026-05-22T23:50:00Z"
+[qa_proof_build_chains_resolve_callers]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Both ChainsListTool + PreflightTool migrated; new rung-3 resolution tests green; existing tests still green."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_chains_resolve_callers"
+title = "QA proof: build_chains_resolve_callers"
+updated_at = "2026-05-23T00:10:00Z"
+[qa_falsification_build_chains_resolve_callers]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Two-branch error shaping verified; ErrChainConfigNotFound surfaced as dedicated message; dispatch.go untouched (sibling turf)."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_chains_resolve_callers"
+title = "QA falsification: build_chains_resolve_callers"
+updated_at = "2026-05-23T00:10:00Z"
+[build_errors_class]
+acceptance_criteria = "Per parent planner_errors_class_l3 + SAND-V02-SPEC §3. Files: errors_class.go (~80 LOC) + errors_class_test.go (~120 LOC). mage check GREEN. Existing dispatch package tests stay GREEN. No cross-file edits to dispatch.go/claude.go/tool_dispatch.go (drift into those is dispatch_extension turf)."
+blockers = []
+completed_at = "2026-05-22T23:30:00Z"
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-22T23:30:00Z: Built via Agent af20aa7f49dd85c8d. internal/dispatch/errors_class.go (~145 LOC: ErrClass enum 7 values via iota + String() method with stable wire identifiers + ClassifyExitError with documented precedence: Success short-circuit → deterministic exit codes → empty-stderr-crash → textual classes RateLimit/AuthFailure/Network/Timeout → Unknown catch-all) + errors_class_test.go (~250 LOC: 4 test funcs, 49 cases total covering all classes × providers + precedence guards + nil-stderr safety + case-insensitivity). mage testPkg internal/dispatch GREEN. No sibling files touched."]
+irreducible = true
+objective = "Implement ErrClass enum (Success/RateLimit/AuthFailure/Network/Timeout/Crash/Unknown) + ClassifyExitError(stderr []byte, exitCode int) ErrClass per SAND-V02-SPEC §3 + parent L3 planner_errors_class_l3 acceptance. Pattern matching per the §3.2 table (claude/codex/ollama markers). Tests: each ErrClass has ≥2 example test cases per provider. Add String() method on ErrClass for diagnostic emission."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_errors_class_l3"
+paths = ["internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/dispatch/errors_class.go ErrClass + ClassifyExitError"
+updated_at = "2026-05-22T23:30:00Z"
+[qa_proof_build_errors_class]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. All 7 ErrClass values tested per provider; Success short-circuit verified; precedence guards verified; nil-stderr safe."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_errors_class"
+title = "QA proof: build_errors_class"
+updated_at = "2026-05-23T00:10:00Z"
+[qa_falsification_build_errors_class]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Case-insensitive matching verified; cross-class ambiguity precedence guarded; no sibling files touched."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_errors_class"
+title = "QA falsification: build_errors_class"
+updated_at = "2026-05-23T00:10:00Z"
+[build_dispatch_response_loop]
+acceptance_criteria = "Per parent planner_dispatch_extension_l3. Files: internal/dispatch/dispatch.go (extends existing) + internal/dispatch/dispatch_test.go (extends existing) + internal/dispatch/testdata/ (new failover fixtures). ~80-160 LOC + tests. mage check GREEN."
+blockers = ["drop_008.drop.build_slots_core", "drop_008.drop.build_chains_resolve", "drop_008.drop.build_errors_class"]
+completed_at = "2026-05-23T00:00:00Z"
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:00:00Z: Built via Agent a06202b2563a17b57. internal/dispatch/dispatch.go extended: Attempt + ToolCall types + FallbackChain []Attempt + ToolCalls []ToolCall Response fields + ErrChainExhausted sentinel + nowFn clock seam + Dispatch loop rewrite (per-tier slot acquire → runTier → ClassifyExitError → record Attempt → advance/return) + loadChainsConfig migration to chains.Resolve (preserves drop_003 ErrNotExist contract via errors.Join) + buildSuccessResponse + summarizeStderr helpers. Pre-loop guard preserves ErrNoClaudeNativeTier sentinel for drop_003-compat (will be removed once drops 004/005 ship). New testdata/fake-claude-sequence/claude.sh per-invocation-variable fake CLI seam (FAKE_CLAUDE_FIXTURE_SEQUENCE env var with comma-list of fixture names, FAKE_CLAUDE_INVOCATION_FILE counter). TestDispatchFailoverChain 5 subtests (rate_limit→success, auth_failure→success, all_tiers_fail→ErrChainExhausted, crash halts mid-chain, unsupported_backend advances) + TestDispatchSentinelErrChainExhausted + TestResponseV02Fields. mage check GREEN across all 7 packages."]
+irreducible = true
+objective = "Per SAND-V02-SPEC §1.4 + parent L3 planner_dispatch_extension_l3 acceptance: (1) Add to Response struct: FallbackChain []Attempt + ToolCalls []ToolCall fields with the exact struct shapes documented in L3 acceptance. (2) Add ErrChainExhausted package-level sentinel. (3) Rewrite Dispatch() to loop over tiers: slot acquire (when tier.Slots>0) → spawn via existing runTier → classify via ClassifyExitError → record Attempt → advance or return. ErrUnsupportedBackend records Attempt{Outcome:\"unsupported_backend\"} and advances (preserves drop_003 behavior). All-tiers-fail returns ErrChainExhausted. (4) Migrate loadChainsConfig to call chains.Resolve(params.CWD) instead of hardcoded path. (5) Multi-tier failover tests via fake-CLI seam (may need per-invocation variation — new testdata fixtures). Existing tests (TestDispatchDryRun/TestDispatchHappyPath/TestDispatchSelectionErrors) MUST stay GREEN."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_dispatch_extension_l3"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/testdata/"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: extend Response struct + rewrite Dispatch for tiered fallback loop"
+updated_at = "2026-05-23T00:00:00Z"
+[qa_proof_build_dispatch_response_loop]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Dispatch loop semantics verified; FallbackChain populated across all tiers; ErrChainExhausted sentinel correct; loadChainsConfig migrated to chains.Resolve."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_dispatch_response_loop"
+title = "QA proof: build_dispatch_response_loop"
+updated_at = "2026-05-23T00:10:00Z"
+[qa_falsification_build_dispatch_response_loop]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. 5 failover subtests + crash-halts-mid-chain + unsupported-backend-advances; per-invocation fake CLI seam via FAKE_CLAUDE_FIXTURE_SEQUENCE; ErrNoClaudeNativeTier preserved for drop_003 compat."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_dispatch_response_loop"
+title = "QA falsification: build_dispatch_response_loop"
+updated_at = "2026-05-23T00:10:00Z"
+[build_dispatch_toon_extension]
+acceptance_criteria = "Per parent planner_dispatch_extension_l3. Files: internal/dispatch/tool_dispatch.go (extends existing) + internal/dispatch/tool_dispatch_test.go (extends existing). ~40-60 LOC + tests. mage check GREEN. TOON field order pinned per SAND-V02-SPEC §4."
+blockers = ["drop_008.drop.build_dispatch_response_loop"]
+completed_at = "2026-05-23T00:10:00Z"
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: Built via Agent abcf898d6817aba3c. internal/dispatch/tool_dispatch.go extended: fallback_chain (after tokens) + tool_calls (after permission_denials) tabular arrays added to responseToTOON. fallbackChainTabular + toolCallsTabular helpers. Field order pinned per SAND-V02-SPEC §4 (result/served_by/tier/fallback/duration_ms/cost_usd/tokens/fallback_chain/tools_used/permission_denials/tool_calls/log_path). tool_dispatch_test.go extended with multi-tier FallbackChain assertion (tier 1 rate_limit → tier 2 success) + 3-row ToolCalls + strict-order substring scan + TestDispatchHandlerHappyPathEmptyAuditArrays pinning empty fallback_chain[0]/tool_calls[0] header behavior. mage check GREEN."]
+irreducible = true
+objective = "Per SAND-V02-SPEC §4 + parent L3 planner_dispatch_extension_l3 acceptance: extend responseToTOON to emit fallback_chain[N]{tier,backend,model,attempted_at,outcome,reason} + tool_calls[N]{idx,name,duration_ms,is_error} tabular arrays. Empty arrays emit key[0]{f1,f2}: with no rows. Pinned field order in response: result, served_by, tier, fallback, duration_ms, cost_usd, tokens, fallback_chain[N] (AFTER tokens), tools_used[N], permission_denials[N], tool_calls[N] (AFTER permission_denials), log_path (LAST). Existing tool_dispatch tests pinning current TOON shape must continue to pass with the new fields appearing in the correct positions."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_008.drop.planner_dispatch_extension_l3"
+paths = ["internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: extend responseToTOON to emit fallback_chain + tool_calls tabular arrays"
+updated_at = "2026-05-23T00:10:00Z"
+[qa_proof_build_dispatch_toon_extension]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. fallback_chain[N] + tool_calls[N] tabular arrays emitted; field order pinned per SAND-V02-SPEC §4; empty-array headers (key[0]:) emitted correctly."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_dispatch_toon_extension"
+title = "QA proof: build_dispatch_toon_extension"
+updated_at = "2026-05-23T00:10:00Z"
+[qa_falsification_build_dispatch_toon_extension]
+created_at = "2026-05-22T23:15:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T00:10:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Strict-order substring scan in tests prevents reordering drift; empty-array shape pinned."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_008.drop.build_dispatch_toon_extension"
+title = "QA falsification: build_dispatch_toon_extension"
+updated_at = "2026-05-23T00:10:00Z"

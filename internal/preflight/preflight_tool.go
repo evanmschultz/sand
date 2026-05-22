@@ -33,7 +33,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -100,7 +99,17 @@ func NewToolWithProbe(projectDir string, probe Probe) (mcp.Tool, server.ToolHand
 			return mcp.NewToolResultError("role must not be empty"), nil
 		}
 
-		cfgPath := filepath.Join(projectDir, chainsConfigRelPath)
+		cfgPath, _, resolveErr := chains.Resolve(projectDir)
+		if resolveErr != nil {
+			if errors.Is(resolveErr, chains.ErrChainConfigNotFound) {
+				return mcp.NewToolResultError(
+					fmt.Sprintf("preflight: chain config not found: %v", resolveErr),
+				), nil
+			}
+			return mcp.NewToolResultError(
+				fmt.Sprintf("preflight: resolve chain config: %v", resolveErr),
+			), nil
+		}
 		chain, loadErr := loadChain(cfgPath, role)
 		if loadErr != nil {
 			return mcp.NewToolResultError(loadErr.Error()), nil
