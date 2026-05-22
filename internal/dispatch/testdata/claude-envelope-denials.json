@@ -1,0 +1,9 @@
+{
+  "result": "Refused: out-of-allowlist Bash invocation.",
+  "iterations": [
+    {"type": "tool_use", "name": "Read"},
+    {"type": "permission_denial", "tool": "Bash"},
+    {"type": "permission_denied", "tool": "Bash"},
+    {"type": "permission_denial", "tool": "Edit"}
+  ]
+}

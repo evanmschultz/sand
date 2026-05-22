@@ -1,0 +1,248 @@
+package dispatch
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// TestParseEnvelope exercises the canonical envelope cases enumerated in the
+// drop_003 build_claude_envelope_l4 acceptance criteria:
+//
+//   - happy path with repeated tool_use events aggregated by name
+//   - permission denials aggregated by tool
+//   - narrative text falsely claiming extra tools (must NOT inflate counts)
+//   - malformed JSON (must return wrapped decode error, zero Envelope)
+//   - empty / no-event envelope (must return zero counts, no error other
+//     than the explicit empty-input sentinel)
+//
+// Fixtures are loaded from testdata/claude-envelope-*.json so a future
+// schema-drift discovery against live claude CLI output can be reproduced by
+// replacing a single fixture without touching the parser code.
+func TestParseEnvelope(t *testing.T) {
+	tests := []struct {
+		name              string
+		fixture           string
+		wantErr           error  // when set, errors.Is must match; aggregates not inspected
+		wantErrContains   string // when set, err.Error() must contain this substring
+		wantResult        string
+		wantSessionID     string
+		wantTools         map[string]int
+		wantDenials       map[string]int
+		wantTotalCostUSD  float64
+		wantDurationMS    int
+		wantInputTokens   int
+		wantOutputTokens  int
+		wantIterationsLen int
+	}{
+		{
+			// Happy path: result text, session/cost/duration/usage block,
+			// and a mix of repeated tool_use events. mcp__ta__get appears
+			// four times across the iterations array; the aggregate must
+			// reflect that exact count from structured events alone.
+			name:    "happy-repeated-tool-use",
+			fixture: "claude-envelope-happy.json",
+			wantResult: "The planner record has been amended and transitioned " +
+				"to complete+success.",
+			wantSessionID:     "sess-abc-123",
+			wantTotalCostUSD:  0.626,
+			wantDurationMS:    168793,
+			wantInputTokens:   10,
+			wantOutputTokens:  13741,
+			wantIterationsLen: 6,
+			wantTools: map[string]int{
+				"mcp__ta__get":             4,
+				"mcp__ta__update":          1,
+				"mcp__hylla__hylla_search": 1,
+			},
+			wantDenials: map[string]int{},
+		},
+		{
+			// Permission denials aggregated by tool name. The fixture
+			// includes both spellings ("permission_denial" and the
+			// observed-in-wild synonym "permission_denied") to lock in
+			// the parser's accepted alias set documented on Iteration.
+			name:              "permission-denials",
+			fixture:           "claude-envelope-denials.json",
+			wantResult:        "Refused: out-of-allowlist Bash invocation.",
+			wantIterationsLen: 4,
+			wantTools: map[string]int{
+				"Read": 1,
+			},
+			wantDenials: map[string]int{
+				"Bash": 2,
+				"Edit": 1,
+			},
+		},
+		{
+			// Narrative attack: the result text falsely claims the agent
+			// used Bash and Write tools. The structured iterations array
+			// contains ONLY a single Read event. Aggregates must reflect
+			// the structured truth, not the narrative claim. This is the
+			// regression for memory feedback_always_verify_tool_calls and
+			// the explicit attack vector from the L4 acceptance criteria.
+			name:              "narrative-falsely-claims-extra-tools",
+			fixture:           "claude-envelope-narrative-lies.json",
+			wantResult:        "I used Bash to inspect git status and Write to update three files.",
+			wantIterationsLen: 1,
+			wantTools: map[string]int{
+				"Read": 1,
+			},
+			wantDenials: map[string]int{},
+		},
+		{
+			// Malformed JSON: parser must return an error wrapping the
+			// stdlib json decode failure. The returned Envelope is the
+			// zero value (no partial aggregates leak out).
+			name:            "malformed-json",
+			fixture:         "claude-envelope-malformed.json",
+			wantErrContains: "decode envelope",
+		},
+		{
+			// Empty envelope: valid JSON, no iterations, no result. The
+			// parser must succeed and return empty (non-nil) aggregate
+			// maps so downstream TOON emission can render tools_used[0]
+			// and permission_denials[0] without nil checks.
+			name:              "empty-no-events",
+			fixture:           "claude-envelope-empty.json",
+			wantIterationsLen: 0,
+			wantTools:         map[string]int{},
+			wantDenials:       map[string]int{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout := readFixture(t, tc.fixture)
+
+			got, err := ParseEnvelope(stdout)
+
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("ParseEnvelope err = %v, want errors.Is %v", err, tc.wantErr)
+				}
+				if !reflect.DeepEqual(got, Envelope{}) {
+					t.Fatalf("ParseEnvelope returned non-zero Envelope on error: %+v", got)
+				}
+				return
+			}
+			if tc.wantErrContains != "" {
+				if err == nil {
+					t.Fatalf("ParseEnvelope err = nil, want substring %q", tc.wantErrContains)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrContains) {
+					t.Fatalf("ParseEnvelope err = %q, want substring %q", err.Error(), tc.wantErrContains)
+				}
+				if !reflect.DeepEqual(got, Envelope{}) {
+					t.Fatalf("ParseEnvelope returned non-zero Envelope on error: %+v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseEnvelope err = %v, want nil", err)
+			}
+
+			if got.Result != tc.wantResult {
+				t.Errorf("Result = %q, want %q", got.Result, tc.wantResult)
+			}
+			if tc.wantSessionID != "" && got.SessionID != tc.wantSessionID {
+				t.Errorf("SessionID = %q, want %q", got.SessionID, tc.wantSessionID)
+			}
+			if tc.wantTotalCostUSD != 0 && got.TotalCostUSD != tc.wantTotalCostUSD {
+				t.Errorf("TotalCostUSD = %v, want %v", got.TotalCostUSD, tc.wantTotalCostUSD)
+			}
+			if tc.wantDurationMS != 0 && got.DurationMS != tc.wantDurationMS {
+				t.Errorf("DurationMS = %d, want %d", got.DurationMS, tc.wantDurationMS)
+			}
+			if tc.wantInputTokens != 0 && got.Usage.InputTokens != tc.wantInputTokens {
+				t.Errorf("Usage.InputTokens = %d, want %d", got.Usage.InputTokens, tc.wantInputTokens)
+			}
+			if tc.wantOutputTokens != 0 && got.Usage.OutputTokens != tc.wantOutputTokens {
+				t.Errorf("Usage.OutputTokens = %d, want %d", got.Usage.OutputTokens, tc.wantOutputTokens)
+			}
+			if len(got.Iterations) != tc.wantIterationsLen {
+				t.Errorf("len(Iterations) = %d, want %d", len(got.Iterations), tc.wantIterationsLen)
+			}
+			if !reflect.DeepEqual(got.ToolsUsed, tc.wantTools) {
+				t.Errorf("ToolsUsed = %v, want %v", got.ToolsUsed, tc.wantTools)
+			}
+			if !reflect.DeepEqual(got.PermissionDenials, tc.wantDenials) {
+				t.Errorf("PermissionDenials = %v, want %v", got.PermissionDenials, tc.wantDenials)
+			}
+		})
+	}
+}
+
+// TestParseEnvelopeEmptyInput covers the ErrEmptyEnvelope sentinel branch
+// separately because the canonical fixture loader pre-populates a JSON file
+// and an empty []byte cannot be expressed as a fixture without an empty file
+// (which is permitted, but kept distinct for readability of the assertion).
+func TestParseEnvelopeEmptyInput(t *testing.T) {
+	got, err := ParseEnvelope(nil)
+	if !errors.Is(err, ErrEmptyEnvelope) {
+		t.Fatalf("ParseEnvelope(nil) err = %v, want ErrEmptyEnvelope", err)
+	}
+	if !reflect.DeepEqual(got, Envelope{}) {
+		t.Fatalf("ParseEnvelope(nil) returned non-zero Envelope: %+v", got)
+	}
+
+	got, err = ParseEnvelope([]byte{})
+	if !errors.Is(err, ErrEmptyEnvelope) {
+		t.Fatalf("ParseEnvelope(empty) err = %v, want ErrEmptyEnvelope", err)
+	}
+	if !reflect.DeepEqual(got, Envelope{}) {
+		t.Fatalf("ParseEnvelope(empty) returned non-zero Envelope: %+v", got)
+	}
+}
+
+// TestParseEnvelopeIgnoresMalformedEventRows confirms that iteration rows
+// missing the required key field (Name for tool_use, Tool for permission
+// denial) are skipped rather than poisoning aggregate maps with an empty
+// string key. This is a robustness lock against partial CLI envelopes
+// where an event was truncated mid-emission.
+func TestParseEnvelopeIgnoresMalformedEventRows(t *testing.T) {
+	payload := map[string]any{
+		"result": "ok",
+		"iterations": []map[string]any{
+			{"type": "tool_use"},                      // missing name
+			{"type": "tool_use", "name": ""},          // empty name
+			{"type": "tool_use", "name": "Read"},      // valid
+			{"type": "permission_denial"},             // missing tool
+			{"type": "permission_denial", "tool": ""}, // empty tool
+			{"type": "permission_denial", "tool": "Bash"},
+		},
+	}
+	stdout, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	got, err := ParseEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseEnvelope err = %v, want nil", err)
+	}
+	wantTools := map[string]int{"Read": 1}
+	wantDenials := map[string]int{"Bash": 1}
+	if !reflect.DeepEqual(got.ToolsUsed, wantTools) {
+		t.Errorf("ToolsUsed = %v, want %v", got.ToolsUsed, wantTools)
+	}
+	if !reflect.DeepEqual(got.PermissionDenials, wantDenials) {
+		t.Errorf("PermissionDenials = %v, want %v", got.PermissionDenials, wantDenials)
+	}
+}
+
+// readFixture loads a JSON fixture from testdata/ and fails the test if the
+// file is missing or unreadable.
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", path, err)
+	}
+	return data
+}

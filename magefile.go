@@ -2,13 +2,16 @@
 
 // Magefile for the sand module. Defines exported targets discoverable by mage.
 //
-// This file currently provides the Install target; sibling droplets add Check
-// and the Test* family in companion files within the same mage package.
+// Top-level gate is `mage check` which runs FmtCheck (gofumpt -l), Vet, Test,
+// and Tidy. NEVER invoke raw `gofmt`, `gofumpt`, `go test`, `go vet`, or `go
+// mod tidy` from dispatched roles — always route through these mage targets.
+// Orchestrators are the only callers permitted to bypass this rule.
 package main
 
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -36,28 +39,106 @@ func Install() error {
 	return nil
 }
 
-// Check is the commit gate. It runs gofmt -l (formatting), go vet (static
-// analysis), and go test against every package in the module. Any
-// unformatted file, vet diagnostic, or test failure causes Check to fail.
-func Check() error {
-	// gofmt -l prints the names of files whose formatting differs from
-	// gofmt's; it exits 0 even when offenders exist, so capture stdout and
-	// fail if any file is listed.
-	offenders, err := sh.Output("gofmt", "-l", ".")
+// Fmt formats sources in place via gofumpt (latest). Auto-installs gofumpt to
+// GOBIN if missing so contributors don't have to manage it out of band.
+// gofumpt is a strict superset of gofmt -s: every gofmt -s fix plus tighter
+// standards. NEVER invoke gofmt or raw gofumpt directly; always route through
+// `mage fmt` / `mage fmtCheck`.
+func Fmt() error {
+	if err := ensureGofumpt(); err != nil {
+		return err
+	}
+	return sh.RunV("gofumpt", "-w", ".")
+}
+
+// FmtCheck fails if any file is not gofumpt-clean. Listing produced by
+// `gofumpt -l`; non-empty output = drift; emits the offending paths to stderr.
+func FmtCheck() error {
+	if err := ensureGofumpt(); err != nil {
+		return err
+	}
+	out, err := sh.Output("gofumpt", "-l", ".")
 	if err != nil {
-		return fmt.Errorf("check: gofmt -l .: %w", err)
+		return fmt.Errorf("fmtCheck: gofumpt -l .: %w", err)
 	}
-	if strings.TrimSpace(offenders) != "" {
-		return fmt.Errorf("check: gofmt found unformatted files:\n%s", offenders)
+	if strings.TrimSpace(out) != "" {
+		fmt.Fprintln(os.Stderr, out)
+		return fmt.Errorf("fmtCheck: files are not gofumpt-clean (run `mage fmt`)")
 	}
-
-	if err := sh.RunV("go", "vet", "./..."); err != nil {
-		return fmt.Errorf("check: go vet ./...: %w", err)
-	}
-
-	if err := sh.RunV("go", "test", "./..."); err != nil {
-		return fmt.Errorf("check: go test ./...: %w", err)
-	}
-
 	return nil
+}
+
+// Vet runs `go vet ./...`.
+func Vet() error {
+	if err := sh.RunV("go", "vet", "./..."); err != nil {
+		return fmt.Errorf("vet: go vet ./...: %w", err)
+	}
+	return nil
+}
+
+// Tidy runs `go mod tidy` and fails if go.mod or go.sum changed. Ensures the
+// committed module manifest stays in sync with the import graph.
+func Tidy() error {
+	before, err := snapshot("go.mod", "go.sum")
+	if err != nil {
+		return fmt.Errorf("tidy: snapshot before: %w", err)
+	}
+	if err := sh.RunV("go", "mod", "tidy"); err != nil {
+		return fmt.Errorf("tidy: go mod tidy: %w", err)
+	}
+	after, err := snapshot("go.mod", "go.sum")
+	if err != nil {
+		return fmt.Errorf("tidy: snapshot after: %w", err)
+	}
+	if before != after {
+		return fmt.Errorf("tidy: go.mod or go.sum changed; commit the tidy result")
+	}
+	return nil
+}
+
+// Check is the composite commit gate: FmtCheck, Vet, Test, Tidy. Any failing
+// step aborts and surfaces the underlying error.
+func Check() error {
+	for _, step := range []struct {
+		name string
+		run  func() error
+	}{
+		{"fmtCheck", FmtCheck},
+		{"vet", Vet},
+		{"test", Test},
+		{"tidy", Tidy},
+	} {
+		if err := step.run(); err != nil {
+			return fmt.Errorf("check: %s: %w", step.name, err)
+		}
+	}
+	return nil
+}
+
+// ensureGofumpt makes `gofumpt` resolvable on PATH by installing the latest
+// from upstream when missing. Idempotent — `go install` against an
+// already-current binary is a no-op.
+func ensureGofumpt() error {
+	if _, err := exec.LookPath("gofumpt"); err == nil {
+		return nil
+	}
+	return sh.RunV("go", "install", "mvdan.cc/gofumpt@latest")
+}
+
+// snapshot reads the given paths and concatenates their contents with path
+// separators between, returning a single string suitable for equality
+// comparison. Used by Tidy to detect go.mod / go.sum drift.
+func snapshot(paths ...string) (string, error) {
+	var b strings.Builder
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return "", fmt.Errorf("snapshot %s: %w", p, err)
+		}
+		b.WriteString(p)
+		b.WriteByte('\n')
+		b.Write(data)
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
 }

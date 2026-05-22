@@ -1,15 +1,17 @@
 // Package main is the sand MCP server entrypoint.
 //
-// v0.1 stub: registers zero tools. The server completes the MCP stdio
-// handshake and then exits cleanly when stdin is closed. Tool registration
-// (dispatch, preflight, persona_get, chains_list) lands in subsequent
-// droplets — see SAND-SPEC.md §2.
+// Registers the sand.dispatch MCP tool (SAND-SPEC §3.1) on a stdio MCP server.
 package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/evanmschultz/sand/internal/debugtools"
+	"github.com/evanmschultz/sand/internal/dispatch"
+	"github.com/evanmschultz/sand/internal/preflight"
 )
 
 const (
@@ -19,6 +21,28 @@ const (
 
 func main() {
 	s := server.NewMCPServer(serverName, serverVersion)
+
+	// projectDir source for tool wiring. v0.1 derives this from cwd; the
+	// `--project <abs-path>` flag (mirroring ta's MCP convention) lands in
+	// v0.2. Tools that accept a project root (persona_get, future chains_list,
+	// future preflight) close over this single value at registration time.
+	projectDir, _ := os.Getwd()
+
+	// drop_006: sand.persona_get
+	personaGetTool, personaGetHandler := debugtools.PersonaGetTool(projectDir)
+	s.AddTool(personaGetTool, personaGetHandler)
+
+	// drop_006: sand.chains_list
+	chainsListTool, chainsListHandler := debugtools.ChainsListTool(projectDir)
+	s.AddTool(chainsListTool, chainsListHandler)
+
+	// drop_006: sand.preflight
+	preflightTool, preflightHandler := preflight.PreflightTool(projectDir)
+	s.AddTool(preflightTool, preflightHandler)
+
+	// --- sand.dispatch registration (drop_003) ---
+	s.AddTool(dispatch.NewDispatchTool(), dispatch.DispatchHandler)
+	// --- end sand.dispatch registration ---
 
 	// Stdio transport blocks until stdin EOF, at which point ServeStdio
 	// returns nil and the process exits cleanly.

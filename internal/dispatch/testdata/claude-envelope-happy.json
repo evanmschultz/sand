@@ -1,0 +1,20 @@
+{
+  "result": "The planner record has been amended and transitioned to complete+success.",
+  "session_id": "sess-abc-123",
+  "total_cost_usd": 0.626,
+  "duration_ms": 168793,
+  "usage": {
+    "input_tokens": 10,
+    "output_tokens": 13741,
+    "cache_read_input_tokens": 120482,
+    "cache_creation_input_tokens": 35481
+  },
+  "iterations": [
+    {"type": "tool_use", "name": "mcp__ta__get"},
+    {"type": "tool_use", "name": "mcp__ta__get"},
+    {"type": "tool_use", "name": "mcp__hylla__hylla_search"},
+    {"type": "tool_use", "name": "mcp__ta__get"},
+    {"type": "tool_use", "name": "mcp__ta__get"},
+    {"type": "tool_use", "name": "mcp__ta__update"}
+  ]
+}
