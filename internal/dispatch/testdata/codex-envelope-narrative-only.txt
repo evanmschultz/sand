@@ -1,0 +1,4 @@
+Starting codex exec session.
+The agent inspected the workspace and noted that ta/get and Bash were considered.
+No structured tool calls were emitted in this run.
+Done.

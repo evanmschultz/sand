@@ -138,9 +138,12 @@ var nowFn = time.Now
 //     from persona.Load.
 //   - chains config load / parse failure propagates from loadChainsConfig.
 //   - role not in chain config returns a wrapped ErrRoleNotInChains.
-//   - role chain contains zero claude-native tiers returns a wrapped
-//     ErrNoClaudeNativeTier (preserved guard until drops 004/005 broaden the
-//     supported-backend set).
+//   - role chain contains zero claude-native tiers in DRY-RUN mode returns
+//     a wrapped ErrNoClaudeNativeTier. Wet-run no longer applies this
+//     guard pre-loop (drop_005 L3 amendment B4); codex-only or
+//     ollama-only chains are gated per-tier by backends.Resolve and
+//     surface as ErrChainExhausted with FallbackChain rows recording
+//     "unsupported_backend" outcomes when no tier resolves.
 //   - MCP config resolution errors propagate from resolveMCPConfig.
 //   - All tiers fail returns wrapped ErrChainExhausted with FallbackChain
 //     populated.
@@ -167,18 +170,6 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		return Response{}, fmt.Errorf("dispatch: chain lookup for role %q: %w", params.Role, err)
 	}
 
-	// drop_003 compatibility: until drops 004/005 light up ollama/codex, a
-	// chain consisting entirely of non-claude-native tiers cannot serve. The
-	// pre-loop guard surfaces ErrNoClaudeNativeTier so the existing test
-	// contract (TestDispatchSelectionErrors/no claude-native tier) stays
-	// green. Once drops 004/005 broaden runTier's supported set, this guard
-	// can be removed — chain exhaustion will then surface as
-	// ErrChainExhausted.
-	cnTier, _, err := selectClaudeNativeTier(params.Role, tiers)
-	if err != nil {
-		return Response{}, err
-	}
-
 	mcpPath, mcpExists, err := resolveMCPConfig(params.CWD)
 	if err != nil {
 		return Response{}, err
@@ -194,11 +185,23 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		// over the tier's configured model. No FallbackChain rows because
 		// no real attempt happens.
 		//
+		// The selectClaudeNativeTier guard lives HERE (drop_005 L3
+		// amendment B4): wet-run no longer pre-rejects codex-only chains
+		// — backends.Resolve gates support per-tier in the loop below.
+		// Dry-run still picks the first claude-native tier so the Preview
+		// rendering stays deterministic and the existing
+		// TestDispatchSelectionErrors/no-claude-native-tier contract is
+		// preserved.
+		//
 		// Per drop_011 amendment A5, the rendered command MUST preserve
 		// renderDryRunCommand's byte shape; the claudeNativeBackend.Preview
 		// implementation matches that contract bit-for-bit. Resolution
 		// goes through backends.Resolve so the dry-run path exercises the
 		// same factory as wet-run.
+		cnTier, _, err := selectClaudeNativeTier(params.Role, tiers)
+		if err != nil {
+			return Response{}, err
+		}
 		dryRunModel := cnTier.Model
 		if params.ModelOverride != "" {
 			dryRunModel = params.ModelOverride
@@ -318,7 +321,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		case ErrClassSuccess:
 			attempt.Outcome = class.String()
 			chain = append(chain, attempt)
-			return buildSuccessResponse(params, tier, spawnModel, tierIdx, spawnResult, chain)
+			return buildSuccessResponse(params, backend, tier, spawnModel, tierIdx, spawnResult, chain)
 		case ErrClassRateLimit, ErrClassAuthFailure, ErrClassNetwork, ErrClassTimeout:
 			attempt.Outcome = class.String()
 			attempt.Reason = summarizeStderr(spawnResult.Stderr)
@@ -370,13 +373,28 @@ func buildSpawnRequest(params Params, p persona.Persona, model, mcpConfigPath st
 // backend actually used). tier.Model is preserved unchanged in the
 // FallbackChain rows per amendment A6.
 //
-// drop_011 keeps the envelope_format hardwired to claude_json — only
-// claude-native ships in this drop. drop_005 will add a codex_stream
-// parser hook keyed off the BackendConfig.EnvelopeFormat field; until
-// then the wet-run path always lands in claude-native and ParseEnvelope
-// is the correct decoder.
-func buildSuccessResponse(params Params, tier chains.Tier, servedModel string, tierIdx int, result backends.SpawnResult, chain []Attempt) (Response, error) {
-	env, err := ParseEnvelope(result.Stdout)
+// Parser routing per drop_005 L3 amendment B3: backend.EnvelopeFormat()
+// selects the envelope decoder. "claude_json" (and the empty-string default
+// for backward compat) calls ParseEnvelope; "codex_stream" calls
+// ParseCodexEnvelope. Any other value is a programming error — the switch
+// returns a wrapped ErrUnknownEnvelopeFormat so the dispatch boundary fails
+// loudly rather than silently mis-parsing a new backend's stream.
+func buildSuccessResponse(params Params, backend backends.Backend, tier chains.Tier, servedModel string, tierIdx int, result backends.SpawnResult, chain []Attempt) (Response, error) {
+	var (
+		env Envelope
+		err error
+	)
+	switch format := backend.EnvelopeFormat(); format {
+	case "claude_json", "":
+		env, err = ParseEnvelope(result.Stdout)
+	case "codex_stream":
+		env, err = ParseCodexEnvelope(result.Stdout)
+	default:
+		return Response{FallbackChain: chain}, fmt.Errorf(
+			"dispatch: role %q: envelope_format=%q: %w",
+			params.Role, format, ErrUnknownEnvelopeFormat,
+		)
+	}
 	if err != nil {
 		return Response{FallbackChain: chain}, fmt.Errorf("dispatch: parse envelope for role %q: %w", params.Role, err)
 	}
@@ -621,4 +639,15 @@ var (
 	// underlying error) because exhaustion means the caller-supplied chain
 	// itself was insufficient for this role.
 	ErrChainExhausted = errors.New("dispatch: chain exhausted; every tier failed")
+
+	// ErrUnknownEnvelopeFormat is returned (wrapped) by buildSuccessResponse
+	// when the served Backend's EnvelopeFormat() value does not match any
+	// known parser dispatch case. drop_005 ships claude_json (incl. the
+	// empty-string default for backward compat) + codex_stream; any other
+	// value reaches the default branch and surfaces this sentinel. The
+	// guard is defensive — backends.Resolve already rejects unknown
+	// envelope_format values via ErrUnsupportedEnvelopeFormat — but the
+	// switch must be total at the dispatch boundary so a future Backend
+	// impl that forgets to update buildSuccessResponse fails loudly.
+	ErrUnknownEnvelopeFormat = errors.New("dispatch: unknown backend envelope format")
 )

@@ -1,0 +1,6 @@
+Starting codex exec session.
+mcp: ta/get (completed)
+mcp: shell/bash (failed)
+permission_denial: Bash
+permission_denial for Edit
+Refused: out-of-allowlist Bash invocation.

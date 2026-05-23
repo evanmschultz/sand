@@ -29,7 +29,7 @@ import (
 var ErrUnknownBackend = errors.New("backends: unknown backend")
 
 // Backend is the contract every concrete spawn implementation satisfies.
-// Both methods are MANDATORY for every Backend.
+// All three methods are MANDATORY for every Backend.
 //
 // Spawn runs the backend's subprocess for a given dispatch and returns
 // the captured result. The context governs cancellation + deadlines for
@@ -39,9 +39,16 @@ var ErrUnknownBackend = errors.New("backends: unknown backend")
 // human-readable string WITHOUT spawning a subprocess. It is the
 // dry-run surface used by the `preflight` MCP tool and by `--dry-run`
 // dispatches per SAND-V02-SPEC §8.3.
+//
+// EnvelopeFormat declares the backend's stdout dialect ("claude_json",
+// "codex_stream", ...) so the dispatch package can pick the right
+// envelope parser at the type level without re-reading BackendConfig.
+// Added by drop_005 L3 amendment B3 to widen parser routing without a
+// Resolve signature change.
 type Backend interface {
 	Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error)
 	Preview(req SpawnRequest) (string, error)
+	EnvelopeFormat() string
 }
 
 // SpawnRequest is the backend-local input shape every Backend.Spawn /
@@ -216,21 +223,26 @@ func Resolve(projectDir, name string) (Backend, error) {
 	// Dispatch by EnvelopeFormat. claudeNativeBackend handles every backend
 	// whose CLI emits claude -p --output-format json envelopes (claude
 	// itself + ollama-local + ollama-cloud + together-ai + any other
-	// provider routed through claude with ANTHROPIC_BASE_URL). drop_005
-	// will widen the switch to dispatch codex_stream to a codexExecBackend.
+	// provider routed through claude with ANTHROPIC_BASE_URL).
+	// codexExecBackend handles backends whose CLI emits codex's
+	// line-oriented stream (`mcp: <server>/<tool> (completed)` log lines).
 	switch cfg.EnvelopeFormat {
 	case "claude_json", "":
 		return &claudeNativeBackend{cfg: cfg}, nil
+	case "codex_stream":
+		return &codexExecBackend{cfg: cfg}, nil
 	default:
 		return nil, fmt.Errorf(
-			"backends: %q: envelope_format=%q not yet supported (drop_005 will add codex_stream): %w",
+			"backends: %q: envelope_format=%q not yet supported: %w",
 			name, cfg.EnvelopeFormat, ErrUnsupportedEnvelopeFormat,
 		)
 	}
 }
 
 // ErrUnsupportedEnvelopeFormat is returned by Resolve when the configured
-// envelope_format has no Backend impl yet. drop_011 ships only
-// claude_json; drop_005 will add codex_stream. Callers (dispatch loop)
-// treat this the same as ErrUnknownBackend — advance to the next tier.
+// envelope_format has no Backend impl yet. drop_011 shipped claude_json;
+// drop_005 added codex_stream. Future formats (e.g. together_ai_stream)
+// remain ErrUnsupportedEnvelopeFormat until their Backend impl lands.
+// Callers (dispatch loop) treat this the same as ErrUnknownBackend —
+// advance to the next tier.
 var ErrUnsupportedEnvelopeFormat = errors.New("backends: envelope_format not supported")

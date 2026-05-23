@@ -2,13 +2,10 @@ package backends
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/BurntSushi/toml"
 )
 
 // fullFixtureTOML is a backends.toml document that populates every one
@@ -172,30 +169,20 @@ func TestBackendConfigTOMLDecodeAllFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve claude-native: %v", err)
 	}
-	// codex-exec uses envelope_format=codex_stream which Resolve declines
-	// until drop_005 ships the codexExecBackend impl. Assert the gate
-	// surfaces ErrUnsupportedEnvelopeFormat so a future codex landing
-	// is a positive enable-flag rather than a behavior regression.
-	if _, err := Resolve(projectDir, "codex-exec"); !errors.Is(err, ErrUnsupportedEnvelopeFormat) {
-		t.Fatalf("Resolve codex-exec: expected ErrUnsupportedEnvelopeFormat, got %v", err)
-	}
-
-	// Decode the file directly so the codex-exec field-decode assertions
-	// below still cover the BackendConfig TOML round-trip — Resolve's
-	// envelope_format gate is independent of TOML decoding correctness.
-	cxPath := filepath.Join(projectDir, ".claude", "sand-backends.toml")
-	raw, err := os.ReadFile(cxPath)
+	// codex-exec uses envelope_format=codex_stream. After drop_005 wired
+	// codexExecBackend into Resolve, the factory returns it directly
+	// instead of declining with ErrUnsupportedEnvelopeFormat. Assert the
+	// positive resolution + concrete type so a future refactor that
+	// drops the codex_stream case surfaces at test time.
+	b2, err := Resolve(projectDir, "codex-exec")
 	if err != nil {
-		t.Fatalf("read fixture for codex round-trip: %v", err)
+		t.Fatalf("Resolve codex-exec: %v", err)
 	}
-	var directDecode backendsFile
-	if _, decodeErr := toml.Decode(string(raw), &directDecode); decodeErr != nil {
-		t.Fatalf("decode fixture for codex round-trip: %v", decodeErr)
-	}
-	gotCXcfg, ok := directDecode.Backends["codex-exec"]
+	cx, ok := b2.(*codexExecBackend)
 	if !ok {
-		t.Fatalf("decoded fixture missing codex-exec entry")
+		t.Fatalf("Resolve codex-exec: expected *codexExecBackend, got %T", b2)
 	}
+	gotCXcfg := cx.cfg
 
 	cn, ok := b1.(*claudeNativeBackend)
 	if !ok {
@@ -277,10 +264,13 @@ func TestBackendConfigTOMLDecodeAllFields(t *testing.T) {
 }
 
 // TestBackendInterfaceCompileCheck pins the Backend interface contract
-// at compile time: claudeNativeBackend must satisfy Backend. This is a
-// belt-and-braces guard so a future refactor that drops a method
-// signature surfaces at build time rather than only via failing
-// runtime tests.
+// at compile time: every concrete Backend impl must satisfy Backend.
+// This is a belt-and-braces guard so a future refactor that drops a
+// method signature surfaces at build time rather than only via failing
+// runtime tests. Per drop_005 L3 amendment B3, the interface widened to
+// include EnvelopeFormat() string — both concrete backends must satisfy
+// the wider contract.
 func TestBackendInterfaceCompileCheck(t *testing.T) {
 	var _ Backend = (*claudeNativeBackend)(nil)
+	var _ Backend = (*codexExecBackend)(nil)
 }

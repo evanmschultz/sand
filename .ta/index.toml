@@ -528,6 +528,176 @@ db_name = 'cascade'
 type = 'drop'
 updated = 2026-05-22T00:05:54.974567Z
 
+[drop_005]
+[drop_005.drop]
+[drop_005.drop.build_codex_backend_factory]
+created = 2026-05-23T05:25:48.20287Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T05:50:07.98988Z
+
+[drop_005.drop.build_codex_dispatch_parser_routing]
+created = 2026-05-23T05:25:48.235576Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T05:55:51.55322Z
+
+[drop_005.drop.build_codex_envelope_parser]
+created = 2026-05-23T05:25:48.136716Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T05:29:44.765094Z
+
+[drop_005.drop.build_codex_exec_backend]
+created = 2026-05-23T05:25:48.170061Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T05:44:40.766644Z
+
+[drop_005.drop.build_codex_mcp_probe]
+created = 2026-05-23T05:25:48.09733Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T05:36:15.408257Z
+
+[drop_005.drop.codex_backend]
+created = 2026-05-23T05:01:57.507643Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-23T05:57:31.420309Z
+
+[drop_005.drop.planner_codex_backend_l2]
+created = 2026-05-23T05:12:56.429964Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T05:57:31.408613Z
+
+[drop_005.drop.planner_codex_envelope_l3]
+created = 2026-05-23T05:14:52.610633Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T05:57:31.370935Z
+
+[drop_005.drop.planner_codex_exec_l3]
+created = 2026-05-23T05:14:52.60002Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T05:57:31.38337Z
+
+[drop_005.drop.planner_codex_mcp_probe_l3]
+created = 2026-05-23T05:14:52.587243Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T05:57:31.395339Z
+
+[drop_005.drop.qa_falsification_build_codex_backend_factory]
+created = 2026-05-23T05:25:48.224689Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:25:48.224689Z
+
+[drop_005.drop.qa_falsification_build_codex_dispatch_parser_routing]
+created = 2026-05-23T05:25:48.256612Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:25:48.256612Z
+
+[drop_005.drop.qa_falsification_build_codex_envelope_parser]
+created = 2026-05-23T05:25:48.158744Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:57:31.356948Z
+
+[drop_005.drop.qa_falsification_build_codex_exec_backend]
+created = 2026-05-23T05:25:48.191999Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:25:48.191999Z
+
+[drop_005.drop.qa_falsification_build_codex_mcp_probe]
+created = 2026-05-23T05:25:48.125647Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:25:48.125647Z
+
+[drop_005.drop.qa_falsification_codex_backend_l2_plan]
+created = 2026-05-23T05:16:01.538262Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:24:03.973315Z
+
+[drop_005.drop.qa_falsification_codex_envelope_l3_plan]
+created = 2026-05-23T05:16:01.610038Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:24:03.960348Z
+
+[drop_005.drop.qa_falsification_codex_exec_l3_plan]
+created = 2026-05-23T05:16:01.587335Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:20:49.2483Z
+
+[drop_005.drop.qa_falsification_codex_mcp_probe_l3_plan]
+created = 2026-05-23T05:16:01.564876Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T05:24:03.945999Z
+
+[drop_005.drop.qa_proof_build_codex_backend_factory]
+created = 2026-05-23T05:25:48.21367Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:25:48.21367Z
+
+[drop_005.drop.qa_proof_build_codex_dispatch_parser_routing]
+created = 2026-05-23T05:25:48.245638Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:25:48.245638Z
+
+[drop_005.drop.qa_proof_build_codex_envelope_parser]
+created = 2026-05-23T05:25:48.147715Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:57:31.339819Z
+
+[drop_005.drop.qa_proof_build_codex_exec_backend]
+created = 2026-05-23T05:25:48.180683Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:25:48.180683Z
+
+[drop_005.drop.qa_proof_build_codex_mcp_probe]
+created = 2026-05-23T05:25:48.10916Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:25:48.10916Z
+
+[drop_005.drop.qa_proof_codex_backend_l2_plan]
+created = 2026-05-23T05:16:01.525844Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:18:42.167033Z
+
+[drop_005.drop.qa_proof_codex_envelope_l3_plan]
+created = 2026-05-23T05:16:01.599106Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:19:11.669327Z
+
+[drop_005.drop.qa_proof_codex_exec_l3_plan]
+created = 2026-05-23T05:16:01.576139Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:19:26.05469Z
+
+[drop_005.drop.qa_proof_codex_mcp_probe_l3_plan]
+created = 2026-05-23T05:16:01.551269Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T05:18:45.318639Z
+
 [drop_006]
 [drop_006.drop]
 [drop_006.drop.build_chains_list_main_wiring]

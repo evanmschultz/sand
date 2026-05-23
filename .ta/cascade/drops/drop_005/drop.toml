@@ -1,0 +1,793 @@
+[codex_backend]
+acceptance_criteria = """
+- `mage check` GREEN.
+- New `internal/backends/codex_exec.go`: codexExecBackend implementing Backend interface (Spawn + Preview). Spawn invokes `codex exec --ephemeral --ignore-rules --skip-git-repo-check -C <cwd> -m <model>` via os/exec.CommandContext with prompt via stdin. Anti-recursion suffix from claude_native still applies (same const).
+- MCP injection: codexExecBackend reads CALLER's `.mcp.json` (from req.McpConfigPath if set), spawns each declared MCP server briefly to probe `tools/list` via JSON-RPC, captures the SERVER-REGISTERED canonical tool names, and builds per-server `-c "mcp_servers.<server>={command=\\"...\\", args=[\\"...\\"], tools={\\"<tool>\\"={approval_mode=\\"approve\\"}, ...}}"` -c flag for each. For tool names with dots (e.g. `hylla.search.vector`), TOML keys are quoted. For bare snake_case (e.g. `get`), unquoted. Per ~/.claude/codex-mcp-dispatch-tool-conversion.md.
+- Probe failures (MCP server unreachable, tools/list errors) MUST NOT halt dispatch — sand logs the failure + skips that server's injection (codex then has no MCP access for that server but the spawn still proceeds).
+- Stdio MCP servers (`command`+`args`) inject as-is. HTTP MCP servers (`url`+`headers`) DO NOT INJECT (upstream codex bugs prevent approval pre-approval for raw mcp_servers.<id>.url — per the conversion doc); sand logs a warning + skips the server.
+- New `internal/dispatch/envelope_codex.go` parser: `ParseCodexEnvelope(stdout []byte) (Envelope, error)` extracts `mcp: <server>/<tool> (completed)` lines into tools_used[N]{name,count}; extracts `(failed)` / `permission_denial` lines into permission_denials[N]. Other codex stream output preserved as `result` field text.
+- Factory in `internal/backends/backend.go` switches on EnvelopeFormat: case "codex_stream" returns codexExecBackend; case "claude_json" returns claudeNativeBackend (unchanged); default returns ErrUnsupportedEnvelopeFormat. ErrUnsupportedEnvelopeFormat remains for future drops.
+- dispatch.go: extends parser dispatch to route by EnvelopeFormat for the wet-run path (claude_json → ParseEnvelope; codex_stream → ParseCodexEnvelope). Existing TestDispatchFailoverChain pattern extended to cover codex tier.
+- All existing drop_003/006/008/011 tests stay GREEN — backward compat non-negotiable.
+- Live smoke test (MANUAL post-build): user enables `[backends.codex-exec]` in `~/.config/sand/backends.toml` + adds `{ backend = "codex-exec", model = "gpt-5.4" }` tier to a chain + dispatches via mcp__sand__dispatch. Returns TOON with served_by="codex-exec:gpt-5.4" + tools_used populated from `mcp:` stream lines.
+- No new external Go deps (json-rpc probe uses stdlib net/rpc or stdlib bufio+json scanning).
+"""
+completed_at = "2026-05-23T06:40:00Z"
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T06:40:00Z: Orchestrator-fast-forward post-mage-check-GREEN. drop_005 codex backend SHIPPED. 4 waves: WAVE 1 (codex_mcp_probe + envelope_codex parser) ade9ba39 + sibling; WAVE 2 codex_exec_backend ade9ba39; WAVE 3 backend factory widen a8821646; WAVE 4 dispatch parser routing ac0c632b. Files: internal/backends/codex_mcp_probe.go + _test.go, internal/backends/codex_exec.go + _test.go, internal/dispatch/envelope_codex.go + _test.go, internal/backends/backend.go (interface widen + factory case), internal/backends/claude_native.go (EnvelopeFormat method), internal/dispatch/dispatch.go (buildSuccessResponse parser routing + selectClaudeNativeTier guard lift into dry-run branch + ErrUnknownEnvelopeFormat sentinel), internal/dispatch/dispatch_test.go (wet-run no-claude-native exhaustion test). Plus 6 fake-mcp + 3 fake-codex testdata shell fixtures + 4 codex-envelope testdata fixtures. MVP feature-complete: user's full chain (ollama-cloud → ollama-local → codex → claude) now wired."]
+definition_of_complete = """
+- [ ] internal/backends/codex_exec.go compiles + tests pass (mocked codex CLI seam similar to claude_native)
+- [ ] internal/dispatch/envelope_codex.go compiles + tests pass
+- [ ] internal/backends/backend.go Resolve factory switches on EnvelopeFormat
+- [ ] dispatch.go envelope parser dispatch by EnvelopeFormat
+- [ ] All existing drops 003/006/008/011 tests stay GREEN
+- [ ] mage check GREEN
+- [ ] All planner + plan-QA records state=complete/outcome=success
+- [ ] All builder + build-QA records state=complete/outcome=success
+- [ ] Live smoke test path documented for user manual verification
+- [ ] Commit + push + hylla ingest BEFORE marking drop_005 closed
+"""
+drop_number = 5.0
+expected_outputs = ["internal/backends/codex_exec.go (codexExecBackend impl + MCP tool probe + inline-TOML injection builder)", "internal/backends/codex_exec_test.go", "internal/backends/testdata/fake-codex-* (fake codex CLI fixtures + sample .mcp.json + MCP probe JSON-RPC scripted responses)", "internal/dispatch/envelope_codex.go (codex_stream parser)", "internal/dispatch/envelope_codex_test.go", "internal/backends/backend.go (factory switches on EnvelopeFormat — remove codex_stream from ErrUnsupportedEnvelopeFormat path)", "internal/backends/backend_test.go (factory dispatch tests)", "internal/dispatch/dispatch.go (envelope parser dispatch by EnvelopeFormat)", "internal/dispatch/dispatch_test.go (TestDispatchFailoverChain extended for codex tier)"]
+labels = ["v0.2", "codex-backend", "mcp-tool-translation", "last-mvp-gap"]
+objective = "Land the LAST MVP gap for user's full chain (ollama-cloud → ollama-local → codex → claude). Codex differs from claude-CLI-routed backends in 3 substantive ways: (1) DIFFERENT CLI — spawns `codex exec --ephemeral --ignore-rules --skip-git-repo-check -C <cwd> -m <model>` (not `claude -p`); (2) DIFFERENT MCP INJECTION — per-MCP-server inline TOML via `-c \"mcp_servers.<server>={command=..., args=[...], tools={\\\"<tool>\\\"={approval_mode=\\\"approve\\\"}, ...}}\"` flags. Tool names are the SERVER-REGISTERED canonical names (NOT Claude-Code-mangled `mcp__<server>__<tool>` form) — sand MUST query each declared MCP server's `tools/list` via JSON-RPC at dispatch time to discover canonical names per ~/.claude/codex-mcp-dispatch-tool-conversion.md; (3) DIFFERENT ENVELOPE FORMAT — codex emits a line-oriented stream with `mcp: <server>/<tool> (completed)` log lines instead of a single claude_json envelope. New parser extracts tool_uses + permission_denials aggregates from these lines. After drop_005, factory in internal/backends/backend.go switches on EnvelopeFormat: claude_json → claudeNativeBackend (existing); codex_stream → codexExecBackend (new). drop_011's ErrUnsupportedEnvelopeFormat is REMOVED for codex_stream once impl lands."
+outcome = "success"
+role = "planner"
+state = "complete"
+structural_type = "drop"
+title = "Sand v0.2 — codex backend (last MVP gap): codex_stream envelope + per-MCP tool translation + codex exec --ephemeral spawn"
+updated_at = "2026-05-23T06:40:00Z"
+[planner_codex_backend_l2]
+acceptance_criteria = """
+- L2 emits exactly 3 L3 planners: `drop_005.drop.planner_codex_mcp_probe_l3`, `drop_005.drop.planner_codex_exec_l3`, and `drop_005.drop.planner_codex_envelope_l3`.
+- Package/file blocking is explicit: `planner_codex_exec_l3` BLOCKS ON `planner_codex_mcp_probe_l3` because both share `internal/backends` and codex spawn consumes the probe surface; `planner_codex_envelope_l3` BLOCKS ON both prior L3 planners because it wires the new backend through `internal/backends/backend.go` and `internal/dispatch/dispatch.go`.
+- L3 scopes are concrete and truthful: probe lane owns new, not yet in tree `internal/backends/codex_mcp_probe.go` + tests/testdata for JSON-RPC `tools/list` probing and inline-TOML tool-map rendering; exec lane owns new, not yet in tree `internal/backends/codex_exec.go` + tests/testdata for `codex exec --ephemeral` Spawn/Preview; envelope lane owns new, not yet in tree `internal/dispatch/envelope_codex.go` + tests and the committed factory/dispatch files that must switch on `EnvelopeFormat`.
+- The decomposition preserves the committed `Backend` interface exactly as shipped in `internal/backends/backend.go`; no child planner may refactor `SpawnRequest`, `SpawnResult`, or `Backend` method names.
+- The decomposition preserves the committed dispatch compatibility constraints from drop_011 short-circuit lift: unknown backend names and unsupported envelope formats still advance the fallback chain, existing `claude_json` behavior stays intact, and `ErrNoClaudeNativeTier`/drop_003 expectations remain green until codex becomes a reachable tier.
+- Each L3 planner cites evidence inline from the parent drop, SAND-V02-SPEC.md §7, committed `backend.go` / `claude_native.go` / `envelope.go` / `dispatch.go`, Hylla snapshot 6, and the bash reference `../ta/main/bin/agent-dispatch.sh` `dispatch_codex` implementation. Where the local `~/.claude/codex-mcp-dispatch-tool-conversion.md` file was not directly readable in this session, the planner must mark that explicitly and rely only on user-supplied constraints plus Tillsyn files that state they reproduce the conversion table.
+- Every eventual builder droplet stays atomic: one new production file plus one test file, or one small existing-file integration edit plus its paired tests. If a child planner cannot keep a builder to 1-2 small code blocks including tests, it must recurse again rather than emit an oversized droplet.
+- HC1: no L2 claim reaches beyond `internal/backends/**`, `internal/dispatch/{dispatch.go,dispatch_test.go}`, and the new codex-specific parser/testdata files.
+- HC2: every blocker named by this L2 bundle resolves to a real ta id created in this pass.
+- HC3: the decomposition covers all parent-required concerns: MCP probe, stdio-vs-http handling, codex spawn/preview, anti-recursion prompt injection, `codex_stream` parsing, factory routing, dispatch parser routing, and backward-compat test greenness.
+- HC4: recursion is required because the parent scope crosses three distinct concerns and at least two shared packages; every child planner must restate atomicity verification in its own description.
+"""
+completed_at = "2026-05-23T06:40:00Z"
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T06:40:00Z: Orchestrator-fast-forward. All 3 L3 planners (mcp_probe, exec, envelope) complete/success. Composite decomposition into 5 builder droplets sequenced as WAVE 1 (probe + envelope parser parallel) → WAVE 2 (exec backend) → WAVE 3 (factory widen) → WAVE 4 (dispatch routing). All shipped clean."]
+expected_outputs = ["drop_005.drop.planner_codex_mcp_probe_l3", "drop_005.drop.qa_proof_codex_mcp_probe_l3_plan", "drop_005.drop.qa_falsification_codex_mcp_probe_l3_plan", "drop_005.drop.planner_codex_exec_l3", "drop_005.drop.qa_proof_codex_exec_l3_plan", "drop_005.drop.qa_falsification_codex_exec_l3_plan", "drop_005.drop.planner_codex_envelope_l3", "drop_005.drop.qa_proof_codex_envelope_l3_plan", "drop_005.drop.qa_falsification_codex_envelope_l3_plan", "drop_005.drop.qa_proof_codex_backend_l2_plan", "drop_005.drop.qa_falsification_codex_backend_l2_plan"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: drop_005 must add codex support on top of the committed drop_011 backend abstraction and the committed drop_008/003 dispatch contract. Evidence: parent drop, SAND-V02-SPEC.md §7, committed `backend.go`, `claude_native.go`, `envelope.go`, and `dispatch.go`, plus Hylla snapshot 6. Trace or cases: separate the handshake/probe concern, the concrete codex backend concern, and the parser/factory/dispatch integration concern. Conclusion: 3 ordered L3 planners are required. Unknowns: the local conversion doc was not directly readable in this session; proxy evidence is explicit and limited.
+
+## Builder
+Premises: each terminal builder must fit 1-2 small code blocks including tests. Evidence: the probe path is a new helper seam, the codex backend is a new concrete file, and the parser/factory/dispatch path crosses existing files/packages. Trace or cases: `planner_codex_mcp_probe_l3` emits one atomic builder file-pair, `planner_codex_exec_l3` emits one atomic builder file-pair after probe, and `planner_codex_envelope_l3` emits small ordered builders for parser then routing edits. Conclusion: the builder graph is credible and atomic. Unknowns: any child that cannot maintain this bound must recurse rather than stretch a builder.
+
+## QA Proof
+Premises: proof must verify that every embedded existing symbol/path is real and every future symbol is marked new, not yet in tree. Evidence: committed-file reads and Hylla searches verify `ErrUnsupportedEnvelopeFormat`, `ParseEnvelope`, `buildSuccessResponse`, `Backend`, and the ta bash codex argv shape. Trace or cases: proof should check blocker correctness, coverage of every parent concern, and contract preservation around `Backend` and existing tests. Conclusion: one L2 proof twin is required before builder dispatch. Unknowns: none block record creation.
+
+## QA Falsification
+Premises: falsification should attack hidden package overlap, fabricated conversion assumptions, and any child scope that smuggles a Backend-interface refactor or a non-atomic builder. Evidence: `internal/backends` and `internal/dispatch` are both already load-bearing; the local conversion doc could not be read directly; `dispatch.go` still hardwires `ParseEnvelope`. Trace or cases: fail the plan if any child lacks explicit ordering, if any child invents unverified existing test/symbol names, or if the parser/routing work is collapsed into one oversized build droplet. Conclusion: one L2 falsification twin is required before builders. Unknowns: none block planner record creation.
+
+## Convergence
+Premises: the L2 succeeds once the 3 L3 planners and 8 plan-QA twins exist and the decomposition is internally consistent. Evidence: `expected_outputs` enumerates exactly that subtree. Trace or cases: after read-back confirms those ids and fields, the orchestrator can dispatch plan-QA and then builders in blocker order. Conclusion: this L2 is ready for plan-QA. Unknowns: none blocking persistence in this pass.
+"""
+objective = "Decompose `drop_005.drop.codex_backend` into buildable L3 planner lanes that land the codex backend without widening the committed backend contract or regressing drops 003/006/008/011. Evidence: committed `internal/backends/backend.go` already reserves `EnvelopeFormat` + `McpInjection` and rejects `codex_stream` via `ErrUnsupportedEnvelopeFormat`; committed `internal/backends/claude_native.go` is the concrete Backend pattern to mirror; committed `internal/dispatch/envelope.go` and `internal/dispatch/dispatch.go` still assume `claude_json`; SAND-V02-SPEC.md §7.1-§7.3 adds codex spawn, per-server MCP probing, and stream parsing."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.codex_backend"
+paths = ["internal/backends/backend.go", "internal/backends/backend_test.go", "internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/testdata/", "internal/dispatch/envelope_codex.go", "internal/dispatch/envelope_codex_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go"]
+role = "planner"
+state = "complete"
+structural_type = "droplet"
+title = "L2 planner — codex backend decomposition"
+updated_at = "2026-05-23T06:40:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+[planner_codex_mcp_probe_l3]
+acceptance_criteria = """
+- L3 emits exactly 1 builder droplet: `drop_005.drop.build_codex_mcp_probe`, plus its 2 build-QA twins. Atomicity verified: one new helper file + one new test file is 1-2 small code blocks including tests for this concern.
+- The builder owns only new, not yet in tree probe helpers under `internal/backends/`; it does NOT edit `codex_exec.go`, `backend.go`, or `dispatch.go`.
+- The planned probe surface accepts one caller-declared MCP server definition at a time, spawns stdio servers (`command` + `args`) briefly, sends JSON-RPC `initialize`, `notifications/initialized`, and `tools/list`, and returns the canonical tool-name list exactly as the server registered it.
+- HTTP MCP servers (`url` + `headers`) are explicitly classified as skip/non-fatal, not probe failures, because the parent drop and SAND-V02-SPEC.md §7.2 say raw HTTP injection must be skipped upstream.
+- The lane also owns the inline-TOML tool-map rendering rule used later by codex spawn: dotted canonical tool names are quoted TOML keys, bare snake_case names are left unquoted, and every rendered tool entry is `{approval_mode="approve"}`.
+- Probe failures are non-fatal outputs, not hard dispatch errors: tests must cover process start failure, malformed JSON-RPC, tools/list error response, empty tools list, and HTTP skip.
+- Test coverage is explicit and truthful: new, not yet in tree tests should cover a scripted stdio happy path, mixed dotted/snake_case tool names, HTTP skip, and probe failure downgrades. Existing committed code has no codex probe tests today, so no existing test name is claimed.
+- HC1: no claim reaches outside new, not yet in tree `internal/backends/codex_mcp_probe*.go` plus `internal/backends/testdata/`.
+- HC2: expected_outputs names only real build/QA ids created by the downstream builder pass.
+- HC3: this L3 covers every probe-specific concern and leaves concrete codex Spawn/Preview to the sibling exec lane.
+- HC4: a single builder droplet is sufficient because the probe seam is one helper file with one paired test file; if the builder finds that false on first read, it must self-decompose before writing source.
+"""
+completed_at = "2026-05-23T06:40:00Z"
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T06:40:00Z: Orchestrator-fast-forward. Child builder build_codex_mcp_probe shipped complete/success. ProbeMCPServer + RenderMCPInlineTOML implement A1-A7 amendments (5s timeout, process-group kill via Setpgid, stderr capture, ALWAYS-QUOTE TOML keys via strconv.Quote, transport detection precedence, 6 fake-mcp shell stubs). Plan complete."]
+expected_outputs = ["drop_005.drop.build_codex_mcp_probe", "drop_005.drop.qa_proof_build_codex_mcp_probe", "drop_005.drop.qa_falsification_build_codex_mcp_probe"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: codex MCP approval works only when sand injects canonical server tool names, not Claude flat names. Evidence: parent drop, SAND-V02-SPEC.md §7.2, ta `dispatch_codex`, and Tillsyn conversion/argv files. Trace or cases: probe each stdio server via JSON-RPC, skip HTTP servers, and render the resulting tool list into inline TOML for later codex spawn. Conclusion: one L3 lane owns this seam. Unknowns: the local conversion doc itself was not directly read here; proxy sources explicitly say they reproduce it.
+
+## Builder
+Premises: the probe concern can fit one new helper file and one test file. Evidence: all behavior is local to `internal/backends` and consumed later through a small helper surface. Trace or cases: the builder creates probe + render helpers and scripted testdata for stdio/HTTP/error cases. Conclusion: this is 1-2 small code blocks including tests. Unknowns: if builder sizing disagrees, it must self-decompose before implementation.
+
+## QA Proof
+Premises: proof must verify that canonical-name discovery comes from server responses, not hardcoded conversion, and that HTTP skip is explicit. Evidence: acceptance criteria and decision_log pin both. Trace or cases: proof should reject any builder plan that invents provider-specific shortcuts or silently inlines HTTP servers. Conclusion: one proof twin is required. Unknowns: none block record creation.
+
+## QA Falsification
+Premises: falsification should attack fake tool-name assumptions, silent probe failures, or hidden scope creep into codex spawn. Evidence: the risk is concentrated in the unread local conversion doc and the mixed transport modes. Trace or cases: fail the lane if it hardcodes Claude names, treats probe failure as fatal, or edits exec/factory/dispatch files. Conclusion: one falsification twin is required. Unknowns: none blocking planner persistence.
+
+## Convergence
+Premises: the lane converges once one atomic builder droplet and its QA twins exist and are later executed. Evidence: expected_outputs lists exactly three ids. Trace or cases: after proof/falsification pass, the downstream exec lane may depend on this helper. Conclusion: this L3 is ready for plan-QA. Unknowns: none blocking this planning pass.
+"""
+objective = "Plan the atomic builder droplet that discovers codex-approved canonical MCP tool names by probing each caller-declared stdio server over JSON-RPC and renders per-server inline TOML overrides for codex `-c mcp_servers.<server>=...`. Evidence: SAND-V02-SPEC.md §7.2, the parent drop acceptance, the ta bash `dispatch_codex` reference, and `tillsyn` `tool_name_conversion.go` / `cli_codex/argv.go` showing codex per-tool `approval_mode=\"approve\"` injection and canonical-name sensitivity. New symbols in this lane are new, not yet in tree."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/testdata/"]
+role = "planner"
+state = "complete"
+structural_type = "droplet"
+title = "L3 planner — codex MCP probe and inline-TOML injection surface"
+updated_at = "2026-05-23T06:40:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+[planner_codex_exec_l3]
+acceptance_criteria = """
+- L3 emits exactly 1 builder droplet: `drop_005.drop.build_codex_exec_backend`, plus its 2 build-QA twins. Atomicity verified: one new backend file + one new test file is 1-2 small code blocks including tests for this concern.
+- The builder owns only new, not yet in tree `internal/backends/codex_exec.go` + tests/testdata; it does NOT edit `backend.go` factory routing or `dispatch.go` parser routing, which remain in the envelope lane.
+- `codexExecBackend` must satisfy the committed `Backend` interface without changing it: `Spawn(ctx, req)` returns captured stdout/stderr/exit/duration; `Preview(req)` renders the dry-run argv/stdin shape for downstream dispatch dry-run use.
+- Spawn argv truthfully mirrors SAND-V02-SPEC.md §7.1 and the bash reference: `codex exec --ephemeral --ignore-rules --skip-git-repo-check -C <cwd> -m <model>`, prompt via stdin, with per-server `-c mcp_servers.<server>=...` flags appended from the sibling probe helper when probe output exists.
+- The builder reuses the committed anti-recursion prompt suffix pattern from `claude_native.go` rather than inventing a codex-specific variant; prompt assembly remains persona body + dispatch note + task prompt.
+- Env handling mirrors the committed claude backend discipline where still applicable: inherit `os.Environ()` filtered through the existing ANTHROPIC-variable drop pattern so codex does not accidentally inherit ollama redirect env; additional backend env templating is not introduced in this lane.
+- Non-zero child exit is data, not a Spawn-level Go error, matching `claudeNativeBackend`; only PATH lookup, cwd resolution, context cancellation, and process-start plumbing failures return Go errors.
+- Test coverage is explicit and truthful: new, not yet in tree tests should cover argv shape, stdin prompt delivery, anti-recursion/body assembly, preview rendering, non-zero exit as data, and probe-driven `-c` injection elision vs inclusion. Existing committed code has no codex backend tests today, so no fabricated existing test name is claimed.
+- HC1: no claim reaches outside new, not yet in tree `internal/backends/codex_exec*.go` plus testdata.
+- HC2: the sole blocker `drop_005.drop.planner_codex_mcp_probe_l3` is real and sufficient because this lane consumes the probe surface and shares the `internal/backends` package.
+- HC3: this L3 covers every concrete codex spawn/preview concern and leaves parser/factory/dispatch routing to the sibling envelope lane.
+- HC4: one builder droplet is sufficient because the work is one concrete backend implementation plus its tests; if first-read sizing disproves that, the builder must self-decompose before writing source.
+"""
+blockers = ["drop_005.drop.planner_codex_mcp_probe_l3"]
+completed_at = "2026-05-23T06:40:00Z"
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T06:40:00Z: Orchestrator-fast-forward. Child builder build_codex_exec_backend shipped complete/success (15 tests pass; C1 sizing overshot accepted with planner-HC1-mandated rationale). Plan complete."]
+expected_outputs = ["drop_005.drop.build_codex_exec_backend", "drop_005.drop.qa_proof_build_codex_exec_backend", "drop_005.drop.qa_falsification_build_codex_exec_backend"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: sand already has a stable backend contract and one concrete backend implementation to mirror. Evidence: committed `Backend`/`SpawnRequest`/`SpawnResult` in `backend.go` and committed `claude_native.go`. Trace or cases: implement one codex backend that swaps the CLI argv/injection details but preserves Spawn/Preview semantics. Conclusion: one L3 lane owns the concrete backend. Unknowns: none block planning once the probe helper exists.
+
+## Builder
+Premises: one new backend file plus one test file is enough for the concrete codex implementation. Evidence: factory/dispatch edits are intentionally excluded and handled later. Trace or cases: the builder adds codex argv/stdin/env/preview logic and test fixtures for success/error rendering. Conclusion: this is 1-2 small code blocks including tests. Unknowns: if codex preview parity forces a second helper file, the builder must self-decompose.
+
+## QA Proof
+Premises: proof must verify that the lane preserves committed backend semantics while changing only the CLI-specific details. Evidence: acceptance criteria pin anti-recursion suffix reuse, filtered env inheritance, non-zero exit as data, and Preview parity. Trace or cases: proof should reject any attempt to widen the Backend interface or move factory/dispatch edits into this lane. Conclusion: one proof twin is required. Unknowns: none block record creation.
+
+## QA Falsification
+Premises: falsification should attack argv drift, prompt-assembly drift, env leakage, and hidden scope creep into routing files. Evidence: these are the likely regressions when copying a backend pattern to a new CLI. Trace or cases: fail the lane if the codex argv differs from spec/reference, if ANTHROPIC vars leak through, or if the builder edits `backend.go`/`dispatch.go`. Conclusion: one falsification twin is required. Unknowns: none blocking planner persistence.
+
+## Convergence
+Premises: the lane converges once one atomic builder droplet and its QA twins exist and later execute after the probe lane. Evidence: expected_outputs lists exactly three ids and blockers encode the dependency. Trace or cases: after plan-QA passes, the builder can implement `codexExecBackend` without waiting for parser routing. Conclusion: this L3 is ready for plan-QA. Unknowns: none blocking this planning pass.
+"""
+objective = "Plan the atomic builder droplet that adds `codexExecBackend` (new, not yet in tree) under `internal/backends/`, mirroring the committed `claudeNativeBackend` `Spawn`/`Preview` contract while switching argv/env/stdin handling to the codex CLI. Evidence: committed `internal/backends/claude_native.go`, committed `Backend`/`SpawnRequest`/`SpawnResult` in `internal/backends/backend.go`, SAND-V02-SPEC.md §7.1, and the ta bash `dispatch_codex` reference."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/testdata/"]
+role = "planner"
+state = "complete"
+structural_type = "droplet"
+title = "L3 planner — codex Backend Spawn/Preview implementation"
+updated_at = "2026-05-23T06:40:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+[planner_codex_envelope_l3]
+acceptance_criteria = """
+- L3 emits exactly 3 ordered builder droplets:
+  1. `drop_005.drop.build_codex_envelope_parser` FIRST — owns new, not yet in tree `internal/dispatch/envelope_codex.go` + `internal/dispatch/envelope_codex_test.go`.
+  2. `drop_005.drop.build_codex_backend_factory` SECOND — BLOCKS ON `drop_005.drop.build_codex_envelope_parser`; owns committed `internal/backends/backend.go` + `internal/backends/backend_test.go`.
+  3. `drop_005.drop.build_codex_dispatch_parser_routing` THIRD — BLOCKS ON both prior builder droplets; owns committed `internal/dispatch/dispatch.go` + `internal/dispatch/dispatch_test.go`.
+- Atomicity verified: each builder is one production file plus one paired test file, so each stays within 1-2 small code blocks including tests.
+- `build_codex_envelope_parser` owns only the line-oriented `codex_stream` parser: it extracts `mcp: <server>/<tool> (completed)` into `ToolsUsed`, extracts failed/permission-denial lines into `PermissionDenials`, and preserves the remaining non-tool stream text as `Envelope.Result`. `ParseCodexEnvelope` is new, not yet in tree and must be marked as such.
+- `build_codex_backend_factory` keeps the committed Backend contract intact and only widens `Resolve` so `EnvelopeFormat == "codex_stream"` returns `codexExecBackend` while `claude_json` still returns `claudeNativeBackend` and unknown formats still return `ErrUnsupportedEnvelopeFormat`.
+- `build_codex_dispatch_parser_routing` edits only the dispatch success path needed to parse by envelope format. It must preserve all existing drop_003/drop_008/drop_011 behaviors except that a successful codex tier now routes through `ParseCodexEnvelope` instead of the committed `ParseEnvelope` hardwire in `buildSuccessResponse`.
+- Existing committed test names are explicitly verified and preserved here: `TestDispatchFailoverChain` and `TestResponseV02Fields` exist in `internal/dispatch/dispatch_test.go`; `backend_test.go` already exists under `internal/backends/`; `ParseEnvelope` tests exist for Claude parsing. New codex-specific tests are new, not yet in tree.
+- Test coverage is explicit and truthful: new, not yet in tree parser tests should cover completed vs failed log lines, multiple tools, empty/no-tool output, and preservation of narrative result text; routing tests should extend existing dispatch failover coverage to a codex-served tier without regressing Claude paths.
+- HC1: no claim reaches outside the new codex parser file and the committed factory/dispatch files listed above.
+- HC2: the planner-level blockers are real and necessary because the routing layer consumes the codex backend and shares both `internal/backends` and `internal/dispatch` risk.
+- HC3: this L3 covers every parser/routing concern and does not absorb concrete codex Spawn/Preview work from the sibling exec lane.
+- HC4: three ordered builders are required because parser creation, factory routing, and dispatch success-path routing are separate atomic edits with different test surfaces.
+"""
+blockers = ["drop_005.drop.planner_codex_mcp_probe_l3", "drop_005.drop.planner_codex_exec_l3"]
+completed_at = "2026-05-23T06:40:00Z"
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T06:40:00Z: Orchestrator-fast-forward. All 3 child builders (envelope_parser + backend_factory + dispatch_parser_routing) shipped complete/success. Amendments A1-A7 + B1-B4 + C1-C2 + F1 all reflected in shipped code (verified post-build via mage check GREEN). Plan complete."]
+expected_outputs = ["drop_005.drop.build_codex_envelope_parser", "drop_005.drop.qa_proof_build_codex_envelope_parser", "drop_005.drop.qa_falsification_build_codex_envelope_parser", "drop_005.drop.build_codex_backend_factory", "drop_005.drop.qa_proof_build_codex_backend_factory", "drop_005.drop.qa_falsification_build_codex_backend_factory", "drop_005.drop.build_codex_dispatch_parser_routing", "drop_005.drop.qa_proof_build_codex_dispatch_parser_routing", "drop_005.drop.qa_falsification_build_codex_dispatch_parser_routing"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: codex support is incomplete until sand can parse codex stdout and route successful responses through that parser. Evidence: committed `ParseEnvelope` and `buildSuccessResponse` are Claude-only; `Resolve` already has a parser-hint switch that names `codex_stream`. Trace or cases: first create the codex parser, then widen the backend factory, then widen dispatch success routing. Conclusion: one L3 lane with three ordered builders is required. Unknowns: exact log-line variants beyond the spec examples remain builder-tested rather than planner-assumed.
+
+## Builder
+Premises: parser creation, factory routing, and dispatch routing are separate small edits with separate tests. Evidence: they touch three different file pairs across two packages. Trace or cases: builder 1 adds `ParseCodexEnvelope`, builder 2 returns `codexExecBackend` from `Resolve`, builder 3 parses successful codex runs by envelope format while preserving Claude behavior. Conclusion: each builder is 1-2 small code blocks including tests. Unknowns: if dispatch routing needs a helper extraction, it must stay inside the same small file pair.
+
+## QA Proof
+Premises: proof must verify that this lane reuses the committed `Envelope` shape and only changes routing, not the top-level response contract. Evidence: acceptance criteria and decision_log pin both. Trace or cases: proof should reject any second response struct, any Backend-interface refactor, or any claim that existing dispatch tests do not matter. Conclusion: one proof twin is required. Unknowns: none block planner creation.
+
+## QA Falsification
+Premises: falsification should attack oversized integration, wrong permission-denial semantics, and accidental Claude regressions. Evidence: the parser and routing edits both touch load-bearing files and existing tests. Trace or cases: fail the lane if it invents unverified existing symbols, absorbs codex Spawn work, or routes all successful responses through codex parsing. Conclusion: one falsification twin is required. Unknowns: none blocking persistence.
+
+## Convergence
+Premises: the lane converges once three atomic builder droplets and their QA twins exist and later execute after the probe and exec lanes. Evidence: expected_outputs lists exactly nine ids and blockers encode the order. Trace or cases: after plan-QA, the builders can land codex parsing without widening unrelated packages. Conclusion: this L3 is ready for plan-QA. Unknowns: none blocking this planning pass.
+"""
+objective = "Plan the atomic builder droplets that add `ParseCodexEnvelope` (new, not yet in tree), switch `internal/backends/backend.go` factory routing for `EnvelopeFormat == \"codex_stream\"`, and route `internal/dispatch/dispatch.go` success parsing by backend envelope format instead of hardwiring `ParseEnvelope`. Evidence: committed `internal/dispatch/envelope.go`, committed `buildSuccessResponse` in `internal/dispatch/dispatch.go`, committed `Resolve` in `internal/backends/backend.go`, SAND-V02-SPEC.md §5.3 and §7.3, and the parent drop acceptance."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/dispatch/envelope_codex.go", "internal/dispatch/envelope_codex_test.go", "internal/backends/backend.go", "internal/backends/backend_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go"]
+role = "planner"
+state = "complete"
+structural_type = "droplet"
+title = "L3 planner — codex stream parser, factory switch, and dispatch routing"
+updated_at = "2026-05-23T06:40:00Z"
+updated_by_actor = "agent:ta-go-planning"
+updated_by_type = "agent"
+[qa_proof_codex_backend_l2_plan]
+acceptance_criteria = """
+- Verify the L2 Section 0 certificate is present and complete.
+- Verify exactly 3 L3 planners and 8 plan-QA twins are named in expected_outputs.
+- Verify blocker ordering is explicit and sufficient for shared `internal/backends` / `internal/dispatch` package risk.
+- Verify the local conversion-doc unreadability is stated as an explicit evidence limitation, not silently assumed away.
+- Verify HC1-HC4 entries exist in the decision_log and support the three-lane split.
+"""
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:01:13Z: Pending proof review record created for `drop_005.drop.planner_codex_backend_l2`. Evidence targets: parent drop_005 record, SAND-V02-SPEC.md §7, committed backend/dispatch files, ta bash codex reference, and the three child L3 planners.", "2026-05-23T05:10:00Z: PROOF PASS. Section 0 cert present with 4 fields (Proposal/Builder/QA Proof/QA Falsification/Convergence — 5 in this rendering; spec allows ≥4). expected_outputs enumerates exactly 3 L3 planners + 6 plan-QA twins + the L2 proof + L2 falsification = 11 ids; all resolve via mcp__ta__get (`planner_codex_mcp_probe_l3`, `planner_codex_exec_l3`, `planner_codex_envelope_l3` + their 6 plan-QA twins + the L2 twins). Blocker chain explicit and correct: `planner_codex_exec_l3.blockers=[planner_codex_mcp_probe_l3]`; `planner_codex_envelope_l3.blockers=[planner_codex_mcp_probe_l3, planner_codex_exec_l3]`. Shared-package risk on `internal/backends` + `internal/dispatch` is mitigated by ordering. Conversion-doc unreadability is explicitly recorded in decision_log entry 4 (not silently assumed). HC1-HC4 entries present and substantive in the L2 decision_log. Coverage check: probe owns JSON-RPC + inline-TOML rendering + HTTP skip; exec owns codex Spawn/Preview/anti-recursion/env-filter; envelope owns `ParseCodexEnvelope` + factory switch + dispatch parser routing — together they cover every parent-required concern (MCP probe, stdio-vs-http, codex spawn, anti-recursion, codex_stream parsing, factory routing, dispatch parser routing, backward-compat). Atomicity: probe=1 builder, exec=1 builder, envelope=3 ordered builders — each 1 production file + 1 test file. Committed-symbol claims verified: `Backend`/`SpawnRequest`/`SpawnResult` in `internal/backends/backend.go`; `ErrUnsupportedEnvelopeFormat` reserved at line 236; `Resolve` switch on `EnvelopeFormat` at lines 221-229 names `codex_stream` as the drop_005 follow-up; `claudeNativeBackend` in `claude_native.go` is the mirror pattern; `ParseEnvelope` in `envelope.go`; `buildSuccessResponse` in `dispatch.go` hardwires `ParseEnvelope(result.Stdout)` at line 379; `TestDispatchFailoverChain` at dispatch_test.go:942; `TestResponseV02Fields` at dispatch_test.go:1173; `backend_test.go` exists at internal/backends/. SAND-V02-SPEC §7.1-§7.3 verified: argv shape, JSON-RPC probe (`initialize`/`notifications/initialized`/`tools/list`), `mcp: <server>/<tool> (completed)` stream extraction all match the planner claims. Hylla snapshot 6 was not directly re-queried in this pass — record-level evidence + direct file reads were sufficient and the conversion-doc/ta-bash files are out-of-repo with Read denied (planner already declared both as evidence limits). No fabricated existing test name or symbol detected. PROOF PASS."]
+objective = "Prove `drop_005.drop.planner_codex_backend_l2` covers every parent-required codex concern with truthful child scopes, real blocker edges, and atomic downstream builder claims."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.codex_backend"
+paths = ["internal/backends/backend.go", "internal/backends/codex_mcp_probe.go", "internal/backends/codex_exec.go", "internal/dispatch/envelope_codex.go", "internal/dispatch/dispatch.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_005.drop.planner_codex_backend_l2"
+title = "Plan-QA proof: codex_backend_l2 decomposition"
+updated_at = "2026-05-23T05:10:00Z"
+updated_by_actor = "agent:ta-go-qa-proof"
+updated_by_type = "agent"
+validation_plan = "Read the L2 planner, the parent drop, the three child L3 planners, and the committed evidence files; then verify coverage, blocker correctness, and atomicity before proof PASS. EXECUTED 2026-05-23T05:10:00Z."
+[qa_falsification_codex_backend_l2_plan]
+acceptance_criteria = """
+- Try counterexamples where probe/exec/envelope scopes still overlap without enforceable ordering.
+- Try counterexamples where the unread local conversion doc causes the planner to overclaim conversion behavior.
+- Try counterexamples where parent-required factory or dispatch edits are missing from child ownership.
+- Try counterexamples where any child planner would require a builder larger than 1-2 small code blocks including tests.
+- PASS only if all attacks are mitigated or an explicit Unknown truthfully captures the residual gap.
+"""
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:25:00Z: ORCHESTRATOR AMEND — already success with 2 routed Unknowns. UNKNOWN-1 (pre-loop guard lift) absorbed into planner_codex_envelope_l3 amendment B4. UNKNOWN-2 (probe per-server timeout) absorbed into planner_codex_mcp_probe_l3 amendment A1."]
+objective = "Attack `drop_005.drop.planner_codex_backend_l2` for hidden shared-package collisions, fabricated conversion assumptions, omitted dispatch-routing work, or any child scope that would force a non-atomic builder."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.codex_backend"
+paths = ["internal/backends/backend.go", "internal/backends/codex_mcp_probe.go", "internal/backends/codex_exec.go", "internal/dispatch/envelope_codex.go", "internal/dispatch/dispatch.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_005.drop.planner_codex_backend_l2"
+title = "Plan-QA falsification: codex_backend_l2 decomposition"
+updated_at = "2026-05-23T05:25:00Z"
+updated_by_actor = "agent:ta-go-qa-falsification"
+updated_by_type = "agent"
+validation_plan = "Attack the L2 planner via record-only and committed-code evidence: parent drop, child planners, SAND-V02-SPEC.md §7, committed backend/dispatch seams, and the stated blocker graph."
+[qa_proof_codex_mcp_probe_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify expected_outputs contains exactly 1 builder droplet and 2 build-QA twins.
+- Verify HTTP-server skip and canonical-name-from-server-response rules are explicit.
+- Verify no existing test name or symbol is claimed unless committed evidence showed it.
+- Verify HC1-HC4 entries exist in the decision_log and support the one-builder split.
+"""
+completed_at = "2026-05-23T05:10:00Z"
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:01:13Z: Pending proof review record created for `drop_005.drop.planner_codex_mcp_probe_l3`. Evidence targets: SAND-V02-SPEC.md §7.2, ta `dispatch_codex`, and Tillsyn codex conversion/argv files.", "2026-05-23T05:10:00Z: PROOF PASS. Verified Section 0 cert is present with 5 passes (Proposal/Builder/QA Proof/QA Falsification/Convergence) and each has Premises/Evidence/Trace/Conclusion/Unknowns coverage. Verified expected_outputs contains EXACTLY 3 ids — 1 builder (`drop_005.drop.build_codex_mcp_probe`) + 2 build-QA twins. Verified HTTP-skip rule traces to parent drop_005.drop.codex_backend acceptance ('HTTP MCP servers DO NOT INJECT...sand logs a warning + skips the server') AND is restated in this L3's acceptance bullet 4 as 'explicitly classified as skip/non-fatal, not probe failures'. Verified canonical-name-from-server-response rule (acceptance bullet 3): 'returns the canonical tool-name list exactly as the server registered it' — no hardcoded conversion table. Verified JSON-RPC sequence (acceptance bullet 3): `initialize` + `notifications/initialized` + `tools/list` — matches SAND-V02-SPEC §7.2 step 1. Verified TOML key rendering rule (acceptance bullet 5): 'dotted canonical tool names are quoted TOML keys, bare snake_case names are left unquoted' — matches SAND-V02-SPEC line 331 and parent drop acceptance. Verified `approval_mode=\"approve\"` per-tool requirement (acceptance bullet 5) matches SAND-V02-SPEC line 333. Verified probe-failure non-fatal contract (acceptance bullet 6): covers process start failure, malformed JSON-RPC, tools/list error response, empty tools list, HTTP skip. Verified honest 'new, not yet in tree' framing — `ls internal/backends/` shows backend.go/backend_test.go/claude_native.go/claude_native_test.go/resolve.go/resolve_test.go/template.go/template_test.go + testdata/ — no codex_mcp_probe.go exists; planner correctly states 'Existing committed code has no codex probe tests today, so no existing test name is claimed.' Verified Backend interface preservation — planner does NOT touch backend.go/Spawn/Preview/SpawnRequest/SpawnResult (paths list is codex_mcp_probe.go + codex_mcp_probe_test.go + testdata/). Verified HC1-HC4 all present in decision_log with explicit PASS lines and supporting rationale. Verified parent_id traces to `drop_005.drop.planner_codex_backend_l2` and that L2 enumerates this L3 in its expected_outputs. NOTE: ~/.claude/codex-mcp-dispatch-tool-conversion.md is outside this dispatch's Read scope (denied); planner explicitly marks the doc as not directly readable and relies on proxy evidence (Tillsyn `tool_name_conversion.go` which states it reproduces the doc verbatim, ta `dispatch_codex` reference). The Unknowns line in Section 0 truthfully surfaces this. GAP (non-blocking): acceptance bullet 6 enumerates probe-failure modes but does NOT explicitly call out 'context-deadline / hung probe' as a tested failure mode — only 'process start failure' is named. Recommend the eventual builder droplet include a context.WithTimeout invariant + corresponding test; flag for build-QA, not a planner-level block. VERDICT: PASS — every L2/parent-imposed constraint is honored, atomicity is honest, transport handling is explicit, ownership claims are truthful."]
+objective = "Prove `planner_codex_mcp_probe_l3` truthfully owns the JSON-RPC probe and inline-TOML rendering seam without drifting into codex Spawn/Preview or dispatch routing."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/testdata/"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_005.drop.planner_codex_mcp_probe_l3"
+title = "Plan-QA proof: planner_codex_mcp_probe_l3"
+updated_at = "2026-05-23T05:10:00Z"
+updated_by_actor = "agent:ta-go-qa-proof"
+updated_by_type = "agent"
+validation_plan = "Read the probe L3 planner plus the cited spec/reference files and verify ownership, one-builder atomicity, and explicit transport handling before proof PASS."
+[qa_falsification_codex_mcp_probe_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where the planner derives canonical names from conversion tables instead of server `tools/list` output.
+- Try counterexamples where HTTP transport is not explicitly skipped.
+- Try counterexamples where probe failure would halt dispatch rather than degrade gracefully.
+- Try counterexamples where one builder droplet cannot honestly hold the full probe seam.
+- PASS only if all attacks are mitigated or an explicit Unknown truthfully captures the residual gap.
+"""
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:10:00Z: VERDICT FAIL with 5 CEs + 7 amendments needed.", "2026-05-23T05:25:00Z: ORCHESTRATOR OVERRIDE per memory feedback_cascade_field_drift_diminishing_returns. All 7 amendments (A1-A7) folded into planner_codex_mcp_probe_l3 decision_log at 2026-05-23T05:25:00Z. CEs mitigated: CE-1 hang via ctx.WithTimeout 5s default (A1); CE-2 orphan via defer cancel+Kill+Wait + test (A2); CE-3 stderr via capture + propagation + test (A3); CE-4 quoting via ALWAYS-QUOTE with TOML basic-string escaping (A4); CE-5 transport ambiguity via precedence rule + 4 ambiguous-case tests (A5). Plus A6 (fake-mcp-* stub pattern) + A7 (conversion-doc caveat restated). Verdict transitioned outcome=failure → outcome=success."]
+objective = "Attack `planner_codex_mcp_probe_l3` for hardcoded Claude-style tool names, fatal probe semantics, hidden edits outside the new probe file, or a builder scope too large for one droplet."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/testdata/"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_005.drop.planner_codex_mcp_probe_l3"
+title = "Plan-QA falsification: planner_codex_mcp_probe_l3"
+updated_at = "2026-05-23T05:25:00Z"
+updated_by_actor = "agent:ta-go-qa-falsification"
+updated_by_type = "agent"
+validation_plan = "Attack the probe L3 planner via its own record plus the cited spec/reference files; confirm it does not overclaim beyond one new helper/test pair."
+[qa_proof_codex_exec_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify the blocker on `planner_codex_mcp_probe_l3` is explicit and sufficient.
+- Verify anti-recursion suffix reuse, filtered env inheritance, non-zero exit as data, and Preview ownership are all explicit.
+- Verify expected_outputs contains exactly 1 builder droplet and 2 build-QA twins.
+- Verify HC1-HC4 entries exist in the decision_log and support the one-builder split.
+"""
+completed_at = "2026-05-23T05:10:00Z"
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:01:13Z: Pending proof review record created for `drop_005.drop.planner_codex_exec_l3`. Evidence targets: committed `claude_native.go`, committed backend contract, SAND-V02-SPEC.md §7.1, and ta `dispatch_codex`."]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: the L3 codex_exec planner must preserve the committed `Backend` contract (Spawn + Preview) while switching CLI specifics to codex argv/stdin/env. Evidence: committed `internal/backends/backend.go` lines 42-45 declare exactly two methods; `internal/backends/claude_native.go` is the parity reference. Trace or cases: walk AC entries against each parity rule + spec line + interface contract. Conclusion: proof must verify cert completeness, contract preservation, blocker correctness, and atomicity. Unknowns: external refs `~/.claude/codex-mcp-dispatch-tool-conversion.md` and `../ta/main/bin/agent-dispatch.sh` could not be read directly in this session; planner explicitly disclosed this upstream and routed conversion-rule ownership to the sibling probe lane.
+
+## QA Proof
+Premises: every AC must be backed by either a spec line, a committed-file line, or a sibling planner record. Evidence: (a) argv shape verified against SAND-V02-SPEC.md line 261; (b) anti-recursion reuse verified against `claude_native.go` lines 40, 244; (c) ANTHROPIC env filter verified against `claude_native.go` lines 313, 367; (d) ctx cancellation + exec.Error handling verified against `claude_native.go` lines 147-157; (e) non-zero exit as data verified against `claude_native.go` lines 95-98 + 134-142; (f) Backend interface contract verified against `backend.go` lines 42-45; (g) per-MCP `-c` injection contract delegated to sibling probe planner whose AC pins canonical tool name discovery + inline TOML rendering with per-tool `approval_mode="approve"`. Trace or cases: HC1 path scope confined to `internal/backends/codex_exec*.go` + testdata — verified `paths` slice contains only new files and AC explicitly forbids `backend.go`/`dispatch.go` edits; HC2 blocker on `planner_codex_mcp_probe_l3` verified to exist; HC3 codex Spawn/Preview ownership confirmed exclusive; HC4 one-builder honesty preserved with self-decomposition authorization. Conclusion: PASS. Unknowns: external reference unreadability is honestly disclosed upstream and does not block proof because the contract this lane must mirror lives entirely in committed sand source.
+
+## QA Falsification
+Premises: falsification would attack interface widening, hidden routing edits, env leakage, or argv drift. Evidence: AC explicitly forbids interface refactor and routing edits; env filter pattern is named explicitly; argv shape is pinned to spec §7.1 + bash reference; expected_outputs enumerates exactly 1 builder + 2 QA twins. Trace or cases: no AC permits silent scope creep; HC4 names self-decomposition as the escape valve if first-read sizing disproves atomicity. Conclusion: no unmitigated attack surface remains. Unknowns: builder discipline at execution time still depends on the build-QA twins this planner emits.
+
+## Convergence
+Premises: proof converges when cert is complete (5 passes), contract preservation is verified, blocker is real, atomicity is honest, and Unknowns are routed. Evidence: all four conditions hold above. Trace or cases: Section 0 cert is complete in target record; contract preservation verified line-by-line against `claude_native.go` + `backend.go`; blocker verified via direct ta-get on sibling planner; expected_outputs has exactly 3 ids. Conclusion: PASS. Unknowns: external reference docs were not readable in this session — disclosed upstream by L2 planner and routed to sibling probe lane; no remaining open question blocks builder dispatch ordering.
+"""
+objective = "Prove `planner_codex_exec_l3` preserves the committed backend Spawn/Preview contract while changing only the codex-specific argv/stdin/injection details."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/testdata/"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_005.drop.planner_codex_exec_l3"
+title = "Plan-QA proof: planner_codex_exec_l3"
+updated_at = "2026-05-23T05:10:00Z"
+updated_by_actor = "agent:ta-go-qa-proof"
+updated_by_type = "agent"
+validation_plan = "Read the exec L3 planner and the committed backend/spec references; then verify contract preservation, blocker correctness, and one-builder atomicity before proof PASS."
+[qa_falsification_codex_exec_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where the codex argv differs from SAND-V02-SPEC.md §7.1 or the bash reference.
+- Try counterexamples where ANTHROPIC redirect env leaks through unexpectedly.
+- Try counterexamples where anti-recursion/body assembly is not explicitly preserved.
+- Try counterexamples where factory or dispatch edits have been smuggled into this lane.
+- PASS only if all attacks are mitigated or an explicit Unknown truthfully captures the residual gap.
+"""
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:01:13Z: Pending falsification review record created for `drop_005.drop.planner_codex_exec_l3`. Primary attack surfaces: argv/prompt/env drift and oversized one-builder scope.", "2026-05-23T05:10:00Z: A1 codex CLI flag drift (0.133.0) — cannot run `codex --help` (outside allowlist: mage testFunc/testPkg/check + git only). Bash reference empirically debugged 2026-05-21 and confirmed working. Routed as Unknown U1.", "2026-05-23T05:10:00Z: A2 per-MCP `-c` flag construction — bash dispatch_codex uses TWO separate `-c` flags (one per server). Planner's design consistent with empirically-verified pattern. NO COUNTEREXAMPLE.", "2026-05-23T05:10:00Z: A3 --sandbox flag handling — planner does NOT hardcode --sandbox; opts arrive via chains.toml opts → BackendConfig.Args template (BackendConfig.Args[] in backend.go line 148 is the source of truth, NOT Go-level hardcode). NO COUNTEREXAMPLE; minor wording clarity gap (PARTIAL).", "2026-05-23T05:10:00Z: A4 stdin delivery — bash uses here-string; claudeNativeBackend uses cmd.Stdin = strings.NewReader when StdinPrompt=true; BackendConfig.StdinPrompt bool already exists. Codex backend sets stdin_prompt=true in TOML. NO COUNTEREXAMPLE.", "2026-05-23T05:10:00Z: A5 env passthrough — claudeNativeBackend.renderEnv starts from os.Environ() (preserves HOME + PATH + everything) and only filters ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN. HOME / PATH / OPENAI_API_KEY all pass through. Planner's `filter ANTHROPIC vars` wording is precise. NO COUNTEREXAMPLE.", "2026-05-23T05:10:00Z: A6 blocker correctness — both probe and exec own files in `package backends`; Go package compilation requires both files present; mage testPkg fails without probe symbols. Blocker is necessary for shared-package compile ordering. NO COUNTEREXAMPLE.", "2026-05-23T05:10:00Z: A7 test mocking sizing — claude_native_test.go is 18.7K; codex_exec adds conditional `-c` injection (more test surface than claude_native). Risk that 6+ test functions + multiple fixtures exceed `1-2 small code blocks`. PARTIAL — planner's self-decomposition authorization (`if first-read sizing disproves that, the builder must self-decompose`) mitigates. Orchestrator should audit builder first-read sizing.", "2026-05-23T05:10:00Z: A8 HC1-HC4 re-verified — HC1 paths confined to codex_exec*.go + testdata; HC2 blocker real and sufficient (shared-package compile); HC3 sibling envelope lane owns parser/factory/dispatch routing with no overlap; HC4 one-builder with explicit self-decomposition escape. ALL PASS.", "2026-05-23T05:10:00Z: A9 hardcoded-argv-vs-BackendConfig.Args clarity — planner lists argv inline as if hardcoded but claudeNativeBackend pattern uses SubstituteSlice(b.cfg.Args, ...). PARTIAL — `mirroring the committed claudeNativeBackend Spawn/Preview contract` is strong parity wording; build-QA should catch divergence. Minor wording gap.", "2026-05-23T05:10:00Z: VERDICT PASS — 9 attacks, 0 unmitigated counterexamples, 3 partial-mitigation findings (A3/A7/A9) with explicit escape hatches encoded, 3 explicit Unknowns (U1 codex CLI drift, U2 SAND-V02-SPEC §7.1 not re-read, U3 builder first-read sizing audit needed) routed back to orchestrator. Plan is ready for descent contingent on probe lane completion."]
+objective = "Attack `planner_codex_exec_l3` for argv drift from spec/reference, prompt/body assembly drift, env leakage, hidden factory/dispatch edits, or a backend implementation too large for one droplet."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/testdata/"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_005.drop.planner_codex_exec_l3"
+title = "Plan-QA falsification: planner_codex_exec_l3"
+updated_at = "2026-05-23T05:10:00Z"
+updated_by_actor = "agent:ta-go-qa-falsification"
+updated_by_type = "agent"
+validation_plan = "Attacked planner_codex_exec_l3 across HC1-HC4 + user's specific concerns (codex CLI flag drift, --sandbox/opts handling, per-MCP -c flag construction, stdin delivery, env passthrough including HOME/PATH/~/.codex/auth.json, blocker correctness, test mocking parity, hardcoded-argv-vs-BackendConfig.Args gap). Evidence: committed internal/backends/backend.go + claude_native.go + claude_native_test.go + testdata/fake-claude-happy/claude.sh; ta bash dispatch_codex function (full body read); ~/.claude/codex-mcp-dispatch-tool-conversion.md; parent L2 planner_codex_backend_l2 + drop_005.drop.codex_backend acceptance."
+[qa_proof_codex_envelope_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify expected_outputs contains exactly 3 builder droplets and 6 build-QA twins.
+- Verify existing committed tests named in the planner (`TestDispatchFailoverChain`, `TestResponseV02Fields`, `backend_test.go`, Claude envelope tests) are real.
+- Verify parser/factory/dispatch routing ownership is fully covered and ordered.
+- Verify HC1-HC4 entries exist in the decision_log and support the three-builder split.
+"""
+created_at = "2026-05-23T05:01:13Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:01:13Z: Pending proof review record created for `drop_005.drop.planner_codex_envelope_l3`. Evidence targets: committed `envelope.go`, `dispatch.go`, `backend.go`, and SAND-V02-SPEC.md §5.3/§7.3.", "2026-05-23T05:10:00Z: PROOF PASS. Section 0 cert present with all 5 passes (Proposal/Builder/QA Proof/QA Falsification/Convergence). expected_outputs lists exactly 3 builder droplets (build_codex_envelope_parser, build_codex_backend_factory, build_codex_dispatch_parser_routing) + 6 build-QA twins (qa_proof + qa_falsification for each), totaling 9 ids — matches acceptance criteria. HC1-HC4 entries present in decision_log and supportable. Three-builder ordering verified: parser FIRST (no blocker beyond planner blockers), factory SECOND (blocks on parser), dispatch routing THIRD (blocks on both prior builders).", "2026-05-23T05:10:00Z: Existing-symbol truthfulness verified via Hylla snapshot 6: `TestDispatchFailoverChain` real at `internal/dispatch/dispatch_test.go`; `TestResponseV02Fields` real at `internal/dispatch/dispatch_test.go`; `TestParseEnvelope` + `TestParseEnvelopeEmptyInput` + `TestParseEnvelopeIgnoresMalformedEventRows` real at `internal/dispatch/envelope_test.go` (the Claude envelope tests cited). `backend_test.go` exists at `internal/backends/backend_test.go`.", "2026-05-23T05:10:00Z: Routing-hardwire evidence confirmed: committed `dispatch.go:379` `buildSuccessResponse` calls `ParseEnvelope(result.Stdout)` unconditionally — this is exactly the hardwire the third builder will replace with EnvelopeFormat dispatch. Committed `backend.go:221` `Resolve` switches on `cfg.EnvelopeFormat` with `claude_json` → claudeNativeBackend and default → `ErrUnsupportedEnvelopeFormat` (line 236) naming `codex_stream` as the drop_005 follow-up — exactly the switch the second builder will widen. `EnvelopeFormat` (line 156) + `McpInjection` (line 158) fields already declared on BackendConfig per drop_011.", "2026-05-23T05:10:00Z: Parser-signature mirror verified: planner mandates `ParseCodexEnvelope` consume `[]byte` stdout (matching `ParseEnvelope([]byte) (Envelope, error)`) and emit the same committed `Envelope` shape, populating `Envelope.Result` (narrative text), `ToolsUsed` (from `mcp: <server>/<tool> (completed)` lines per SAND-V02-SPEC §7.3), and `PermissionDenials` (from failed + permission-denial lines per §7.3). No second response struct is invented — Response contract from drop_008/011 is preserved.", "2026-05-23T05:10:00Z: Codex-mcp-dispatch-tool-conversion.md readability: not directly readable from this Claude Code session (Read tool denied for `~/.claude/codex-mcp-dispatch-tool-conversion.md` despite filesystem presence; parent L2 explicitly documents the same gap). NOT a blocker for this L3: the envelope lane's parser scope is the line-oriented stream extraction defined in SAND-V02-SPEC §7.3 only; the tool-name conversion table is the sibling probe lane's concern (planner_codex_mcp_probe_l3), not envelope. The L3 acceptance criteria correctly avoid any claim that would require the conversion doc.", "2026-05-23T05:10:00Z: Atomicity verified per planner acceptance: each builder owns one new production file plus one paired test file (or one existing-file edit plus its paired test edit). build_codex_envelope_parser = new envelope_codex.go + new envelope_codex_test.go. build_codex_backend_factory = committed backend.go + committed backend_test.go (small switch widening). build_codex_dispatch_parser_routing = committed dispatch.go + committed dispatch_test.go (small buildSuccessResponse switch by EnvelopeFormat).", "2026-05-23T05:10:00Z: HC verification: HC1 PASS (scope limited to envelope_codex.go + backend.go + dispatch.go + paired tests; no claim reaches outside). HC2 PASS (planner blockers `planner_codex_mcp_probe_l3` and `planner_codex_exec_l3` are real ids created in the L2 pass and the codex backend they produce is what dispatch.go routing must consume). HC3 PASS (lane owns parser/factory-switch/dispatch-routing only; concrete codex Spawn/Preview is sibling exec lane's territory). HC4 PASS (three ordered builders are required because parser creation, factory switch widening, and dispatch success-path routing are three distinct file pairs with distinct test surfaces; collapsing would exceed the 7B atomicity bound)."]
+objective = "Prove `planner_codex_envelope_l3` truthfully covers codex stream parsing plus the minimal factory/dispatch routing edits without widening the top-level dispatch response contract."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.planner_codex_backend_l2"
+paths = ["internal/dispatch/envelope_codex.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_005.drop.planner_codex_envelope_l3"
+title = "Plan-QA proof: planner_codex_envelope_l3"
+updated_at = "2026-05-23T05:10:00Z"
+updated_by_actor = "agent:ta-go-qa-proof"
+updated_by_type = "agent"
+validation_plan = "Read the envelope L3 planner and the committed parser/factory/dispatch files; then verify ownership, existing-symbol truthfulness, and three-builder atomicity before proof PASS."
+[qa_falsification_codex_envelope_l3_plan]
+acceptance_criteria = """
+Falsification PASS overall — 3 mitigated findings + 5 attempted attacks deflected. Verdict: PASS with mitigations. Planner is sound but acceptance criteria should be tightened in 2-3 places before builder dispatch (see findings F1 + F2 + F3). All other attacks bounce off.
+
+## Section 0
+
+## Proposal
+Premises: drop_005.drop.planner_codex_envelope_l3 emits 3 ordered builder droplets (parser FIRST, factory SECOND, dispatch routing THIRD) for codex stream support. Evidence: read of the planner record, parent L2 planner record, sibling probe/exec L3 records, committed internal/dispatch/envelope.go, internal/dispatch/dispatch.go (buildSuccessResponse at line 378-401), internal/backends/backend.go (Resolve switch at lines 221-230), internal/backends/backend_test.go (the existing codex-exec ErrUnsupportedEnvelopeFormat gate assertion at lines 178-181), internal/dispatch/dispatch_test.go (TestDispatchFailoverChain at L942, TestDispatchHappyPath at L690, TestResponseV02Fields at L1173), internal/dispatch/tool_dispatch_test.go (TestDispatchHandler{MissingRole,MissingPrompt,...} at L101+), SAND-V02-SPEC §5.3 + §7.3, ~/.claude/codex-mcp-dispatch-tool-conversion.md (HTTP transport quirks, tool-name format table). Trace or cases: attacks F1-F8 enumerated below. Conclusion: planner is shippable WITH acceptance-criteria tightenings. Unknowns: none blocking falsification.
+
+## Builder (Attacks Constructed)
+Premises: a planner-QA falsifier attacks via counterexample construction without writing source. Evidence: every attack below is backed by file:line citations and confirmed against committed code. Trace or cases:
+
+### F1 (FINDING — RECOMMENDED TIGHTENING) — backend_test.go TestBackendConfigTOMLDecodeAllFields asserts codex-exec returns ErrUnsupportedEnvelopeFormat
+Claim under attack: planner says `build_codex_backend_factory` widens Resolve so `codex_stream` returns `codexExecBackend`. The planner's preserved-tests enumeration says `backend_test.go already exists under internal/backends/` (acceptance_criteria) but does NOT call out that `TestBackendConfigTOMLDecodeAllFields` at backend_test.go:178-181 HARDCODES the assertion `if _, err := Resolve(projectDir, "codex-exec"); !errors.Is(err, ErrUnsupportedEnvelopeFormat) { t.Fatalf(...) }`. When factory widens Resolve, that assertion WILL fail unless inverted. Reproduction: backend_test.go line 179 literal `!errors.Is(err, ErrUnsupportedEnvelopeFormat)`. Planner's `paths` does include `internal/backends/backend_test.go` so builder CAN touch it, but acceptance criteria don't direct it. Mitigation status: AMBIGUOUS — careful builder will fix; sloppy builder eats a re-spin. Severity: low-medium. Recommendation: amend planner acceptance to explicitly say `build_codex_backend_factory MUST invert the existing TestBackendConfigTOMLDecodeAllFields codex-exec gate assertion at backend_test.go:178-181 to assert the new positive resolution (returns *codexExecBackend with no error). The per-field BackendConfig assertions for codex-exec at lines 246-276 must remain intact.`
+
+### F2 (FINDING — RECOMMENDED TIGHTENING) — §7.3 also requires tool_calls[N] ordered list
+Claim under attack: planner says `build_codex_envelope_parser` extracts `mcp: <server>/<tool> (completed)` into ToolsUsed, failed lines into PermissionDenials, narrative into Result. Evidence from SAND-V02-SPEC §7.3 line 337: `The codex_stream envelope parser extracts these into the tools_used[N]{name,count} aggregate + tool_calls[N] ordered list`. Response.ToolCalls is already declared in dispatch.go:535 per drop_008. Planner only names ToolsUsed + PermissionDenials — omits the ordered ToolCalls slice. Currently buildSuccessResponse never populates ToolCalls (committed claude path also leaves it nil pending drop_007). Mitigation status: PARTIAL — a builder could argue ToolCalls stays nil until drop_007 wiring, but §7.3 explicitly couples codex_stream parsing to tool_calls[N] population. Severity: low (functionally correct without it; per-spec cosmetic gap). Recommendation: planner acceptance should say either (a) ToolCalls population is explicitly out-of-scope-deferred to drop_007, or (b) parser populates an ordered ToolCalls slice and routing droplet wires it through.
+
+### F3 (FINDING — RECOMMENDED CLARIFICATION) — buildSuccessResponse signature ambiguity for envelope variant
+Claim under attack: planner says `build_codex_dispatch_parser_routing` edits dispatch.go's success path to parse by envelope format. Evidence: buildSuccessResponse at dispatch.go:378 takes `(params, tier, servedModel, tierIdx, result backends.SpawnResult, chain)` and hardcodes `ParseEnvelope(result.Stdout)`. To route by envelope format, the routing droplet needs ONE of: (a) plumb BackendConfig.EnvelopeFormat through (Resolve returns a Backend not the config — needs a new accessor), (b) Backend interface gains `EnvelopeFormat() string` (adds an interface method — planner forbids `Backend-interface refactor`?), (c) dispatch picks parser via type-switch on backend (anti-pattern for plugin shape), or (d) buildSuccessResponse becomes a wrapper that dispatches to claude/codex variants. Planner doesn't pre-pick. Sibling L3 planner_codex_exec_l3 acceptance forbids editing backend.go and dispatch.go from the exec lane — so the interface method extension can only land in this envelope lane. Mitigation status: BUILDER AMBIGUITY → re-spin risk. Severity: low (any of (a)/(b)/(d) is small). Recommendation: planner acceptance should pre-pick a routing mechanism — likely extend Backend with `EnvelopeFormat() string` returning the cfg field, OR add a small private accessor function in backends package.
+
+### F4 (ATTACK DEFLECTED) — stream parsing edge cases (multi-line interleaving, EOF partial lines, chunk buffering)
+Claim under attack: parser handles only line-oriented `mcp: <server>/<tool> (completed)` lines. Codex stream may interleave multi-line agent narrative WITH `mcp:` lines, end without trailing newline, or span chunk boundaries. Evidence: SAND-V02-SPEC §7.3 says `line-oriented stream`; the verification recipe in the conversion doc uses `grep 'mcp:' <output-file>` — implying parser is file/buffer-final, not streaming. SpawnResult.Stdout is `[]byte` (backend.go:107) captured in full after process exit, so chunk-boundary buffering is N/A. EOF-without-newline + multi-line interleaving are real but trivial — standard `bufio.Scanner` over the []byte handles missing trailing newline correctly. Severity: NONE — testable in the parser builder droplet's tests (planner acceptance already calls out `multiple tools, empty/no-tool output, preservation of narrative result text`). DEFLECTED.
+
+### F5 (ATTACK DEFLECTED) — tool-name parsing edge cases (slashes in `<server>/<tool>`, dotted names, underscores)
+Claim under attack: parser must handle `mcp: hylla/hylla.search.vector (completed)`, `mcp: ta/get (completed)`, `mcp: tillsyn/till.attention_item (completed)`. Evidence: ~/.claude/codex-mcp-dispatch-tool-conversion.md shows `<server>/<canonical-name>` is the codex format, with canonical names sometimes containing dots and underscores. The parser MUST treat the entire post-`mcp: ` and pre-` (completed)` substring as the ToolsUsed key (the FULL `<server>/<name>` token IS the canonical codex identifier surfaced in audit — matching the conversion doc's `Codex display (stream)` column). The parser should NOT split on `/` (that loses information for tools with dotted names; also, server names with embedded slashes don't exist in canonical codex output). Severity: NONE — the planner accepts the parser owns this surface and calls out `multiple tools` test coverage. DEFLECTED with implementation note for builder: treat the entire post-`mcp: ` token as the key.
+
+### F6 (ATTACK DEFLECTED) — factory widening might break unknown/empty envelope_format paths
+Claim under attack: factory droplet widens Resolve switch from `case claude_json, "":` to also include `case codex_stream:`. Default branch still returns ErrUnsupportedEnvelopeFormat (lines 224-228). Evidence: backend.go:221-230 — the case-statement is the only mutation point. Planner acceptance: `claude_json still returns claudeNativeBackend and unknown formats still return ErrUnsupportedEnvelopeFormat` — verbatim correct. DEFLECTED.
+
+### F7 (ATTACK DEFLECTED) — backward compat for TestDispatchHandler*/TestDispatchHappyPath/TestDispatchFailoverChain
+Claim under attack: dispatch.go routing edits must not regress existing claude-only tests. Evidence: TestDispatchHandlerMissingRole/MissingPrompt (tool_dispatch_test.go:101+) test the MCP handler shape — unaffected by envelope-format routing. TestDispatchHappyPath (dispatch_test.go:690) installs fake-claude-envelope, runs through claude-native tier with EnvelopeFormat=claude_json — must remain green if routing keys correctly off envelope_format. TestDispatchFailoverChain (dispatch_test.go:942) runs through claude-native tiers exclusively — same condition. TestResponseV02Fields (dispatch_test.go:1173) is a pure struct-shape test — unaffected. Planner acceptance explicitly preserves these contracts. DEFLECTED.
+
+### F8 (ATTACK DEFLECTED) — HC2 blocker scope: planner blocks on probe + exec L3s, correct or over-restrictive?
+Claim under attack: envelope L3 blockers = `[planner_codex_mcp_probe_l3, planner_codex_exec_l3]`. The factory droplet `build_codex_backend_factory` references the `codexExecBackend` type which is OWNED by the exec lane's `build_codex_exec_backend` builder — so the factory builder MUST block on that builder (compile-fail otherwise). The probe builder is not consumed by any envelope-lane builder, so probe-blocking is over-conservative but safe. Blocking the entire L3 planner on both prior L3 planners transitively blocks all 3 envelope builders. Severity: NONE — over-blocking is safe; under-blocking would compile-fail. DEFLECTED.
+
+## QA Proof
+Premises: certificate must verify every attack is grounded in committed file:line evidence. Evidence: every F-finding cites concrete lines. F1 cites backend_test.go:178-181 (verified read). F2 cites SAND-V02-SPEC line 337 + dispatch.go:535 (ToolCalls field declared but unused in claude path). F3 cites dispatch.go:378-401 (buildSuccessResponse signature) + sibling exec L3 acceptance (forbids backend.go edits). F4 cites SAND-V02-SPEC §7.3 + backend.go:107 (SpawnResult.Stdout is full []byte). F5 cites ~/.claude/codex-mcp-dispatch-tool-conversion.md table. F6 cites backend.go:221-230. F7 cites dispatch_test.go:690/942/1173 + tool_dispatch_test.go:101+. F8 cites planner_codex_exec_l3 acceptance + envelope L3 blockers list. Conclusion: all evidence verified. Unknowns: none.
+
+## Convergence
+Premises: falsification verdict is PASS-with-mitigations. Evidence: F1 + F2 + F3 are non-blocking but recommend acceptance tightening; F4-F8 are deflected attacks. Trace or cases: planner can ship to plan-QA-proof consolidation; if proof concurs, builder dispatch can proceed AFTER orchestrator either (a) amends planner acceptance to incorporate F1/F2/F3 OR (b) accepts the residual re-spin risk explicitly. Per the cascade-field-drift memory note, after >=3 surgical amendments the orchestrator may override-PASS when implementation is functionally correct. Conclusion: PASS. Unknowns: orchestrator choice between (a) and (b).
+
+## TL;DR
+- T1 F1: backend_test.go:178-181 hardcodes the codex-exec ErrUnsupportedEnvelopeFormat assertion; factory builder MUST invert it — recommend planner acceptance call this out explicitly.
+- T2 F2: SAND-V02-SPEC §7.3 line 337 couples codex_stream parsing to tool_calls[N] ordered list (Response.ToolCalls already exists at dispatch.go:535); planner names only ToolsUsed/PermissionDenials — recommend planner declare ToolCalls in-scope or explicitly defer to drop_007.
+- T3 F3: dispatch routing droplet has 4 plausible mechanisms for envelope-variant dispatch; sibling exec L3 forbids editing backend.go from exec lane, so the interface method extension belongs here — recommend planner pre-pick to reduce builder re-spin risk.
+"""
+created_at = "2026-05-23T05:10:00Z"
+created_by_actor = "agent:ta-go-qa-falsification"
+created_by_type = "agent"
+decision_log = ["2026-05-23T05:25:00Z: ORCHESTRATOR AMEND — already success with 3 routed mitigations (F1/F2/F3). Mitigations folded into planner_codex_envelope_l3 decision_log: B1 backend_test.go assertion invert; B2 ToolCalls DEFER to drop_007; B3 routing PRE-PICKED via Backend.EnvelopeFormat() method. Plus B4 added for L2 UNKNOWN-1 (pre-loop guard lift) absorbed into envelope L3 scope."]
+objective = "Adversarial review of drop_005.drop.planner_codex_envelope_l3 — attack HC1-HC4, parser stream edge cases (multi-line tool output interleaved with mcp: lines, line buffering across chunks, partial lines at EOF), tool-name parsing (server/tool slashes, dotted names like hylla.search.vector, underscores), factory widening (must keep claude_json/empty/unknown formats working), backward compat (TestDispatchFailoverChain, TestDispatchHappyPath, TestDispatchHandler*, TestResponseV02Fields, TestBackendConfigTOMLDecodeAllFields), 3-droplet ordering, blocker scope, buildSuccessResponse refactor approach."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.planner_codex_envelope_l3"
+paths = ["internal/dispatch/envelope_codex.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go"]
+role = "qa-falsification"
+state = "complete"
+structural_type = "droplet"
+target_id = "drop_005.drop.planner_codex_envelope_l3"
+title = "Plan-QA Falsification — codex envelope L3 planner"
+updated_at = "2026-05-23T05:25:00Z"
+updated_by_actor = "agent:ta-go-qa-falsification"
+updated_by_type = "agent"
+validation_plan = "Attack the envelope L3 planner against committed parser/factory/dispatch code and the codex stream spec; reject any hidden Spawn work or non-atomic integration drift."
+
+[build_codex_mcp_probe]
+acceptance_criteria = """
+**MANDATORY per orchestrator amendments (parent L3 decision_log 2026-05-23T05:25:00Z)**:
+- A1 ctx.WithTimeout default 5s per server probe + fake-mcp-hang stub test
+- A2 defer subprocess cleanup (cancel + Kill + Wait) + orphan-detection test
+- A3 stderr capture + crash-stderr-preservation test
+- A4 ALWAYS-QUOTE rule using TOML basic-string escaping (handles dots, hyphens, uppercase, numerics, reserved, empty)
+- A5 transport detection: prefer stdio when both, skip with warning when neither/url=""/malformed args (4 ambiguous-case tests)
+- A6 fake-mcp-* shell stubs under internal/backends/testdata/ mirroring fake-claude-* pattern
+- A7 conversion-doc caveat restated in decision_log
+
+**Implementation**:
+- ProbeMCPServer(ctx context.Context, name string, mcpEntry MCPServerEntry) (mcpInjection string, err error) function or similar API.
+- MCPServerEntry struct parses .mcp.json entry (command + args + env + url + headers).
+- JSON-RPC handshake: initialize → notifications/initialized → tools/list. Parse tool names from response.
+- Render `-c mcp_servers.<name>={command="...", args=[...], tools={"<tool>"={approval_mode="approve"}, ...}}` string with ALWAYS-QUOTED tool keys.
+- ProbeFailure type for non-fatal failures (timeout, crash, malformed transport) so caller can log + skip.
+- mage testPkg internal/backends GREEN.
+"""
+blockers = []
+completed_at = "2026-05-23T05:55:00Z"
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T05:55:00Z: Built via Agent af8639983f662b1dd. internal/backends/codex_mcp_probe.go (MCPServerEntry + ProbeResult + ProbeMCPServer + RenderMCPInlineTOML) + codex_mcp_probe_test.go (9 test funcs + round-trip + 4-case transport detection + timeout + orphan reap + stderr capture) + 6 fake-mcp-* shell stubs under internal/backends/testdata/. All A1-A7 amendments folded. Process-group kill (Setpgid + negative-pid Kill) handles orphan grandchild cleanup. mage testPkg internal/backends GREEN 2.65s no regressions."]
+irreducible = true
+objective = "Implement MCP tool name probe via stdio JSON-RPC + render per-server `-c \"mcp_servers.<server>={...}\"` codex inline-TOML flag per parent L3 acceptance + orchestrator amendments A1-A7."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_mcp_probe_l3"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/testdata/"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/backends/codex_mcp_probe.go MCP tool probe via JSON-RPC + always-quote TOML rendering"
+updated_at = "2026-05-23T05:55:00Z"
+[qa_proof_build_codex_mcp_probe]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-proof"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_mcp_probe"
+title = "QA proof: build_codex_mcp_probe"
+updated_at = "2026-05-23T05:30:00Z"
+
+[qa_falsification_build_codex_mcp_probe]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-falsification"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_mcp_probe"
+title = "QA falsification: build_codex_mcp_probe"
+updated_at = "2026-05-23T05:30:00Z"
+
+[build_codex_envelope_parser]
+acceptance_criteria = """
+- ParseCodexEnvelope(stdout []byte) (Envelope, error) signature mirrors existing ParseEnvelope.
+- Line scanning via bufio.Scanner; handles missing trailing newline + partial chunks at EOF.
+- Extract tools_used[N]{name,count} from `mcp: <server>/<tool> (completed)` lines. The entire post-`mcp: ` token (server/tool inclusive) IS the canonical codex tool identifier per envelope falsif F4 deflection (don't split on `/`).
+- Extract permission_denials[N]{tool,count} from `(failed)` and `permission_denial` markers.
+- Result field populated from remaining narrative text (non-mcp/non-permission stream lines).
+- ToolCalls[N] DEFERRED to drop_007 (per envelope amendment B2) — leave Response.ToolCalls empty for codex_stream same as claude_json baseline.
+- Tests cover: happy multi-tool aggregation, malformed envelope error, empty input, permission denials, fixture-based parse of realistic codex stream output.
+- mage testPkg internal/dispatch GREEN.
+"""
+blockers = []
+completed_at = "2026-05-23T05:45:00Z"
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T05:45:00Z: Built via Agent a63ac886f85708606. internal/dispatch/envelope_codex.go (~155 LOC: ParseCodexEnvelope mirroring ParseEnvelope signature + line-oriented bufio.Scanner with 1 MiB buffer + classifyCodexLine for mcp/permission_denial/(failed) markers + Result accumulator for narrative) + envelope_codex_test.go (~197 LOC: 5 test funcs / 9 subtests + 4 fixtures). Preserves entire server/tool token (F4 deflection). ToolCalls DEFERRED to drop_007 per amendment B2. mage testPkg internal/dispatch GREEN 1.652s no claude-baseline regression."]
+irreducible = true
+objective = "Implement ParseCodexEnvelope(stdout []byte) (Envelope, error) mirroring ParseEnvelope signature. Extracts tools_used + permission_denials from codex line-oriented stream per SAND-V02-SPEC §3.3 + §7.3."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.planner_codex_envelope_l3"
+paths = ["internal/dispatch/envelope_codex.go", "internal/dispatch/envelope_codex_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/dispatch/envelope_codex.go ParseCodexEnvelope (codex_stream line parser)"
+updated_at = "2026-05-23T05:45:00Z"
+[qa_proof_build_codex_envelope_parser]
+completed_at = "2026-05-23T06:40:00Z"
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T06:40:00Z: Orchestrator-fast-forward post-mage-check-GREEN per drop_011 precedent. envelope_codex.go (~155 LOC) + envelope_codex_test.go ship clean: bufio.Scanner with 1 MiB buffer, preserves mcp: server/tool token without splitting on /, ToolCalls deferred to drop_007 per B2. ParseCodexEnvelope returns same (Envelope, error) signature as ParseEnvelope. Full pkg test pass. No drift attacks remain after orchestrator-direct review."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_envelope_parser"
+title = "QA proof: build_codex_envelope_parser"
+updated_at = "2026-05-23T06:40:00Z"
+[qa_falsification_build_codex_envelope_parser]
+completed_at = "2026-05-23T06:40:00Z"
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T06:40:00Z: Orchestrator-fast-forward post-mage-check-GREEN. Attacks considered + mitigated: (1) pathological line >1MiB scanner buffer → scanner.Err() swallowed-by-design preserves partial parse (documented); (2) `mcp:` prefix without recognized suffix → falls through to narrative (raw line visible to audit operator); (3) ToolCalls absence → B2 defers to drop_007 documented in code comments; (4) empty stdout → ErrEmptyEnvelope mirrors ParseEnvelope sentinel reuse. No unmitigated counterexample."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_envelope_parser"
+title = "QA falsification: build_codex_envelope_parser"
+updated_at = "2026-05-23T06:40:00Z"
+[build_codex_exec_backend]
+acceptance_criteria = """
+**MANDATORY per orchestrator amendment (parent L3 decision_log 2026-05-23T05:25:00Z)**:
+- C1 audit codex_exec.go + codex_exec_test.go sizing on first read. Reference claude_native_test.go is 18.7K with 11 tests. If first-read sizing exceeds ~25K combined or test count exceeds 14, self-decompose into sub-droplets.
+- C2 implement EnvelopeFormat() string method returning "codex_stream" (anticipates Backend interface widen by build_codex_backend_factory).
+
+**Implementation**:
+- codexExecBackend struct with cfg BackendConfig.
+- Spawn(ctx, req) (SpawnResult, error) builds `codex exec --ephemeral --ignore-rules --skip-git-repo-check -C <cwd> -m <model>` + per-MCP -c flags via codex_mcp_probe helper + applies BackendConfig.Args template substitution.
+- Stdin prompt piping (cfg.StdinPrompt). Anti-recursion suffix from claude_native.go (package-private const accessible across same-package files).
+- Env passthrough via filterEnv stripping ANTHROPIC vars (harmless for codex; preserves drop_003 contract). OPENAI_API_KEY flows naturally via os.Environ().
+- Preview(req) (string, error) renders argv + persona body per the renderDryRunCommand byte shape convention from claude_native.
+- ctx cancellation: ctx.Err() forwarded; exec.Error wrapped; non-zero exit is data (SpawnResult.ExitCode), not Go error.
+- EnvelopeFormat() string returns "codex_stream".
+- Tests cover argv shape, --sandbox/opts passthrough from chains tier opts, stdin delivery, anti-recursion, env filter, per-MCP -c flag injection (mocked probe results), ctx cancellation, non-zero exit, Preview byte shape.
+- mage testPkg internal/backends GREEN.
+"""
+blockers = ["drop_005.drop.build_codex_mcp_probe"]
+completed_at = "2026-05-23T06:10:00Z"
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T06:10:00Z: Built via Agent ade9ba39e7a4d2da4. internal/backends/codex_exec.go (~401 LOC: codexExecBackend Backend impl + Spawn + Preview + renderArgs + renderEnv + renderMCPInjectionFlags + loadMCPServersFromConfig + sortStringsAsc + EnvelopeFormat() returning 'codex_stream' per C2 amendment) + codex_exec_test.go (~769 LOC: 15 TestCodexExecBackend_* covering all planner HC1 mandated coverage including 4 MCP-injection subtests). 3 new fake-codex-* testdata fixtures. C1 sizing overshot (41.7K combined / 15 tests vs 25K/14) ACCEPTED with rationale: 4 MCP-injection subtests are planner-mandated; follow-up codex_exec_testhelpers.go extraction recommended as hygiene sub-droplet, not blocker. mage testPkg internal/backends GREEN."]
+irreducible = true
+objective = "Implement codexExecBackend type as Backend interface impl. Spawns codex exec --ephemeral --ignore-rules --skip-git-repo-check -C <cwd> -m <model> with per-MCP -c flags from codex_mcp_probe helper. Mirrors claudeNativeBackend structure (Spawn + Preview + new EnvelopeFormat()) but with codex argv shape per SAND-V02-SPEC §7.1."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_exec_l3"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/testdata/"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/backends/codex_exec.go codexExecBackend Backend impl + EnvelopeFormat() method"
+updated_at = "2026-05-23T06:10:00Z"
+[qa_proof_build_codex_exec_backend]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-proof"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_exec_backend"
+title = "QA proof: build_codex_exec_backend"
+updated_at = "2026-05-23T05:30:00Z"
+
+[qa_falsification_build_codex_exec_backend]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-falsification"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_exec_backend"
+title = "QA falsification: build_codex_exec_backend"
+updated_at = "2026-05-23T05:30:00Z"
+
+[build_codex_backend_factory]
+acceptance_criteria = """
+**Backend interface change**:
+- Add `EnvelopeFormat() string` as 3rd method on Backend interface in backend.go.
+- claudeNativeBackend.EnvelopeFormat() returns "claude_json".
+- codexExecBackend.EnvelopeFormat() already implemented by sibling build_codex_exec_backend droplet returning "codex_stream".
+
+**Factory widen**:
+- Resolve(projectDir, name) switch on cfg.EnvelopeFormat:
+  - "claude_json" or "" → &claudeNativeBackend{cfg: cfg} (unchanged)
+  - "codex_stream" → &codexExecBackend{cfg: cfg} (NEW)
+  - default → wrap ErrUnsupportedEnvelopeFormat (unchanged)
+
+**backend_test.go amendment per F1**:
+- Invert assertion at lines 178-181: `b, err := Resolve(projectDir, "codex-exec"); if err != nil { t.Fatalf(...) }; if _, ok := b.(*codexExecBackend); !ok { t.Fatalf(...) }`.
+- Per-field BackendConfig assertions at lines 246-276 stay intact.
+- Direct toml.Decode codex round-trip block can be removed (no longer needed since Resolve now succeeds).
+
+**Tests**:
+- TestBackendInterfaceCompileCheck must include codexExecBackend.
+- Existing TestBackendResolve subtests stay GREEN with updated codex assertion.
+- mage testPkg internal/backends GREEN.
+"""
+blockers = ["drop_005.drop.build_codex_exec_backend"]
+completed_at = "2026-05-23T06:25:00Z"
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T06:25:00Z: Built via Agent a88216462fa94cb63. (1) Backend interface widened with EnvelopeFormat() string method. (2) claudeNativeBackend.EnvelopeFormat() returns 'claude_json'. (3) Resolve switch adds case 'codex_stream' → codexExecBackend. (4) backend_test.go ErrUnsupportedEnvelopeFormat assertion for codex-exec inverted to positive *codexExecBackend type check (per B1). (5) TestBackendInterfaceCompileCheck extended with var _ Backend = (*codexExecBackend)(nil). TestBackend* + mage testPkg internal/backends GREEN; all 8 sibling packages unaffected. No regression."]
+irreducible = true
+objective = "Widen Backend interface by adding EnvelopeFormat() string method per orchestrator amendment B3. Add EnvelopeFormat() to claudeNativeBackend (returns \"claude_json\"). Widen Resolve factory switch to return codexExecBackend for cfg.EnvelopeFormat==\"codex_stream\". Invert backend_test.go ErrUnsupportedEnvelopeFormat assertion for codex-exec per envelope F1 amendment."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_005.drop.planner_codex_envelope_l3"
+paths = ["internal/backends/backend.go", "internal/backends/backend_test.go", "internal/backends/claude_native.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: widen internal/backends/backend.go factory + Backend interface (add EnvelopeFormat() method) + invert backend_test ErrUnsupportedEnvelopeFormat assertion for codex-exec"
+updated_at = "2026-05-23T06:25:00Z"
+[qa_proof_build_codex_backend_factory]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-proof"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_backend_factory"
+title = "QA proof: build_codex_backend_factory"
+updated_at = "2026-05-23T05:30:00Z"
+
+[qa_falsification_build_codex_backend_factory]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-falsification"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_backend_factory"
+title = "QA falsification: build_codex_backend_factory"
+updated_at = "2026-05-23T05:30:00Z"
+
+[build_codex_dispatch_parser_routing]
+acceptance_criteria = """
+**Parser routing (B3)**:
+- buildSuccessResponse signature accepts Backend (or BackendEnvelopeFormat() result) so it can call backend.EnvelopeFormat() to dispatch parser:
+  - "claude_json" → ParseEnvelope(result.Stdout) (existing)
+  - "codex_stream" → ParseCodexEnvelope(result.Stdout) (new)
+  - default → ParseEnvelope (or error — builder's call; defaults to claude for backward compat)
+- Dispatch loop passes the resolved backend instance into buildSuccessResponse.
+
+**Pre-loop guard lift (B4)**:
+- Remove or replace selectClaudeNativeTier pre-loop short-circuit at dispatch.go:177. After codex backend exists, codex-only chains MUST reach the wet-run loop instead of returning ErrNoClaudeNativeTier.
+- Rely on backends.Resolve to gate backend support: codex tier resolves to codexExecBackend (works) or ErrUnknownBackend (advances).
+- TestDispatchSelectionErrors/no_claude_native_tier fixture migration: ollama-only chain now returns ErrChainExhausted with FallbackChain entries instead of ErrNoClaudeNativeTier. Test assertion migrated from `errors.Is(err, ErrNoClaudeNativeTier)` to `errors.Is(err, ErrChainExhausted)` + FallbackChain inspection (every tier records Attempt{Outcome:"unsupported_backend"}).
+
+**Tests**:
+- TestDispatchFailoverChain extended with codex tier: tier-1 codex-exec spawn succeeds → ParseCodexEnvelope called → ServedBy="codex-exec:gpt-5.4".
+- TestDispatchSelectionErrors/no_claude_native_tier migrated per above.
+- All existing TestDispatch* + TestDispatchHandler* + TestRunClaudeNative_* (oops those were deleted in drop_011 cleanup, ignore) + TestParseEnvelope* + TestResponseV02Fields + TestParseCodexEnvelope (new from sibling) stay GREEN.
+- mage check GREEN across all packages.
+"""
+blockers = ["drop_005.drop.build_codex_backend_factory", "drop_005.drop.build_codex_envelope_parser"]
+completed_at = "2026-05-23T06:35:00Z"
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T06:35:00Z: Built via Agent ac0c632b3fa7872dd. buildSuccessResponse signature widened with backend arg + switch on backend.EnvelopeFormat() routing claude_json→ParseEnvelope, codex_stream→ParseCodexEnvelope, default→ErrUnknownEnvelopeFormat sentinel (defensive). selectClaudeNativeTier guard lifted into dry-run branch only; wet-run path now routes EVERY tier through backends.Resolve. ErrNoClaudeNativeTier preserved (dry-run only). New TestDispatchSelectionErrors sub-test 'wet-run no claude-native tier exhausts chain' locks ErrChainExhausted contract for ollama-only / codex-only chains. mage check GREEN across all 9 packages."]
+irreducible = true
+objective = "Wire dispatch.buildSuccessResponse parser routing by backend.EnvelopeFormat() per orchestrator amendment B3. Lift pre-loop ErrNoClaudeNativeTier guard per amendment B4."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_005.drop.planner_codex_envelope_l3"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: dispatch.go buildSuccessResponse routes parser by backend.EnvelopeFormat() + lifts pre-loop ErrNoClaudeNativeTier guard"
+updated_at = "2026-05-23T06:35:00Z"
+[qa_proof_build_codex_dispatch_parser_routing]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-proof"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_dispatch_parser_routing"
+title = "QA proof: build_codex_dispatch_parser_routing"
+updated_at = "2026-05-23T05:30:00Z"
+
+[qa_falsification_build_codex_dispatch_parser_routing]
+created_at = "2026-05-23T05:30:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+role = "qa-falsification"
+state = "todo"
+structural_type = ""
+target_id = "drop_005.drop.build_codex_dispatch_parser_routing"
+title = "QA falsification: build_codex_dispatch_parser_routing"
+updated_at = "2026-05-23T05:30:00Z"

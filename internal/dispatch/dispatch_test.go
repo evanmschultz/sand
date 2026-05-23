@@ -639,8 +639,64 @@ func TestDispatchSelectionErrors(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when chain has no claude-native tier, got nil")
 		}
+		// drop_005 L3 amendment B4: the pre-loop ErrNoClaudeNativeTier guard
+		// now lives inside the DryRun branch — wet-run lifted it so codex-only
+		// and ollama-only chains can resolve per-tier. Dry-run still applies
+		// the guard so the Preview picks a claude-native model deterministically.
 		if !errors.Is(err, ErrNoClaudeNativeTier) {
 			t.Errorf("error must satisfy errors.Is(err, ErrNoClaudeNativeTier); got %v", err)
+		}
+	})
+
+	t.Run("wet-run no claude-native tier exhausts chain", func(t *testing.T) {
+		t.Parallel()
+
+		// Sibling of the dry-run case above: drop_005 L3 amendment B4 lifted
+		// the pre-loop ErrNoClaudeNativeTier guard from the wet-run path.
+		// A chain made entirely of tiers sand can't resolve (here ollama-local
+		// has no [backends.ollama-local] entry in the project backends.toml)
+		// now records per-tier Attempt{Outcome:"unsupported_backend"} until
+		// the loop exhausts the chain and returns ErrChainExhausted.
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		const ollamaOnly = `
+[chains]
+"ta-go-builder" = [
+  { backend = "ollama-local", model = "qwen2.5-coder:7b", opts = "", wait_max = 0, slots = 0 },
+]
+`
+		writeChainsConfig(t, cwd, ollamaOnly)
+		// backends.toml has ONLY claude-native — Resolve("ollama-local") will
+		// fail with backends.ErrUnknownBackend, which the dispatch loop
+		// classifies as "unsupported_backend" + advances.
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
+
+		ctx := context.Background()
+		resp, err := Dispatch(ctx, Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err == nil {
+			t.Fatalf("expected ErrChainExhausted on wet-run with no resolvable tier, got nil; resp=%#v", resp)
+		}
+		if !errors.Is(err, ErrChainExhausted) {
+			t.Errorf("err must satisfy errors.Is(err, ErrChainExhausted); got %v", err)
+		}
+		if errors.Is(err, ErrNoClaudeNativeTier) {
+			t.Errorf("err must NOT satisfy ErrNoClaudeNativeTier in wet-run path (guard was lifted); got %v", err)
+		}
+		if len(resp.FallbackChain) != 1 {
+			t.Fatalf("FallbackChain len = %d, want 1 (single ollama-local tier recorded); chain=%#v",
+				len(resp.FallbackChain), resp.FallbackChain)
+		}
+		if resp.FallbackChain[0].Outcome != "unsupported_backend" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q",
+				resp.FallbackChain[0].Outcome, "unsupported_backend")
+		}
+		if resp.FallbackChain[0].Backend != "ollama-local" {
+			t.Errorf("FallbackChain[0].Backend = %q, want %q",
+				resp.FallbackChain[0].Backend, "ollama-local")
 		}
 	})
 }

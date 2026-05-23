@@ -51,6 +51,17 @@ type claudeNativeBackend struct {
 	cfg BackendConfig
 }
 
+// EnvelopeFormat returns "claude_json" per drop_005 L3 amendment B3.
+//
+// The Backend interface declares EnvelopeFormat() string so dispatch.go
+// can route parser selection (claude_json → ParseEnvelope; codex_stream
+// → ParseCodexEnvelope) without re-reading BackendConfig. This method
+// lets the backend declare its envelope dialect at the type level. The
+// returned literal mirrors the value Resolve switches on for routing
+// to this backend (`"claude_json"` and the legacy empty-string default
+// both land here).
+func (b *claudeNativeBackend) EnvelopeFormat() string { return "claude_json" }
+
 // Spawn runs the claude CLI for one dispatch and captures stdout +
 // stderr + exit code + wall-clock duration into a SpawnResult.
 //
