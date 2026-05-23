@@ -16,10 +16,18 @@ import (
 	"strings"
 
 	"github.com/magefile/mage/sh"
+
+	"github.com/evanmschultz/sand/internal/installseed"
 )
 
 // Install builds the sand binary from ./cmd/sand and places it at
 // ~/.local/bin/sand. The destination directory is created if missing.
+//
+// Install ALSO seeds ~/.config/sand/backends.toml from the packaged baseline
+// on first install. Existing user files are NEVER overwritten — see
+// internal/installseed for the seed contents and non-overwrite invariant.
+// The seed step runs alongside the binary build, not in place of it; a seed
+// failure aborts Install with a wrapped error.
 func Install() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -34,6 +42,10 @@ func Install() error {
 	outPath := filepath.Join(outDir, "sand")
 	if err := sh.Run("go", "build", "-o", outPath, "./cmd/sand"); err != nil {
 		return fmt.Errorf("install: go build ./cmd/sand -> %s: %w", outPath, err)
+	}
+
+	if err := installseed.Seed(home); err != nil {
+		return fmt.Errorf("install: seed backends.toml: %w", err)
 	}
 
 	return nil

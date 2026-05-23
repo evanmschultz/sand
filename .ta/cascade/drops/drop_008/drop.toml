@@ -16,10 +16,11 @@ acceptance_criteria = """
 - No new external Go deps beyond stdlib.
 - No changes to existing baseline backends (claude-native still the only spawn target).
 """
+completed_at = "2026-05-23T00:20:00Z"
 created_at = "2026-05-22T22:31:46Z"
 created_by_actor = "user:ev"
 created_by_type = "user"
-decision_log = ["2026-05-22T22:31:46Z: Drop_008 created — v0.2 Phase A foundation. Ships slot subsystem + hierarchical chains config + error classification + extended TOON Response. Drops 011 / 004 / 005 / 007 build on this foundation. SAND-V02-SPEC.md is canonical reference for all v0.2 features.", "2026-05-22T23:10:00Z: ORCHESTRATOR SCOPE CLARIFICATION (after plan-QA-falsif rounds): retry_on user-configurable per-tier chain field DEFERRED to drop_009. drop_008 uses HARDCODED default retry policy in error classifier (RateLimit/Network/Timeout/AuthFailure → advance; Crash/Unknown → halt). chains.Tier struct gets NO new fields in drop_008. SAND-V02-SPEC §3.3 retry_on language refers to drop_009+ scope."]
+decision_log = ["2026-05-22T22:31:46Z: Drop_008 created — v0.2 Phase A foundation. Ships slot subsystem + hierarchical chains config + error classification + extended TOON Response. Drops 011 / 004 / 005 / 007 build on this foundation. SAND-V02-SPEC.md is canonical reference for all v0.2 features.", "2026-05-22T23:10:00Z: ORCHESTRATOR SCOPE CLARIFICATION: retry_on user-configurable per-tier chain field DEFERRED to drop_009. drop_008 uses HARDCODED default retry policy in error classifier (RateLimit/Network/Timeout/AuthFailure → advance; Crash/Unknown → halt).", "2026-05-23T00:20:00Z: CLOSEOUT. All 6 builder droplets + 12 build-QA twins state=complete/outcome=success. L2 planner + 4 L3 planners + 10 plan-QA twins state=complete (with 3 orchestrator-amends per feedback_cascade_field_drift_diminishing_returns). Source files: internal/slots/{slot.go,slot_test.go}; internal/chains/{resolve.go,resolve_test.go}; internal/dispatch/{errors_class.go,errors_class_test.go,dispatch.go (extended),dispatch_test.go (extended),tool_dispatch.go (extended),tool_dispatch_test.go (extended),testdata/fake-claude-sequence/claude.sh}; internal/debugtools/{chains_list.go,chains_list_test.go} migrated to chains.Resolve; internal/preflight/{preflight_tool.go,preflight_tool_test.go} migrated. SAND-V02-SPEC.md committed as canonical v0.2 design doc. mage check GREEN across 8 packages. Live JSON-RPC smoke test confirms sand.dispatch dry-run emits fallback_chain[N] + tool_calls[N] tabular arrays in correct field order per SAND-V02-SPEC §4. Commit 324504b captures source + cascade. v0.2 FOUNDATION READY for drop_011 backend templates + drops 004/005 backends + drop_009 retry_on + drop_007 polish."]
 definition_of_complete = """
 - [ ] internal/slots/ package compiles + tests pass
 - [ ] internal/chains/resolve.go + tests pass
@@ -35,14 +36,16 @@ definition_of_complete = """
 - [ ] Commit on sand main + push + hylla ingest BEFORE marking drop_008 closed
 """
 drop_number = 8.0
+end_commit = "324504b"
 expected_outputs = ["internal/slots/slot.go", "internal/slots/slot_test.go", "internal/chains/resolve.go", "internal/chains/resolve_test.go", "internal/dispatch/errors_class.go", "internal/dispatch/errors_class_test.go", "internal/dispatch/dispatch.go (extended Response + dispatch loop)", "internal/dispatch/dispatch_test.go (multi-tier failover tests)", "internal/dispatch/tool_dispatch.go (TOON output extension)", "internal/dispatch/tool_dispatch_test.go (TOON shape assertions)"]
 labels = ["v0.2", "foundation", "slots", "hierarchical-config", "error-classification", "toon-extension"]
 objective = "Land the v0.2 foundation — 4 interrelated subsystems that drops 011 / 004 / 005 / 007 will build on top of. (1) internal/slots/ package: cross-project slot subsystem using syscall.Flock on /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock files per SAND-V02-SPEC §1. Kernel-managed locks auto-released on process death; no PID-liveness polling needed. (2) internal/chains/ hierarchical config resolution: project override (<projectDir>/.claude/sand-chains.toml) → $XDG_CONFIG_HOME/sand/chains.toml → $HOME/.config/sand/chains.toml → $HOME/.sand/chains.toml → ErrChainConfigNotFound. Project wins; REPLACE not merge per SAND-V02-SPEC §2. (3) internal/dispatch/ error classifier: ClassifyExitError(stderr, exitCode) → ErrClass enum (Success/RateLimit/AuthFailure/Network/Timeout/Crash/Unknown). Drives auto-fallback per SAND-V02-SPEC §3. (4) Extended Response TOON: FallbackChain []Attempt + ToolCalls []ToolCall fields populated by dispatcher loop. Always included in response even on success (single-row fallback_chain). Per SAND-V02-SPEC §4. Drop_008 does NOT add new backends (drops 004 + 005) NOR refactor to backend templates (drop_011). It SHIPS THE FOUNDATION those drops plug into."
+outcome = "success"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "drop"
 title = "Sand v0.2 — Phase A foundation (slot subsystem + hierarchical chains + error classification + extended TOON response)"
-updated_at = "2026-05-22T23:10:00Z"
+updated_at = "2026-05-23T00:20:00Z"
 [planner_foundation_v02_l2]
 acceptance_criteria = """
 - Create exactly four L3 planner records: `drop_008.drop.planner_slots_l3`, `drop_008.drop.planner_chains_resolve_l3`, `drop_008.drop.planner_errors_class_l3`, and `drop_008.drop.planner_dispatch_extension_l3`.

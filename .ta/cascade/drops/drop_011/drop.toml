@@ -1,0 +1,816 @@
+[backend_templates]
+acceptance_criteria = """
+- `mage check` GREEN.
+- New `internal/backends/` package: Backend interface with Spawn(ctx, persona, prompt, mcpConfigPath) (claudeResult, error) method; BackendConfig struct mirroring [backends.NAME] TOML shape; Resolve(name string) (Backend, error) factory + ErrUnknownBackend sentinel.
+- BackendConfig fields per SAND-V02-SPEC §5.1: Command string, Args []string, Env []string (with `KEY=VAL` shape + {{env:VAR}} substitution), McpConfigArg string (e.g. `--mcp-config`), AllowedToolsArg string, AllowedToolsCSVTemplate string, SlotsDefault int, EnvelopeFormat string (one of `claude_json` | `codex_stream` | future), StdinPrompt bool, McpInjection string (special-case `codex_inline_toml`).
+- Hierarchical backends.toml resolution at $XDG_CONFIG_HOME/sand/backends.toml > $HOME/.config/sand/backends.toml > $HOME/.sand/backends.toml > <projectDir>/.claude/sand-backends.toml (project override wins, REPLACE semantics).
+- Template substitution via text/template: {{.Model}} / {{.CWD}} / {{.PersonaBody}} / {{.PersonaToolsCSV}} / {{.McpConfigPath}} + sprig-like {{env "VAR"}} func for env-var expansion.
+- internal/dispatch/dispatch.go Dispatch loop refactor: calls backends.Resolve(tier.Backend) once per tier; on ErrUnknownBackend treat as unsupported (advance with Attempt{Outcome:"unknown_backend"}); calls backend.Spawn(ctx, persona, params.Prompt, mcpConfigPath) for the actual run; parses output via envelope_format-keyed parser dispatch (claude_json → existing ParseEnvelope; codex_stream → stub returning ErrNotImplemented).
+- existing internal/dispatch/claude.go runClaudeNative becomes either DELETED (logic absorbed into a claude_native Backend impl) OR retained as a deprecated thin shim. internal/dispatch/backend.go runTier becomes either DELETED or refactored. The DECISION between these options is the planner's call (builder follows).
+- mage install seeds ~/.config/sand/backends.toml from a packaged baseline (claude-native + commented examples of codex-exec + ollama-local + ollama-cloud + together-ai per SAND-V02-SPEC §5.1). NEVER overwrites existing.
+- All existing drop_003 + drop_006 + drop_008 tests stay GREEN — backward compat is non-negotiable. The current claude-native dispatch behavior is the integration smoke test.
+- Live smoke test: mcp__sand__dispatch(role="ta-go-builder", prompt="smoke", dry_run=true) returns same TOON shape as drop_008 with served_by/tier/fallback_chain[N] all working through the new Backend.Spawn path.
+- Drop_011 ships ONE backend (claude-native) wired through templates. drops 004 (ollama) + 005 (codex) add their respective [backends.X] blocks + envelope_format parsers ON TOP of the new abstraction — they require ZERO refactor of internal/backends/ once drop_011 lands.
+- No new external Go deps beyond stdlib (text/template is stdlib).
+"""
+completed_at = "2026-05-23T04:55:00Z"
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T03:16:53Z: Drop_011 created — v0.2 backend templates abstraction. Gates drops 004 (ollama) + 005 (codex). Ships ONE backend (claude-native) wired through new abstraction.", "2026-05-23T04:55:00Z: CLOSEOUT — all 7 builder droplets + 14 build-QA twins state=complete/outcome=success. L2 planner + 3 L3 planners + 8 plan-QA twins state=complete/outcome=success (3 amendments folded into L3 acceptance per orchestrator plan-QA falsification round). Source: internal/backends/{backend.go, resolve.go, template.go, claude_native.go, *_test.go} + testdata fake-claude-* fixtures. internal/installseed/{installseed.go, installseed_test.go} new package. magefile.go Install() seeds backends.toml. internal/dispatch/dispatch.go refactored to use backends.Resolve(cwd, tier.Backend).Spawn/.Preview. internal/dispatch/{backend.go, claude.go, *_test.go} + 3 fake-claude testdata fixtures DELETED (~700 LOC dead code retired). 4 commented backend examples in seeded backends.toml (codex-exec, ollama-local, ollama-cloud, together-ai) ready for user to uncomment-and-go OR drops 004/005 to wire programmatically. mage check GREEN across 9 packages. BACKEND TEMPLATES NOW EXTENSIBLE — adding a provider = TOML edit to ~/.config/sand/backends.toml, no Go code change."]
+definition_of_complete = """
+- [ ] internal/backends/ package compiles + tests pass
+- [ ] internal/backends/backends.toml hierarchical loader compiles + tests pass
+- [ ] internal/dispatch/dispatch.go refactored to use Backend.Spawn; all existing dispatch tests stay GREEN
+- [ ] internal/dispatch/claude.go either deleted or refactored to thin shim (planner decides)
+- [ ] mage install seeds ~/.config/sand/backends.toml + tests prove non-overwrite
+- [ ] mage check GREEN across all packages
+- [ ] All planner records at every level state=complete, outcome=success
+- [ ] All plan-QA twins state=complete, outcome=success BEFORE builders fire
+- [ ] All builder droplets + build-QA twins state=complete, outcome=success
+- [ ] Live smoke test via mcp__sand__dispatch dry_run=true shows same TOON shape via new Backend.Spawn path
+- [ ] Commit on sand main + push + hylla ingest BEFORE marking drop_011 closed
+"""
+drop_number = 11.0
+expected_outputs = ["internal/backends/backend.go (Backend interface + BackendConfig + Resolve + ErrUnknownBackend)", "internal/backends/backend_test.go", "internal/backends/resolve.go (hierarchical backends.toml loader)", "internal/backends/resolve_test.go", "internal/backends/template.go (text/template substitution engine)", "internal/backends/template_test.go", "internal/backends/claude_native.go (claude-native Backend impl via template OR thin shim)", "internal/backends/claude_native_test.go", "internal/backends/testdata/ (sample backends.toml + fake CLI fixtures)", "internal/dispatch/dispatch.go (Dispatch loop refactor to call Backend.Spawn)", "internal/dispatch/dispatch_test.go (updated for refactor; existing assertions stay green)", "magefile.go (Install seeds ~/.config/sand/backends.toml)", "magefile_install_test.go (or similar — test for seed behavior)"]
+labels = ["v0.2", "backend-templates", "refactor", "gates-drop-004", "gates-drop-005"]
+objective = "Land the user-configurable backend template system per SAND-V02-SPEC §5. Adding a new provider (codex / ollama-cloud / together.ai / openrouter / WHATEVER) must require ONLY a TOML edit to ~/.config/sand/backends.toml — NO Go code change. Sand becomes truly workflow-agnostic per memory project_sand_mcp_per_project_configurable. (1) New ~/.config/sand/backends.toml schema with hierarchical resolution (project override > XDG > home-config > home-dotfile) mirroring chains.Resolve. (2) New internal/backends/ package with Backend interface + BackendConfig struct + Resolve(name) loader + Spawn(ctx, persona, prompt, mcpConfigPath) per-backend. (3) Refactor internal/dispatch/dispatch.go Dispatch loop to call backends.Resolve(tier.Backend).Spawn(...) instead of hardcoded runClaudeNative / runTier. (4) Move existing claude-native spawn logic into internal/backends/claude_native.go (or implement via template only — builder picks). (5) Template substitution engine: {{model}} / {{cwd}} / {{persona_body}} / {{persona_tools_csv}} / {{mcp_config_path}} / {{env:VAR}}. (6) envelope_format hint dispatching parser (claude_json baseline shipped, codex_stream stub for drop_005). (7) mage install seeds ~/.config/sand/backends.toml with claude-native baseline; never overwrite. Existing claude-native dispatch behavior PRESERVED end-to-end (all current tests stay GREEN)."
+outcome = "success"
+role = "planner"
+state = "complete"
+structural_type = "drop"
+title = "Sand v0.2 — backend templates abstraction (~/.config/sand/backends.toml + Backend interface + claude-native refactor)"
+updated_at = "2026-05-23T04:55:00Z"
+[planner_backend_templates_l2]
+acceptance_criteria = """
+- L2 emits exactly 3 L3 planners: `drop_011.drop.planner_backends_loader_l3`, `drop_011.drop.planner_backend_interface_l3`, and `drop_011.drop.planner_dispatch_template_refactor_l3`.
+- Package/file blocking is explicit: `planner_backend_interface_l3` BLOCKS ON `planner_backends_loader_l3` because both lanes touch the new `internal/backends` package; `planner_dispatch_template_refactor_l3` BLOCKS ON both prior L3 planners because it consumes their exported surfaces from `internal/dispatch`.
+- L3 planner scopes are concrete and non-overlapping by file path: loader lane owns new, not yet in tree `internal/backends/resolve.go` / `resolve_test.go` plus install seeding in `magefile.go`; interface lane owns new, not yet in tree `internal/backends/{backend.go,template.go,claude_native.go}` and tests; dispatch lane owns `internal/dispatch/{dispatch.go,dispatch_test.go,backend.go,claude.go}` and any new, not yet in tree dispatch fixtures.
+- Each L3 planner cites evidence inline from the parent drop, SAND-V02-SPEC §5, committed `internal/dispatch` symbols, committed drop_008 `chains.Resolve` behavior, and Hylla proof that `internal/backends` does not yet exist.
+- Each L3 planner must emit only atomic builder droplets: every builder record is one production file plus one test file, or one small legacy-cleanup file pair, with explicit blockers where a shared package/file requires sequencing.
+- The planner decision about the `dispatch.claudeResult` import cycle is explicit and buildable: `internal/backends` cannot depend on `internal/dispatch` while `internal/dispatch` imports `internal/backends`, so the interface lane must define backend-local request/result shapes as new, not yet in tree.
+- The planner decision about dry-run is explicit and buildable: because current `dispatch.renderDryRunCommand` is part of the user-facing contract, the backend abstraction must expose a preview/invocation surface in addition to raw spawn so dry-run can reuse the same template rendering path.
+- HC1: no L2 claim reaches beyond `internal/backends/**`, `internal/dispatch/{dispatch.go,dispatch_test.go,backend.go,claude.go}`, and `magefile.go` / install-test coverage; no dependency-file or unrelated package scope is claimed.
+- HC2: every blocker named in this L2 bundle resolves to a real ta id created in this pass.
+- HC3: the decomposition covers every parent-required concern, including backends.toml resolution, template substitution, backend contract/factory, claude-native parity, dispatch integration, dry-run parity, and install seeding.
+- HC4: recursion is required because the parent scope crosses config resolution, template/backend construction, and dispatch integration; every child planner must keep its builder droplets to 1-2 small code blocks including tests.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Evidence: parent `drop_011.drop.backend_templates` requires backends.toml resolution, template substitution, backend contract/factory, claude-native parity, dispatch refactor, install seeding, and one shipped backend only.", "2026-05-23T03:16:53Z: Evidence: committed drop_008 closeout on `drop_008.drop.foundation_v02` names `chains.Resolve`, `ErrClass`, `ErrChainExhausted`, `FallbackChain`, and extended `Response` as shipped at commit `324504b`; committed `internal/dispatch/dispatch.go`, `backend.go`, and `claude.go` show the current loop, backend guard, and claude-native spawn seams that drop_011 must preserve.", "2026-05-23T03:16:53Z: Evidence: Hylla snapshot 4 confirms live `Dispatch`, `runTier`, `runClaudeNative`, `ParseEnvelope`, `ErrUnsupportedBackend`, `chains.Config.Chain`, `chains.Resolve`, and `persona.Persona`; Hylla found no `internal/backends` package, so all `internal/backends/*` paths are new, not yet in tree.", "2026-05-23T03:16:53Z: Planner decision: split the drop into loader/seed, contract-template-claude, and dispatch-integration lanes. This is the smallest truthful split that keeps builder droplets atomic while respecting package/file blocking.", "2026-05-23T03:16:53Z: Planner decision: backend-local request/result types are mandatory because the parent shorthand `Spawn(...)(claudeResult,error)` would create an import cycle once `internal/dispatch` imports `internal/backends` and `claudeResult` remains declared in `internal/dispatch/claude.go`.", "2026-05-23T03:16:53Z: Planner decision: the backend abstraction must expose a dry-run preview/invocation surface in addition to spawn; otherwise current `dispatch.renderDryRunCommand` parity cannot be preserved through the template path.", "2026-05-23T03:16:53Z: HC1 PASS — scope is limited to `internal/backends/**`, the three committed dispatch files, and install seeding in `magefile.go` / install tests; no unrelated packages or dependency metadata are claimed.", "2026-05-23T03:16:53Z: HC2 PASS — the only blocker ids referenced by children are the three L3 records created in this pass, all under `drop_011.drop.*` and therefore real ta ids.", "2026-05-23T03:16:53Z: HC3 PASS — the three-way split covers every parent concern, including the often-missed install-seed and dry-run parity work.", "2026-05-23T03:16:53Z: HC4 PASS — each L3 is constrained to atomic builder droplets with explicit blocker edges where shared package/file scope would otherwise violate the 7B-builder ceiling."]
+expected_outputs = ["drop_011.drop.planner_backends_loader_l3", "drop_011.drop.qa_proof_backends_loader_l3_plan", "drop_011.drop.qa_falsification_backends_loader_l3_plan", "drop_011.drop.planner_backend_interface_l3", "drop_011.drop.qa_proof_backend_interface_l3_plan", "drop_011.drop.qa_falsification_backend_interface_l3_plan", "drop_011.drop.planner_dispatch_template_refactor_l3", "drop_011.drop.qa_proof_dispatch_template_refactor_l3_plan", "drop_011.drop.qa_falsification_dispatch_template_refactor_l3_plan", "drop_011.drop.qa_proof_backend_templates_l2_plan", "drop_011.drop.qa_falsification_backend_templates_l2_plan"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: drop_011 must land after drop_008 and must refactor backend spawning without changing the user-visible dispatch contract. Evidence: the parent drop, SAND-V02-SPEC §5.1-§5.4, committed `internal/dispatch` code, and Hylla snapshot 4 all agree that only `claude-native` exists today and `internal/backends` does not. Trace or cases: split the work into config-resolution/install seeding, backend contract/template/claude implementation, and dispatch integration/cleanup. Conclusion: three ordered L3 planners are required. Unknowns: the spec mandates `text/template` but does not state missing-key behavior; this plan chooses fail-fast substitution as a safety inference and records that choice explicitly.
+
+## Builder
+Premises: terminal builder work must remain 1 production file + 1 test file whenever possible. Evidence: the new package surface spans more than one concern and the committed dispatch files are already dense. Trace or cases: each L3 emits only atomic builder droplets with blockers where shared packages/files would otherwise overlap. Conclusion: recursion at L2 is mandatory. Unknowns: exact helper names inside `internal/backends` remain builder-owned except where this plan fixes a contract to avoid a cycle or dry-run regression.
+
+## QA Proof
+Premises: proof review must verify that every claimed existing symbol is real and every future symbol is marked new, not yet in tree. Evidence: Hylla confirmed live dispatch/chains/persona symbols and absence of `internal/backends`. Trace or cases: proof must re-check the blocker graph, the cycle-break decision, and the dry-run preview requirement. Conclusion: one L2 proof twin is required before builder dispatch. Unknowns: Context7 returned low-signal stdlib snippets for `text/template`, so build-QA should verify final stdlib API use directly in code.
+
+## QA Falsification
+Premises: falsification should attack hidden import cycles, duplicate `Resolve` naming, package-sharing drift inside `internal/backends`, and any plan that hand-waves dry-run parity. Evidence: current `dispatch.go`/`claude.go` need `Role`, `CWD`, `Model`, prompt, and persona data; the parent shorthand interface omits some of that. Trace or cases: a valid falsification would show any child plan still leaves an impossible interface or an unsequenced shared package. Conclusion: one L2 falsification twin is required before builder dispatch. Unknowns: whether builders can preserve every existing dispatch test name with thin shims or need targeted test rewrites remains a downstream implementation question, not a planning gap.
+
+## Convergence
+Premises: completion at L2 means the child planner graph is sufficient and non-contradictory, not that source edits are done. Evidence: the expected_outputs list exactly three L3 planners and their eight plan-QA twins. Trace or cases: once the L3 planners and QA twins exist, the orchestrator can dispatch plan-QA and then builders in blocker order. Conclusion: this L2 record is complete as a decomposition once all 11 child records exist. Unknowns: none block record creation in this pass.
+"""
+objective = "Decompose `drop_011.drop.backend_templates` into three ordered L3 planner lanes that land the user-configurable backend template abstraction without breaking the shipped drop_008 fallback loop. Evidence: the parent drop requires `~/.config/sand/backends.toml`, one shipped backend (`claude-native`), `internal/backends/` as the new abstraction point, and a dispatch-loop refactor on top of the committed drop_008 `chains.Resolve`, `ErrClass`, `FallbackChain`, and extended `Response` surfaces. Hylla snapshot 4 and committed `internal/dispatch/{dispatch.go,backend.go,claude.go}` confirm `Dispatch`, `runTier`, `runClaudeNative`, `ParseEnvelope`, `ErrUnsupportedBackend`, and `ErrChainExhausted` are live; Hylla found no `internal/backends` package, so every `internal/backends/*` path in this plan is new, not yet in tree."
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.backend_templates"
+paths = ["internal/backends/**", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/backend.go", "internal/dispatch/claude.go", "magefile.go", "magefile_install_test.go"]
+risk_notes = "`internal/backends` is a brand-new shared package in this drop, so parallel L3 planning/build without blockers would invite symbol drift (`Resolve` naming, request/result ownership, template helper placement). `internal/dispatch/{backend.go,claude.go}` are also compatibility choke points because drop_003/008 tests already name `runTier` and `runClaudeNative`. Mitigation: the interface lane is sequenced after the loader lane inside `internal/backends`, and the dispatch lane is sequenced last with an explicit planner blocker graph. The planner also chooses thin compatibility shims in `internal/dispatch/backend.go` and `internal/dispatch/claude.go` instead of immediate deletion so existing tests can stay GREEN while the new backend abstraction lands underneath."
+role = "planner"
+state = "todo"
+title = "L2 planner — backend templates abstraction decomposition"
+updated_at = "2026-05-23T03:16:53Z"
+[qa_proof_backend_templates_l2_plan]
+acceptance_criteria = """
+- Verify the L2 Section 0 certificate contains Proposal / Builder / QA Proof / QA Falsification / Convergence with explicit Premises, Evidence, Trace or cases, Conclusion, and Unknowns.
+- Verify the L2 evidence claims match the committed tree: `Dispatch`, `runTier`, `runClaudeNative`, `ParseEnvelope`, `ErrChainExhausted`, `chains.Resolve`, and the absence of `internal/backends` in Hylla snapshot 4.
+- Verify the L2 expected_outputs contain exactly 3 L3 planners and 8 plan-QA twin ids, and that the three L3 planners cover loader/seed, contract-template-claude, and dispatch integration.
+- Verify the package/file blocker story is explicit: interface lane blocks on loader lane; dispatch lane blocks on both prior lanes.
+- Verify HC1-HC4 entries exist in the decision_log and support atomic builder droplets only.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending proof review record created for `drop_011.drop.planner_backend_templates_l2`.", "2026-05-23T03:25:00Z: PROOF PASS. Section 0 certificate complete with 5 named passes (Proposal/Builder/QA Proof/QA Falsification/Convergence) each carrying Premises/Evidence/Trace/Conclusion/Unknowns. Hylla snapshot 4 (github.com/evanmschultz/sand@main) verified: internal/dispatch.Dispatch, ParseEnvelope, ErrUnsupportedBackend, ErrChainExhausted, runTier (per Dispatch docstring), runClaudeNative (per Dispatch docstring), renderDryRunCommand (per Dispatch docstring), chains.Resolve at internal/chains/resolve.go (project-first 4-rung hierarchy per its docstring), and chains.Config.Chain all confirmed LIVE. internal/backends package returned zero hits on Hylla and is absent from internal/ tree listing (chains/debugtools/dispatch/persona/preflight/slots/toon only) — claim 'new, not yet in tree' verified. expected_outputs lists exactly 11 ids: 3 L3 planners (planner_backends_loader_l3, planner_backend_interface_l3, planner_dispatch_template_refactor_l3) + 6 plan-QA twins for the three L3 planners + 2 plan-QA twins for the L2 itself; all 11 resolved via mcp__ta__get with found=true. HC1-HC4 entries present in decision_log: HC1 scope-limited to internal/backends/**, three dispatch files, magefile.go/install tests; HC2 every blocker resolves to a real ta id created in this pass (planner_backend_interface_l3.blockers=[planner_backends_loader_l3], planner_dispatch_template_refactor_l3.blockers=[planner_backends_loader_l3, planner_backend_interface_l3] — both resolve as real ids in this same drop); HC3 covers backends.toml resolution + template substitution + backend contract/factory + claude-native parity + dispatch integration + dry-run parity + install seeding; HC4 each L3 keeps builder droplets to 1 production + 1 test file pair with explicit ordering for shared package access. Blocker chain verified: interface_l3 BLOCKS ON loader_l3 because both touch internal/backends package; dispatch_template_refactor_l3 BLOCKS ON both prior because it consumes their exported surfaces. Cycle-break decision explicit: backend-local request/result shapes are new, not yet in tree, avoiding the dispatch.claudeResult cycle. Dry-run preview/invocation surface ownership explicit in the interface lane to preserve committed renderDryRunCommand contract. SAND-V02-SPEC §5.1 fields (command/args/env/mcp_config_arg/allowed_tools_arg/allowed_tools_csv_template/slots_default/envelope_format/stdin_prompt/mcp_injection) reflected in parent acceptance_criteria + L3 lane plans. SAND-V02-SPEC §5.4 templating data surface (model/cwd/persona_body/persona_tools_csv/mcp_config_path/env-helper) reflected in template engine droplet acceptance criteria. SAND-V02-SPEC §5.3 envelope_format routing (claude_json reuses ParseEnvelope; codex_stream stub returns not-implemented) reflected in dispatch lane. Drop_011 ships ONE backend (claude-native) — verified in interface_l3 'explicitly out of scope for drop_011'. PROOF VERDICT: PASS — decomposition is evidence-backed, blocker-correct, sufficient for every parent-required concern, and ready for L2 falsification + L3 plan-QA twin runs."]
+objective = "Prove `drop_011.drop.planner_backend_templates_l2` is evidence-backed, blocker-correct, and sufficient to cover every parent-required concern before builders are dispatched."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.backend_templates"
+paths = ["internal/backends/**", "internal/dispatch/dispatch.go", "internal/dispatch/backend.go", "internal/dispatch/claude.go", "magefile.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_011.drop.planner_backend_templates_l2"
+title = "Plan-QA proof: planner_backend_templates_l2"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read the L2 planner, parent drop, committed dispatch evidence, and all three child L3 planners; then verify the blocker graph, coverage, and HC1-HC4 self-checks before approving builder planning."
+[planner_backends_loader_l3]
+acceptance_criteria = """
+- L3 plans exactly 2 ordered builder droplets:
+  1. `drop_011.drop.build_backends_resolve` FIRST — owns new, not yet in tree `internal/backends/resolve.go` + `internal/backends/resolve_test.go`.
+  2. `drop_011.drop.build_backends_install_seed` SECOND — BLOCKS ON `drop_011.drop.build_backends_resolve`; owns `magefile.go` plus install-test coverage (`magefile_install_test.go`, new, not yet in tree, or the existing install-test file if the builder verifies one already exists).
+- `build_backends_resolve` implements the 4-rung backends.toml lookup with project override first: `<projectDir>/.claude/sand-backends.toml` > `$XDG_CONFIG_HOME/sand/backends.toml` when XDG is set/non-empty > `$HOME/.config/sand/backends.toml` > `$HOME/.sand/backends.toml`. The implementation lives in `internal/backends/resolve.go` but does not claim an exported `Resolve` symbol if that would collide with the exported backend factory planned in the sibling interface lane.
+- `build_backends_resolve` tests pin: project wins over every home rung; XDG wins over home-config; home-config wins over home-dotfile; XDG-unset skips the XDG rung entirely; not-found returns a sentinel error carrying the candidate paths checked. Every symbol introduced here is new, not yet in tree.
+- `build_backends_install_seed` seeds `~/.config/sand/backends.toml` from a packaged baseline containing `[backends.claude-native]` and commented examples for codex/ollama/together per the parent drop. Existing user files are NEVER overwritten.
+- `build_backends_install_seed` tests pin: missing file gets created at the modern XDG home-config path; existing file is preserved byte-for-byte; seeded baseline includes the claude-native block and commented example provider blocks.
+- This lane does NOT parse backend config into `BackendConfig`, does NOT build template substitution, and does NOT edit `internal/dispatch`.
+- HC1: no claim touches `internal/dispatch/**` or new backend contract files.
+- HC2: the second builder droplet must carry a real blocker on `drop_011.drop.build_backends_resolve`.
+- HC3: paths are confined to new, not yet in tree `internal/backends/resolve*` plus `magefile.go` / install tests.
+- HC4: each builder droplet is one production file plus one test file; no droplet mixes loader logic with backend contract or dispatch integration.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:25:00Z: L3 created during drop_011 L1 planner dispatch (bq58qitvb). Owns internal/backends/resolve.go hierarchical loader + magefile.go install seed.", "2026-05-23T03:40:00Z: ORCHESTRATOR AMENDMENT after plan-QA falsifs. (1) build_backends_install_seed MUST enumerate ALL 4 commented example provider blocks per parent L1 drop: codex-exec + ollama-local + ollama-cloud + together-ai (not just 'commented examples for codex/ollama/together'). (2) Sentinel error name remains builder-owned but MUST avoid colliding with sibling factory's ErrUnknownBackend (which is for missing config ENTRY, not missing config FILE). Loader returns a distinct sentinel for the all-4-rungs-absent case (suggested: ErrBackendsConfigNotFound mirroring ErrChainConfigNotFound from drop_008)."]
+expected_outputs = ["drop_011.drop.build_backends_resolve", "drop_011.drop.qa_proof_build_backends_resolve", "drop_011.drop.qa_falsification_build_backends_resolve", "drop_011.drop.build_backends_install_seed", "drop_011.drop.qa_proof_build_backends_install_seed", "drop_011.drop.qa_falsification_build_backends_install_seed"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: drop_011 needs a backends.toml lifecycle before any backend factory can resolve a named provider. Evidence: the parent drop, SAND-V02-SPEC §5.2, and committed `chains.Resolve` behavior from drop_008. Trace or cases: isolate path resolution and install seeding as the first L3 lane. Conclusion: two ordered builder droplets are sufficient. Unknowns: the exact sentinel error name is new, not yet in tree, and should be chosen to avoid colliding with the sibling factory’s API.
+
+## Builder
+Premises: builders must not mix config path logic, install seeding, backend parsing, and dispatch integration. Evidence: `magefile.go` is a distinct root-level concern while `internal/backends/resolve.go` is a new package concern. Trace or cases: first droplet lands the resolver; second droplet reuses that contract when seeding the baseline file. Conclusion: two atomic droplets keep the lane truthful. Unknowns: whether install tests live in `magefile_test.go` or `magefile_install_test.go` depends on the current tree and is builder-owned, but any new file must be marked new, not yet in tree.
+
+## QA Proof
+Premises: proof must verify the hierarchy order and non-overwrite guarantee directly. Evidence: the spec’s project-override-first order and the parent drop’s install requirement. Trace or cases: proof should read the resolver tests and install tests, confirm XDG-unset skip coverage, and confirm seeded baseline content includes claude-native. Conclusion: one proof twin per builder droplet is required. Unknowns: none beyond the exact sentinel naming.
+
+## QA Falsification
+Premises: falsification should attack precedence inversions, accidental XDG lookup when unset, and any install path that overwrites an existing file. Evidence: those are the only load-bearing behaviors in this lane. Trace or cases: counterexamples should use competing temp files across all four rungs and a pre-existing target file. Conclusion: one falsification twin per builder droplet is required. Unknowns: none block planning.
+
+## Convergence
+Premises: this lane converges once the resolver and install-seed droplets and their QA twins are fixed. Evidence: expected_outputs enumerates exactly those six record ids. Trace or cases: later lanes depend on the resolver contract but not on any parsing or backend implementation from this lane. Conclusion: the lane is ready for plan-QA. Unknowns: none blocking record creation.
+"""
+objective = "Plan the atomic builder droplets for the new, not yet in tree backend-config lifecycle surface: hierarchical backends.toml resolution in new `internal/backends/resolve.go` plus first-install seeding in `magefile.go`. Evidence: SAND-V02-SPEC §5.2 defines the same project-override-first hierarchy as committed drop_008 `chains.Resolve`; the parent drop also requires `mage install` to seed `~/.config/sand/backends.toml` without overwriting an existing file."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/backends/resolve.go", "internal/backends/resolve_test.go", "magefile.go", "magefile_install_test.go"]
+role = "planner"
+state = "todo"
+title = "L3 planner — hierarchical backends.toml resolution and install seed"
+updated_at = "2026-05-23T03:40:00Z"
+[planner_backend_interface_l3]
+acceptance_criteria = """
+- L3 plans exactly 3 ordered builder droplets:
+  1. `drop_011.drop.build_backend_template_engine` FIRST — owns new, not yet in tree `internal/backends/template.go` + `template_test.go`.
+  2. `drop_011.drop.build_backend_contract_factory` SECOND — BLOCKS ON `drop_011.drop.build_backend_template_engine` and `drop_011.drop.build_backends_resolve`; owns new, not yet in tree `internal/backends/backend.go` + `backend_test.go`.
+  3. `drop_011.drop.build_claude_native_backend` THIRD — BLOCKS ON the prior two droplets; owns new, not yet in tree `internal/backends/claude_native.go` + `claude_native_test.go` and any new, not yet in tree backend testdata.
+- `build_backend_template_engine` uses stdlib `text/template` only. The template data surface must cover the spec-backed substitution inputs needed by the committed claude-native behavior: model, cwd, prompt, role, mcp_config_path, persona_body, persona_tools_csv, and an `env` helper for process-environment lookup. Missing substitutions MUST fail fast instead of silently rendering empty strings; this is a planner safety inference layered on top of the spec.
+- `build_backend_contract_factory` defines backend-local request/result shapes as new, not yet in tree because the parent shorthand `Spawn(...)(claudeResult,error)` would create an import cycle against committed `internal/dispatch/claude.go`. The lane must also define `BackendConfig`, a typed config map for `[backends.NAME]` blocks, `ErrUnknownBackend`, and the exported factory surface that loads the active config and returns a backend instance bound to one named provider.
+- The contract lane must also expose a dry-run preview/invocation surface in addition to raw spawn so the sibling dispatch lane can preserve the committed `renderDryRunCommand` contract through template rendering. The planner fixes that requirement here rather than leaving it implicit.
+- `build_claude_native_backend` ports the committed `runClaudeNative` behavior into the new package without widening scope to codex/ollama: PATH lookup, `--append-system-prompt` with anti-recursion suffix, allowed-tools CSV, optional `--mcp-config`, env filtering, cwd honoring, prompt via stdin, non-zero exit as data not Go error, and elapsed-duration capture.
+- `build_claude_native_backend` ships only `claude-native`; codex/ollama provider implementations are explicitly out of scope for drop_011.
+- This lane does NOT edit `internal/dispatch/dispatch.go`; it only creates the new package surface consumed later by the dispatch-integration lane.
+- HC1: no claim touches `internal/dispatch/**` or `magefile.go`.
+- HC2: every builder blocker names a real upstream droplet id from this drop.
+- HC3: paths are confined to new, not yet in tree `internal/backends/{template.go,backend.go,claude_native.go}` and tests.
+- HC4: the lane is split into three atomic builder droplets because template rendering, contract/factory wiring, and claude-native parity each fit one production/test pair but not one shared droplet.
+"""
+blockers = ["drop_011.drop.planner_backends_loader_l3"]
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:25:00Z: L3 created during drop_011 L1 planner dispatch (bq58qitvb). Owns Backend interface + claude_native impl + template engine. Blocks on planner_backends_loader_l3.", "2026-05-23T03:40:00Z: ORCHESTRATOR AMENDMENT after plan-QA falsifs (L2 T3 + backend_interface falsif). REQUIRED ADDITIONS to acceptance: (1) Template engine MUST use text/template with `Option(\"missingkey=error\")` applied explicitly so missing substitution keys fail fast with template.ExecError, NOT silent '<no value>' literal output. Test that missing-key triggers ExecError. (2) BackendConfig struct MUST enumerate ALL 10 fields per SAND-V02-SPEC §5.1 verbatim: Command string, Args []string, Env []string (for KEY=VAL items with {{env:VAR}} substitution), McpConfigArg string, AllowedToolsArg string, AllowedToolsCSVTemplate string, SlotsDefault int, EnvelopeFormat string (one of claude_json|codex_stream|future), StdinPrompt bool, McpInjection string (special-case 'codex_inline_toml' for drop_005). Drop_005 must require ZERO refactor of BackendConfig to add codex_inline_toml support — the field is present from drop_011. (3) The Backend interface Spawn signature MUST use a backend-local request/result type (proposed names: SpawnRequest + SpawnResult, or BackendRequest + BackendResult — builder's call). NOT dispatch.claudeResult — that would create the import cycle the L2 falsif T1 surfaced."]
+expected_outputs = ["drop_011.drop.build_backend_template_engine", "drop_011.drop.qa_proof_build_backend_template_engine", "drop_011.drop.qa_falsification_build_backend_template_engine", "drop_011.drop.build_backend_contract_factory", "drop_011.drop.qa_proof_build_backend_contract_factory", "drop_011.drop.qa_falsification_build_backend_contract_factory", "drop_011.drop.build_claude_native_backend", "drop_011.drop.qa_proof_build_claude_native_backend", "drop_011.drop.qa_falsification_build_claude_native_backend"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: the new backend abstraction must preserve claude-native behavior while becoming extensible for later drops. Evidence: SAND-V02-SPEC §5, the parent drop, and committed `runClaudeNative` behavior. Trace or cases: land template rendering first, then contract/factory, then the claude-native concrete implementation. Conclusion: three ordered builder droplets are required. Unknowns: Context7 returned low-signal `text/template` snippets, so final stdlib API details should be re-verified during build-QA even though the package choice is fixed.
+
+## Builder
+Premises: builder droplets must each stay to one production/test pair. Evidence: template rendering, contract/factory wiring, and claude-native parity are separable concerns even though they share one package. Trace or cases: explicit droplet blockers serialize the shared package while preserving atomicity. Conclusion: three droplets are the minimal truthful split. Unknowns: exact helper names inside the package remain builder-owned, but the request/result cycle break and dry-run preview requirement are fixed here.
+
+## QA Proof
+Premises: proof must verify the cycle break, preview surface, and config-field coverage are all explicit. Evidence: the parent drop and committed claude-native path require more inputs than the shorthand interface text names. Trace or cases: proof should reject any builder that still depends on `dispatch.claudeResult` or that drops dry-run support from the abstraction. Conclusion: one proof twin per builder droplet is required. Unknowns: none block planning.
+
+## QA Falsification
+Premises: falsification should attack silent template substitution failures, hidden import cycles, and any claude-native port that changes current exit or env semantics. Evidence: those are the riskiest regressions in this lane. Trace or cases: counterexamples should include missing template values, missing PATH binary, non-zero exit, context cancellation, and env filtering. Conclusion: one falsification twin per builder droplet is required. Unknowns: whether builders prefer a `Preview` method or an `Invocation` return type is an implementation detail so long as the dry-run contract is preserved.
+
+## Convergence
+Premises: this lane converges when the template engine, contract/factory, and claude-native implementation droplets and QA twins are fixed. Evidence: expected_outputs enumerates exactly those nine ids. Trace or cases: the later dispatch lane consumes this package but does not own its implementation details. Conclusion: the lane is ready for plan-QA. Unknowns: none block record creation.
+"""
+objective = "Plan the atomic builder droplets for the new, not yet in tree `internal/backends` contract layer: `BackendConfig`, the backend factory, stdlib `text/template` substitution, and the shipped `claude-native` implementation. Evidence: SAND-V02-SPEC §5.1 and §5.4 define the config shape and templating surface; committed `internal/dispatch/claude.go` proves the live claude-native behavior the new implementation must preserve; Hylla confirms no `internal/backends` package exists yet."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/backends/template.go", "internal/backends/template_test.go", "internal/backends/backend.go", "internal/backends/backend_test.go", "internal/backends/claude_native.go", "internal/backends/claude_native_test.go", "internal/backends/testdata/"]
+role = "planner"
+state = "todo"
+title = "L3 planner — backend contract, template engine, and claude-native implementation"
+updated_at = "2026-05-23T03:40:00Z"
+[planner_dispatch_template_refactor_l3]
+acceptance_criteria = """
+- L3 plans exactly 2 ordered builder droplets:
+  1. `drop_011.drop.build_dispatch_backend_integration` FIRST — owns committed `internal/dispatch/dispatch.go` + `internal/dispatch/dispatch_test.go` and any new, not yet in tree dispatch testdata/fixtures required for tier-by-tier backend integration tests.
+  2. `drop_011.drop.build_dispatch_backend_cleanup` SECOND — BLOCKS ON `drop_011.drop.build_dispatch_backend_integration`; owns committed `internal/dispatch/backend.go` + `internal/dispatch/claude.go` and any targeted compatibility tests.
+- `build_dispatch_backend_integration` carries real build blockers on the upstream backend droplets from the sibling lane because it consumes their exported surfaces. It refactors the committed dispatch loop to resolve a backend instance for each tier, flatten `ModelOverride` into the backend request before preview/spawn, preserve slot-timeout and ErrClass-based fallback behavior from drop_008, and treat unknown backend names as an advancing attempt outcome rather than a hard crash.
+- `build_dispatch_backend_integration` must route parsing by backend-config `envelope_format`: `claude_json` uses the committed `ParseEnvelope`; `codex_stream` is a stub/new, not yet in tree parser hook that returns a deliberate not-implemented error until drop_005 lands. No codex/ollama implementation is shipped in drop_011.
+- Dry-run remains load-bearing: the committed `renderDryRunCommand` behavior must be replaced by the backend preview/invocation surface from the sibling lane so the smoke-test TOON shape stays stable (`Result`, `ServedBy`, `Tier`, and `FallbackChain` semantics unchanged for dry-run).
+- `build_dispatch_backend_cleanup` adopts the planner decision to retain committed `internal/dispatch/backend.go` and `internal/dispatch/claude.go` as thin compatibility shims or deprecation wrappers rather than delete them outright in drop_011. The active dispatch path must no longer depend on those files, but existing focused tests may be preserved through delegation.
+- Existing committed tests named by gopls/Hylla for dispatch behavior remain GREEN, including dry-run, happy path, selection errors, backend guard semantics, and claude-native exit semantics, whether by direct preservation or by updated shim tests.
+- This lane does NOT create any new provider implementations beyond claude-native and does NOT revisit install seeding or template-engine internals.
+- HC1: no claim touches `internal/backends/**` implementation files or `magefile.go`.
+- HC2: both builder droplets must carry only real blocker ids from this drop.
+- HC3: paths are confined to committed `internal/dispatch/{dispatch.go,dispatch_test.go,backend.go,claude.go}` plus new, not yet in tree dispatch fixtures if tests require them.
+- HC4: two droplets are required because dispatch-loop integration and legacy-file cleanup are separate atomic edits with separate test surfaces.
+"""
+blockers = ["drop_011.drop.planner_backends_loader_l3", "drop_011.drop.planner_backend_interface_l3"]
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:25:00Z: L3 created during drop_011 L1 planner dispatch (bq58qitvb). Owns internal/dispatch/dispatch.go refactor. Blocks on planner_backends_loader_l3 + planner_backend_interface_l3.", """
+2026-05-23T03:40:00Z: ORCHESTRATOR AMENDMENTS after plan-QA falsifs (L2 T1/T3/T5 + dispatch_template_refactor falsif A1-A7). MANDATORY for builder droplets in this lane:
+
+**A1 — Test enumeration**: build_dispatch_backend_integration MUST keep ALL 17 dispatch-package test functions GREEN: TestCoreContract, TestDispatchSentinels, TestDispatchHandlerMissingRole, TestDispatchHandlerMissingPrompt, TestDispatchHandlerHappyPath, TestDispatchHandlerOptionalParamsPassthrough, TestDispatchHandlerDispatchError, TestNewDispatchToolSchema, TestDispatchHandlerHappyPathEmptyAuditArrays, TestMCPConfigPath, TestUnsupportedBackendFailFast, TestUnsupportedBackendErrorMessage, TestDispatchDryRun, TestDispatchSelectionErrors, TestDispatchHappyPath, TestDispatchFailoverChain, TestDispatchSentinelErrChainExhausted, TestResponseV02Fields, TestRunClaudeNative_* (claude_test.go), TestParseEnvelope* (envelope_test.go). Each subtest pinning a specific behavior MUST stay green or be migrated alongside in the same droplet.
+
+**A2 (L2 T1 + falsif A2 + A3)** — Attempt.Outcome literal MUST be `"unsupported_backend"` (not 'unknown_backend' or 'codex_stream_not_implemented') for ANY non-claude-native chain entry under drop_011, regardless of cause (codex/ollama/unknown-name). All three error classes (ErrUnsupportedBackend / ErrUnknownBackend / codex_stream parser error) ADVANCE the chain with `Attempt{Outcome:"unsupported_backend"}` — do NOT halt mid-chain on Crash/Unknown classification.
+
+**A2b (L2 T1)** — ErrNoClaudeNativeTier pre-loop guard at dispatch.go:229-239 MUST be PRESERVED. TestDispatchSelectionErrors/no_claude_native_tier pins this. Builder may move the check but must keep the sentinel semantics.
+
+**A4 — env passthrough**: backend Spawn MUST inherit os.Environ() filtered through equivalent of committed filterEnv() (strip ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN), so FAKE_CLAUDE_FIXTURE_SEQUENCE / FAKE_CLAUDE_INVOCATION_FILE / FAKE_CLAUDE_ENVELOPE_FILE / FAKE_CLAUDE_ARGV_OUT / FAKE_CLAUDE_STDIN_OUT all flow to the child claude process. Tests fail loudly otherwise.
+
+**A5 — dry-run Result byte shape**: Backend.Preview output MUST preserve committed renderDryRunCommand byte shape. `--model haiku` (space-separated), one flag per line, persona body appended after --append-system-prompt, --allowedTools comma-CSV. Tests in TestDispatchDryRun substring-match specific bytes — must not drift.
+
+**A6 — Attempt.Model = tier.Model (configured)**: Attempt rows in FallbackChain MUST record `tier.Model` (configured), NOT the post-override model. Only ServedBy + spawn argv flatten the ModelOverride. TestDispatchFailoverChain pins this at line 921.
+
+**A7 — integration droplet block-count**: build_dispatch_backend_integration is AT RISK of exceeding 1-2 small blocks (7 changes per A7 analysis: loop body refactor + factory threading + buildSuccessResponse type migration + envelope_format routing + ErrUnknownBackend classification + renderDryRunCommand replacement + 17-test-greenness). Builder MUST self-assess on first read and may DECOMPOSE further if it would exceed atomic bounds (e.g. split active-path-swap from envelope_format wiring). Plan-QA override granted to the builder to self-decompose; orchestrator-amend record if so.
+
+**T5 (L2)** — codex_stream parser stub: when Backend.EnvelopeFormat=='codex_stream', return ErrNotImplemented at parse-step — dispatch loop treats it as the error classifier's responsibility (advance with Attempt{Outcome:"unsupported_backend"}, NOT halt). drop_005 will replace the stub with the real codex_stream parser.
+
+**Implementation Note**: The 17-test-list + the 7 A1-A7 constraints are LOAD-BEARING. Builder reading this record sees them in the decision_log before writing source. Violations surface as test-suite failures or build-QA-falsification.
+"""]
+expected_outputs = ["drop_011.drop.build_dispatch_backend_integration", "drop_011.drop.qa_proof_build_dispatch_backend_integration", "drop_011.drop.qa_falsification_build_dispatch_backend_integration", "drop_011.drop.build_dispatch_backend_cleanup", "drop_011.drop.qa_proof_build_dispatch_backend_cleanup", "drop_011.drop.qa_falsification_build_dispatch_backend_cleanup"]
+implementation_notes_agent = """
+# Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: the final drop_011 lane must connect the new backend package to the shipped drop_008 dispatch loop without regressing user-visible behavior. Evidence: committed dispatch files, SAND-V02-SPEC §5.3, and the parent drop’s dry-run/smoke-test requirement. Trace or cases: first refactor `dispatch.go` to use the backend abstraction, then clean up legacy `backend.go` and `claude.go` into shims. Conclusion: two ordered builder droplets are sufficient. Unknowns: the exact not-implemented stub symbol for `codex_stream` is new, not yet in tree, and builder-owned.
+
+## Builder
+Premises: `dispatch.go` is already dense, so integration work and legacy cleanup should not be mixed in one droplet. Evidence: the committed file owns loop control flow, dry-run rendering, response shaping, and fallback/error semantics. Trace or cases: `build_dispatch_backend_integration` changes the active path; `build_dispatch_backend_cleanup` updates the legacy shims and targeted tests afterward. Conclusion: two droplets keep the lane atomic. Unknowns: whether new dispatch fixtures are needed depends on how builders structure preview/spawn fakes.
+
+## QA Proof
+Premises: proof must verify fallback semantics, parser dispatch, and dry-run parity remain aligned with the committed behavior. Evidence: drop_008 already shipped those semantics in `dispatch.go` and its tests. Trace or cases: proof should read the integration tests, confirm `claude_json` reuses `ParseEnvelope`, and confirm dry-run still returns the same TOON shape. Conclusion: one proof twin per builder droplet is required. Unknowns: none block planning.
+
+## QA Falsification
+Premises: falsification should attack hidden behavior regressions in dry-run, fallback-chain recording, unsupported/unknown backend handling, and legacy shim drift. Evidence: those are the load-bearing integration risks in this lane. Trace or cases: counterexamples should include slot timeout advancement, unknown backend advancement, non-zero spawn exit classification, and dry-run parity. Conclusion: one falsification twin per builder droplet is required. Unknowns: none block record creation.
+
+## Convergence
+Premises: this lane converges once the integration droplet and cleanup droplet plus QA twins are fixed. Evidence: expected_outputs enumerates exactly those six ids. Trace or cases: upstream backend lanes provide the new surfaces; this lane consumes them and preserves the dispatch contract. Conclusion: the lane is ready for plan-QA. Unknowns: none blocking record creation.
+"""
+objective = "Plan the atomic builder droplets that refactor committed `internal/dispatch/dispatch.go` to consume the new backend abstraction, preserve drop_008 fallback behavior, and reduce committed `internal/dispatch/{backend.go,claude.go}` to compatibility shims instead of the active backend path. Evidence: committed `Dispatch`, `runTier`, `runClaudeNative`, `ParseEnvelope`, `ErrClass`, `ErrChainExhausted`, and `renderDryRunCommand` are the live integration points; SAND-V02-SPEC §5.3 adds `envelope_format` routing on top of the shipped drop_008 loop."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/backend.go", "internal/dispatch/claude.go", "internal/dispatch/testdata/"]
+role = "planner"
+state = "todo"
+title = "L3 planner — dispatch integration and legacy backend shim cleanup"
+updated_at = "2026-05-23T03:40:00Z"
+[qa_falsification_backend_templates_l2_plan]
+acceptance_criteria = """
+- Try counterexamples where the parent shorthand `Spawn(...)(claudeResult,error)` still leaks into the child planners and would create an import cycle.
+- Try counterexamples where no child lane truthfully owns `mage install` seeding or dry-run parity.
+- Try counterexamples where the loader and interface lanes still overlap the same package without explicit ordering.
+- Try counterexamples where the dispatch lane depends on a backend surface that no sibling planner actually plans.
+- PASS only if the L2 decomposition remains truthful, ordered, and atomic under those attacks.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending falsification review record created for `drop_011.drop.planner_backend_templates_l2`.", "2026-05-23T03:25:00Z: Attempted attacks T1-T8 below. Verdict: PASS WITH NOTED RISKS. No attack produces an unmitigated counterexample that requires the L2 record to be re-emitted; eight risks documented as Unknowns to surface in build-QA. T1 (ErrNoClaudeNativeTier guard) and T4 (template injection direction) are the highest-priority risks — recommend orchestrator append clarifications to the two affected L3 acceptance criteria before builder dispatch rather than block plan-QA convergence. Evidence: committed dispatch.go lines 88-98 + 229-239 (selectClaudeNativeTier + ErrNoClaudeNativeTier guard); committed magefile.go (no current Install seeding); SAND-V02-SPEC §5.1 (persona_body in args array = data not template-source); §5.3 (envelope_format dispatch). T1: L2 + L3-dispatch lane name dispatch.go/dispatch_test.go but neither acceptance criterion enumerates `selectClaudeNativeTier` or `ErrNoClaudeNativeTier`, leaving the pre-loop guard and TestDispatchSelectionErrors/no-claude-native-tier subtest in implicit limbo. Backward-compat clause says existing tests stay GREEN — this resolves by builders preserving the guard, but absence in acceptance text is a planning gap. T2: dispatch lane path scope omits mcp_config.go, errors_class.go, envelope.go, tool_dispatch.go — committed siblings of dispatch.go that buildSuccessResponse and runTier touch indirectly via claudeResult. If `claudeResult` migrates to internal/backends to break the cycle, buildSuccessResponse's signature changes; cleanup-after-integration ordering risks integration droplet still importing dispatch.claudeResult. Mitigation: builders own that detail; planner's cycle-break decision is explicit; acceptable. T3: text/template missingkey behavior — `Missing substitutions MUST fail fast` is in acceptance but neither `template.Option(missingkey=error)` nor `template.Must` is named. Builder could satisfy acceptance text by adding ad-hoc nil checks while leaving template.Execute default `<no value>` behavior intact for fields not on the data struct. Recommend orchestrator amend interface-lane acceptance with explicit `template.Option(\"missingkey=error\")` pin. T4: template injection direction — SAND-V02-SPEC §5.1 places `{{persona_body}}` INSIDE the args array (template source = config; persona body = data). Builders must parse template from backends.toml strings and execute with persona body as data input — NOT the reverse. Acceptance is silent on this direction. If a builder treats persona_body as template-source-with-data-substitution they could enable persona-supplied template syntax to access internal data. Risk is low because builders read the spec but acceptance should pin it. T5: envelope_format=codex_stream stub behavior — three possible failure modes (config-load reject, runTier-entry advance like ErrUnsupportedBackend, parse-time halt). L3 dispatch acceptance says only `returns a deliberate not-implemented error until drop_005 lands`. Today's chains.toml may already reference codex-exec; drop_011 must not regress current ErrUnsupportedBackend→advance semantics. Recommend amend dispatch-lane acceptance to pin: codex_stream envelope_format triggers advance-equivalent attempt outcome (e.g. `unsupported_envelope`) rather than chain-halting crash. T6: mage install seed-content - acceptance says commented examples for codex/ollama/together but never asserts they're UNCOMMENT-AND-GO ready. If drops 004/005 add backends per their plans and the install-seeded file is missing the example blocks (because user installed pre-drop-004/005), drop_004/005 require manual user edit. Soft risk — drops 004/005 plans can mitigate. T7: slots_default precedence vs chains.toml tier slots — BackendConfig declares SlotsDefault; chains.Tier already has Slots. Current Dispatch reads tier.Slots directly. If BackendConfig.SlotsDefault=3 and tier.slots=0 (unlimited), or tier.slots unset entirely, which wins? Two reasonable readings, neither pinned. Recommend amend interface or dispatch acceptance to pin: tier value when set non-zero wins; backend SlotsDefault fills when tier omits. T8: magefile_test_targets.go already exists; L3 loader names magefile_install_test.go new-not-in-tree OR existing install-test file. Acceptance allows flexibility but neither L2 nor L3 reads the existing file. Mitigation: builders required to read pre-edit; this matches normal builder discipline; acceptable as-is. HC1 PASS: every attack confined to internal/backends, internal/dispatch, magefile.go — no out-of-scope claims. HC2 PASS: every blocker id named in L3 records resolves to a real L3 planner id created in this pass (planner_backends_loader_l3, planner_backend_interface_l3, planner_dispatch_template_refactor_l3). HC3 PASS WITH NOTES: decomposition covers loader+install+contract+template+claude-native+dispatch+cleanup, but the ErrNoClaudeNativeTier guard, codex_stream stub failure mode, and slots_default precedence are concerns the parent drop implies (`existing tests stay GREEN`, `envelope_format hint`, `slots_default = 0` in §5.1) without explicit L3 acceptance lines. HC4 PASS: every L3 emits only atomic builder droplets (loader=2, interface=3, dispatch=2 — total 7 builders); none exceeds 1 production file + 1 test file. Overall verdict: L2 decomposition is structurally sound. No alternative ordering or split would improve atomicity. Recommended action: orchestrator amends interface-lane acceptance with template.Option(missingkey=error) pin (T3) + amends dispatch-lane acceptance with codex_stream advance-equivalence pin (T5) + ErrNoClaudeNativeTier explicit preserve-or-migrate decision (T1) before plan-QA convergence proceeds to builder dispatch. T2/T6/T7/T8 are surfaceable in build-QA without re-emitting L2."]
+objective = "Attack `drop_011.drop.planner_backend_templates_l2` for hidden import cycles, missing install-seed coverage, unsequenced `internal/backends` package sharing, or any decomposition that leaves dry-run parity unowned."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.backend_templates"
+paths = ["internal/backends/**", "internal/dispatch/dispatch.go", "internal/dispatch/backend.go", "internal/dispatch/claude.go", "magefile.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_011.drop.planner_backend_templates_l2"
+title = "Plan-QA falsification: planner_backend_templates_l2"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read the L2 planner, the three L3 planners, the parent drop, and the committed dispatch evidence; then actively look for impossible interfaces, unowned requirements, or missing blocker edges before allowing builder planning to proceed."
+[qa_proof_backends_loader_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify the planner’s hierarchy matches SAND-V02-SPEC §5.2 and committed drop_008 `chains.Resolve` ordering, including the XDG-unset skip case.
+- Verify expected_outputs contains exactly 2 builder droplets and 4 build-QA twins.
+- Verify install seeding is explicitly owned and does not overwrite existing files.
+- Verify HC1-HC4 entries exist in the decision_log and support atomic builder droplets only.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending proof review record created for `drop_011.drop.planner_backends_loader_l3`.", "2026-05-23T03:25:00Z: Section 0 certificate PASS — implementation_notes_agent contains Proposal/Builder/QA Proof/QA Falsification/Convergence with Premises/Evidence/Trace/Conclusion/Unknowns in each pass.", "2026-05-23T03:25:00Z: 4-rung hierarchy PASS — acceptance_criteria pins `<projectDir>/.claude/sand-backends.toml > $XDG_CONFIG_HOME/sand/backends.toml when XDG set/non-empty > $HOME/.config/sand/backends.toml > $HOME/.sand/backends.toml`, matching SAND-V02-SPEC §5.2 (lines 282-288) and committed internal/chains/resolve.go (project-first, XDG skipped when unset/empty at lines 52-57, home-config third, home-dotfile fourth). XDG-unset-skip case explicitly pinned in tests.", "2026-05-23T03:25:00Z: Sentinel error contract PASS — not-found returns a sentinel carrying candidate paths checked, mirroring committed ErrChainConfigNotFound semantics (chains/resolve.go lines 15, 86). Exact sentinel name explicitly deferred to builder (decision_log entry 3) to avoid colliding with sibling backend-factory's potential exported `Resolve` symbol. Deliberate scope-isolation, not a gap.", "2026-05-23T03:25:00Z: BackendConfig schema NOT-OWNED-HERE PASS — L3 explicitly excludes parsing into BackendConfig (acceptance_criteria line 121). Per parent L2 decomposition (acceptance_criteria line 47), BackendConfig fields (Command/Args/Env/McpConfigArg/AllowedToolsArg/AllowedToolsCSVTemplate/SlotsDefault/EnvelopeFormat/StdinPrompt/McpInjection per SAND-V02-SPEC §5.1) are owned by sibling planner_backend_interface_l3 (lines 159-207). Loader/parser split is correct per L2 HC4 atomicity.", "2026-05-23T03:25:00Z: mage install seed integration PASS — build_backends_install_seed owns magefile.go + install tests, seeds `~/.config/sand/backends.toml` (modern XDG home-config rung per SAND-V02-SPEC §5.2 line 290 + parent L1 line 10) with baseline containing `[backends.claude-native]` + commented examples for codex/ollama/together. Never-overwrite invariant pinned in acceptance_criteria line 119 AND tests line 120. Verified committed magefile.go currently builds binary only with NO seeding — correctly marked new behavior. Real blocker on build_backends_resolve so install-seed reuses resolver's candidate-path contract (decision_log entry 2). HC2 satisfied.", "2026-05-23T03:25:00Z: Atomic droplet split PASS — 2 builder droplets, each = 1 production + 1 test file: (a) internal/backends/resolve.go + resolve_test.go, (b) magefile.go + magefile_install_test.go. HC4 satisfied.", "2026-05-23T03:25:00Z: Path scope confinement (HC1/HC3) PASS — paths field exactly `internal/backends/resolve.go`, `internal/backends/resolve_test.go`, `magefile.go`, `magefile_install_test.go`. Verified internal/backends/ does NOT yet exist + magefile_install_test.go does NOT yet exist (both correctly marked new, not yet in tree). No dispatch files, no backend contract/template files.", "2026-05-23T03:25:00Z: expected_outputs count PASS — exactly 6 ids (2 builders + 2 proof twins + 2 falsification twins) matches qa_proof_backends_loader_l3_plan criterion `2 builder droplets and 4 build-QA twins`.", "2026-05-23T03:25:00Z: HC1-HC4 explicit in decision_log PASS — all four self-check entries present and supported.", "2026-05-23T03:25:00Z: Advisory note for falsification twin: the planner reserves the exported `Resolve` name but does not pin a specific alternative identifier yet. Falsification could verify the sibling backend-interface lane explicitly NAMES its exported factory symbol so the loader builder can deterministically pick a non-colliding name. NOT a proof-blocker — contract requirement is explicit even if exact identifier is deferred.", "2026-05-23T03:25:00Z: VERDICT: PROOF PASS. All 5 acceptance_criteria items satisfied; no missing evidence; remaining Unknowns are explicitly builder-deferred. Release planner_backends_loader_l3 to qa-falsification twin for adversarial review, then to builder dispatch."]
+objective = "Prove `drop_011.drop.planner_backends_loader_l3` correctly covers the backends.toml hierarchy and install-seed lifecycle without drifting into backend parsing or dispatch integration."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/backends/resolve.go", "internal/backends/resolve_test.go", "magefile.go", "magefile_install_test.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_011.drop.planner_backends_loader_l3"
+title = "Plan-QA proof: planner_backends_loader_l3"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read the loader L3 planner, the parent L2 planner, the parent drop, and committed `chains.Resolve` evidence; then verify ordering, seeding ownership, and the two-droplet split before proof PASS. EXECUTED 2026-05-23T03:25:00Z — VERDICT PASS. Findings recorded in decision_log entries 2-12: Section 0 cert complete; 4-rung hierarchy matches committed chains.Resolve (project-first, XDG-skipped when unset, home-config, home-dotfile); sentinel-error contract mirrors ErrChainConfigNotFound; BackendConfig schema correctly NOT owned by this lane (sibling backend-interface L3 owns §5.1 parsing per L2 split); mage install seed integration owns magefile.go + tests with non-overwrite invariant; 2 atomic droplets (resolve + install-seed) each 1 prod + 1 test file; HC1-HC4 supported; path scope confined; expected_outputs = 2 builders + 4 build-QA twins."
+[qa_falsification_backends_loader_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where project override does not win or XDG-unset still probes an empty path.
+- Try counterexamples where install seeding could overwrite an existing user file.
+- Try counterexamples where the lane accidentally owns backend parsing or dispatch edits in addition to lifecycle work.
+- Try counterexamples where the two-droplet split is still too large for atomic builders.
+- PASS only if the planner remains truthful, ordered, and atomic under attack.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending falsification review record created for `drop_011.drop.planner_backends_loader_l3`.", """
+2026-05-23T03:25:00Z: # Section 0 — SEMI-FORMAL REASONING
+
+## Proposal
+Premises: attack `drop_011.drop.planner_backends_loader_l3` along HC1-HC4, XDG-unset skip pinning, REPLACE semantics, install-seed non-overwrite, BackendConfig field coverage vs spec §5.1, and the ErrUnknownBackend vs config-not-found distinction. Evidence: parent drop `drop_011.drop.backend_templates` acceptance enumerates BackendConfig fields and `Resolve(name string) (Backend, error)` factory + `ErrUnknownBackend` sentinel; SAND-V02-SPEC §5.2 fixes hierarchy; committed `internal/chains/resolve.go` (lines 35-87) is the direct behavioral analogue. Trace or cases: 12 individual attacks A-L below. Conclusion: no unmitigated counterexample. Unknowns: two minor specificity gaps recorded for orchestrator.
+
+## QA Proof
+Premises: every claim is grounded in either the L3 acceptance text or committed evidence. Evidence: parent drop acceptance criteria + L3 acceptance criteria + decision_log + chains.Resolve source. Trace or cases: A (HC1 lane boundary), B (HC2 builder ordering blocker), C (HC3 paths), D (HC4 atomic split), E (XDG-unset skip pin), F (REPLACE semantics — structural via single-path return), G (project-first probe order matches committed chains.Resolve), H (overwrite-guard test pinning), I (BackendConfig field coverage out-of-scope by design), J (ErrUnknownBackend vs config-not-found two-error-mode distinction), K (Resolve symbol collision deferred to interface lane with explicit guardrail), L (magefile_install_test.go new file confirmed via git ls-files — no preexisting install test). Conclusion: every load-bearing acceptance is either pinned in test acceptance or explicitly deferred to a sibling lane. Unknowns: none load-bearing.
+
+## QA Falsification
+Premises: each attack must produce either a confirmed counterexample with reproduction or be mitigated by acceptance text. Evidence: attacks A-L enumerated above. Trace or cases: A: PASS — lane scope excludes internal/dispatch/** and new backend contract files explicitly. B: PASS — `BLOCKS ON drop_011.drop.build_backends_resolve` is explicit in acceptance criteria for builder 2. C: PASS — paths list = {resolve.go, resolve_test.go, magefile.go, magefile_install_test.go}. D: PASS — each droplet = 1 prod file + 1 test file. E: PASS — acceptance line 'XDG-unset skips the XDG rung entirely' mirrors committed chains.Resolve line 52 `if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != ""`. F: PASS — loader-only scope structurally enforces REPLACE because the function returns a path, not a merged config; sibling parsing/merge work is out of scope. G: PASS — L3 acceptance literally writes project > XDG > home-config > home-dotfile probe order, matching committed chains.Resolve candidates slice order at lines 41-74. H: PASS — acceptance criterion 'existing file is preserved byte-for-byte' is an explicit test pin. I: PASS — L3 acceptance explicitly says 'This lane does NOT parse backend config into BackendConfig'; field coverage lives in the interface lane. J: PASS — implementation_notes_agent records the sentinel naming as Unknown to be chosen to avoid colliding with the sibling factory's ErrUnknownBackend; loader's not-found sentinel is structurally distinct from the factory's unknown-name sentinel. K: PASS — L3 explicitly states 'does not claim an exported Resolve symbol if that would collide with the exported backend factory planned in the sibling interface lane'; collision deferred to builder choice with explicit guardrail. L: PASS — git ls-files confirms no preexisting magefile_install_test.go; the hedge wording 'or the existing install-test file if the builder verifies one already exists' is acceptable but slightly soft. Conclusion: no attack produced an unmitigated counterexample. Unknowns: (1) L3 says 'commented examples for codex/ollama/together' while parent drop says 'codex-exec + ollama-local + ollama-cloud + together-ai' (4 examples); builder must follow parent enumeration to be exhaustive — minor specificity gap, not a planning bug because the parent acceptance is the authoritative seed contract. (2) Sentinel error name remains Unknown — acceptable because it is genuinely a builder-owned naming choice constrained by collision avoidance.
+
+## Convergence
+Premises: PASS only if planner remains truthful, ordered, and atomic under attack. Evidence: 12 attacks, 12 mitigations grounded in acceptance text or committed analogue. Trace or cases: HC1-HC4 + XDG skip + REPLACE + overwrite-guard + field-scope + dual-error-mode + Resolve-collision all hold. Conclusion: PASS. Unknowns: 2 minor specificity gaps logged but non-blocking — orchestrator should surface the codex-exec/ollama-local/ollama-cloud/together-ai enumeration to builder 2 at dispatch.
+"""]
+objective = "Attack `drop_011.drop.planner_backends_loader_l3` for precedence inversions, missing XDG-unset coverage, or install seeding that is still under-specified or overlapping with another lane."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/backends/resolve.go", "internal/backends/resolve_test.go", "magefile.go", "magefile_install_test.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_011.drop.planner_backends_loader_l3"
+title = "Plan-QA falsification: planner_backends_loader_l3"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read the loader L3 planner, the parent L2 planner, the parent drop, and committed `chains.Resolve` behavior; then attack ordering, non-overwrite, and lane-isolation claims before allowing builder dispatch."
+[qa_proof_backend_interface_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify the planner explicitly resolves the `dispatch.claudeResult` cycle by requiring backend-local request/result types as new, not yet in tree.
+- Verify the planner explicitly owns the dry-run preview/invocation surface instead of leaving `renderDryRunCommand` parity implicit.
+- Verify expected_outputs contains exactly 3 builder droplets and 6 build-QA twins.
+- Verify HC1-HC4 entries exist in the decision_log and support the template/contract/claude three-way split.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending proof review record created for `drop_011.drop.planner_backend_interface_l3`.", "2026-05-23T03:25:00Z: Section 0 cert PRESENT — all five passes (Proposal/Builder/QA Proof/QA Falsification/Convergence) with 5-field substrate (Premises/Evidence/Trace/Conclusion/Unknowns); Unknowns line load-bearing (text/template stdlib API final-shape routed to build-QA).", "2026-05-23T03:25:00Z: Cycle break PROVEN — decision_log[2] mandates backend-local request/result shapes new-not-in-tree; ground truth confirms `dispatch.claudeResult` is unexported in package dispatch (internal/dispatch/claude.go:51) and `internal/dispatch` already imports `internal/backends` per parent L2, so any backend signature returning `dispatch.claudeResult` would cycle.", "2026-05-23T03:25:00Z: Dry-run preview surface OWNED at contract layer — acceptance criterion #4 + decision_log[3] require preview/invocation surface so committed `dispatch.renderDryRunCommand` (internal/dispatch/dispatch.go:112-128) survives the refactor through same template-rendered argv/env/stdin path.", "2026-05-23T03:25:00Z: Template substitution surface SPEC-ALIGNED — covers SAND-V02-SPEC §5.4 inputs (model/cwd/persona_body/persona_tools_csv/mcp_config_path/env helper/prompt) plus `role` (justified by committed `runClaudeNative` anti-recursion suffix usage at internal/dispatch/claude.go:112); fail-fast on missing keys explicit as planner safety inference; stdlib text/template mandated.", "2026-05-23T03:25:00Z: claude_native parity ENUMERATED against ground truth — acceptance criterion #5 covers PATH lookup (claude.go:108), anti-recursion suffix (claude.go:46,112), allowed-tools CSV (claude.go:113,126-128), optional --mcp-config (claude.go:123-125), env filter (claude.go:137 dropping ANTHROPIC_BASE_URL/AUTH_TOKEN), cwd honoring (claude.go:139-145), stdin prompt (claude.go:131), non-zero exit as data not Go error (claude.go:91-95 docstring + exitCodeFromErr), elapsed duration (claude.go:147-149,167), --bare + --output-format json (claude.go:116-119).", "2026-05-23T03:25:00Z: Blocker graph CORRECT — target planner blocks on planner_backends_loader_l3 (shared package serialization); builder #2 blocks on builder #1 + build_backends_resolve (loader's production droplet); builder #3 blocks on prior two. Buildable.", "2026-05-23T03:25:00Z: expected_outputs count MATCHES — 3 builder droplets + 3 qa_proof twins + 3 qa_falsification twins = 9 ids; matches proof record's 'exactly 3 builder droplets and 6 build-QA twins'.", "2026-05-23T03:25:00Z: HC1 PASS — paths confined to internal/backends/{template,backend,claude_native}.go + tests; zero internal/dispatch/** or magefile.go claims. HC2 PASS — every builder blocker references real upstream droplet ids in this drop. HC3 PASS — Hylla snapshot 4 confirms no internal/backends package exists, so all paths are new-not-in-tree. HC4 PASS — three-way split required because template rendering, contract/factory, and claude-native parity are separable concerns that exceed one builder ceiling combined.", "2026-05-23T03:25:00Z: Out-of-scope discipline HELD — drop_011 ships claude-native only; codex/ollama provider implementations explicitly deferred to drops 004/005 per SAND-V02-SPEC §6+§7.", "2026-05-23T03:25:00Z: PROOF VERDICT: PASS. Planner is ready for L3 build dispatch pending qa_falsification_backend_interface_l3_plan twin clearing."]
+objective = "Prove `drop_011.drop.planner_backend_interface_l3` resolves the import-cycle and dry-run-contract gaps honestly while keeping the new backend package split into atomic builder droplets."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/backends/template.go", "internal/backends/backend.go", "internal/backends/claude_native.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_011.drop.planner_backend_interface_l3"
+title = "Plan-QA proof: planner_backend_interface_l3"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read the backend-interface L3 planner, the parent L2 planner, the parent drop, committed `internal/dispatch/claude.go`, and the loader L3 blocker it depends on; then verify the cycle-break and dry-run decisions before proof PASS."
+[qa_falsification_backend_interface_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where the contract still depends on committed `dispatch.claudeResult` or another dispatch-owned symbol.
+- Try counterexamples where missing template values would silently render empty CLI args/env.
+- Try counterexamples where no builder droplet truthfully owns dry-run preview parity.
+- Try counterexamples where the claude-native droplet starts owning other providers or dispatch files.
+- PASS only if the planner remains truthful, ordered, and atomic under attack.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending falsification review record created for `drop_011.drop.planner_backend_interface_l3`.", "2026-05-23T03:25:00Z: Falsification PASS. Attack surface inventoried: HC1-HC4, import cycle, template substitution security, claude_native parity, persona_tools_csv encoding, ModelOverride flow, blocker correctness. No confirmed counterexample. Evidence: read committed `internal/dispatch/claude.go` (claudeResult on line 51, runClaudeNative on lines 96-179, filterEnv drops ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN), `internal/dispatch/dispatch.go` (renderDryRunCommand on lines 112-128, ModelOverride application on lines 255-258 + 305-306), `internal/dispatch/backend.go` (runTier guard on lines 47-64), `internal/persona/persona.go` (Tools []string parsed via parseTools on line 132, comma-split), SAND-V02-SPEC.md §5.1-§5.4 (template inputs + envelope_format + McpInjection field), and the L3 record itself. HC1 PASS: paths confined to internal/backends/{template,backend,claude_native}.{go,_test.go} + testdata/; explicit `does NOT edit internal/dispatch/dispatch.go` clause. HC2 PASS: record-level blocker drop_011.drop.planner_backends_loader_l3 exists; builder-level blockers reference real upstream droplet ids (build_backend_template_engine, build_backends_resolve). HC3 PASS: exactly three production+test pairs. HC4 PASS: template / contract+factory / claude-native parity each fit one production+test pair but not one shared droplet. Import cycle attack mitigated: acceptance criterion explicitly requires backend-local request/result shapes because committed dispatch.claudeResult would cycle. Template silent-substitution attack mitigated: acceptance requires fail-fast on missing keys. Claude-native parity attack mitigated: acceptance enumerates PATH lookup + --append-system-prompt + anti-recursion suffix + allowed-tools CSV + optional --mcp-config + env filtering + cwd honoring + stdin prompt + non-zero exit as data + elapsed duration, which matches committed runClaudeNative bit-for-bit. ModelOverride attack mitigated: sibling planner_dispatch_template_refactor_l3 flattens ModelOverride into the backend request before preview/spawn, preserving the committed dispatch.go tier-1-model-only application. Persona_tools_csv embedded-comma attack: pre-existing persona.parseTools limitation, not a drop_011 regression. Dry-run preview surface explicitly required. Soft concern routed to build-QA: BackendConfig should be inflated enough for drop_005's mcp_injection=\"codex_inline_toml\" field to require zero refactor (parent drop_011 acceptance demands this). No falsification blocks builder dispatch."]
+objective = "Attack `drop_011.drop.planner_backend_interface_l3` for hidden import cycles, silent template-substitution failure, missing dry-run ownership, or a claude-native lane that accidentally widens to codex/ollama."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/backends/template.go", "internal/backends/backend.go", "internal/backends/claude_native.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_011.drop.planner_backend_interface_l3"
+title = "Plan-QA falsification: planner_backend_interface_l3"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read the backend-interface L3 planner, the parent L2 planner, committed `claude.go`, and the parent drop; then attack cycle ownership, template safety, dry-run coverage, and scope isolation before allowing builder dispatch."
+[qa_proof_dispatch_template_refactor_l3_plan]
+acceptance_criteria = """
+- Verify the L3 Section 0 certificate is present and complete.
+- Verify the planner preserves slot-timeout advancement, ErrClass-based fallback, and dry-run parity from committed `dispatch.go`.
+- Verify the planner explicitly routes `claude_json` to committed `ParseEnvelope` and treats `codex_stream` as a stub/new, not yet in tree hook only.
+- Verify expected_outputs contains exactly 2 builder droplets and 4 build-QA twins.
+- Verify HC1-HC4 entries exist in the decision_log and support the integration/cleanup split.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending proof review record created for `drop_011.drop.planner_dispatch_template_refactor_l3`.", "2026-05-23T03:25:00Z: PROOF PASS. Section 0 certificate complete with 4 named passes (Proposal/Builder/QA Proof/QA Falsification) plus Convergence pass, each carrying Premises/Evidence/Trace/Conclusion/Unknowns fields. Evidence verified by reading committed internal/dispatch/dispatch.go (Dispatch loop at L206-370; selectClaudeNativeTier at L91-98; renderDryRunCommand at L112-128; dry-run pre-loop branch at L250-264; Attempt accumulator and FallbackChain at L267-369; ParseEnvelope invocation inside buildSuccessResponse at L378; ErrClass switch at L347-365 covering ErrClassSuccess/ErrClassRateLimit/ErrClassAuthFailure/ErrClassNetwork/ErrClassTimeout/ErrClassCrash/ErrClassUnknown; ErrUnsupportedBackend advancing branch at L320-325; ErrChainExhausted return at L369), internal/dispatch/backend.go (runTier + claudeNativeBackend guard + spawnFunc seam), internal/dispatch/claude.go (runClaudeNative + claudeResult + filterEnv + antiRecursionSuffix), and SAND-V02-SPEC.md §5.1-§5.4 (backends.toml shape with envelope_format hint, claude_json vs codex_stream parser routing, text/template substitution with model/cwd/persona_body/persona_tools_csv/mcp_config_path/env/prompt). Existing test contract preserved per planner acceptance — TestDispatchHappyPath, TestDispatchFailoverChain, TestDispatchDryRun, TestDispatchSelectionErrors all named at internal/dispatch/dispatch_test.go (L640, L887, L334, L478 respectively); TestDispatchSentinelErrChainExhausted (L1082) and TestResponseV02Fields (L1113) also remain in tree. Backward compat covered by acceptance: 'Existing committed tests named by gopls/Hylla for dispatch behavior remain GREEN, including dry-run, happy path, selection errors, backend guard semantics, and claude-native exit semantics, whether by direct preservation or by updated shim tests.' Envelope_format routing pinned in acceptance: claude_json -> committed ParseEnvelope reuse; codex_stream -> new, not yet in tree stub returning deliberate not-implemented error until drop_005. Dry-run parity pinned: 'committed renderDryRunCommand behavior must be replaced by the backend preview/invocation surface from the sibling lane so the smoke-test TOON shape stays stable (Result, ServedBy, Tier, and FallbackChain semantics unchanged for dry-run)' — preserves drop_003 TestDispatchDryRun Tier=0 contract through sibling backend Preview surface (sibling planner_backend_interface_l3 acceptance explicitly owns 'dry-run preview/invocation surface in addition to raw spawn'). Legacy file disposition pinned: backend.go + claude.go retained as thin compatibility shims / deprecation wrappers, NOT deleted in drop_011; active dispatch path must no longer depend on them; existing focused tests may be preserved through delegation. Planner-decision documented explicitly in decision_log entry 3. Blocker chain verified: blockers=[planner_backends_loader_l3, planner_backend_interface_l3] — both resolved via mcp__ta__get with found=true and matching titles. ModelOverride flatten-into-backend-request preserved (planner: 'flatten ModelOverride into the backend request before preview/spawn'). Slot-timeout + ErrClass-based fallback explicit in acceptance ('preserve slot-timeout and ErrClass-based fallback behavior from drop_008'). Unsupported-backend policy clarified: advance attempt rather than hard crash ('treat unknown backend names as an advancing attempt outcome rather than a hard crash'). Atomicity: 2 ordered builder droplets — build_dispatch_backend_integration first (active dispatch path refactor), build_dispatch_backend_cleanup second with explicit blocker on integration (legacy shim cleanup + targeted compat tests). expected_outputs = exactly 6 ids = 2 builder + 2 qa_proof + 2 qa_falsification = 4 build-QA twins per planner-rule. HC1 PASS — paths scoped to internal/dispatch/{dispatch.go,dispatch_test.go,backend.go,claude.go} plus authorized testdata; no claim on internal/backends/** implementation files (sibling lane owns) or magefile.go (loader lane owns). HC2 PASS — both blockers are real ids created in this drop. HC3 PASS — path scope confined to four committed dispatch files plus testdata fixtures. HC4 PASS — dispatch-loop integration and legacy file cleanup are split because each is a separate atomic edit with separate test surfaces, neither would fit comfortably into one droplet given dispatch.go's current density (160+ line Dispatch function). HC1-HC4 PASS entries all present in decision_log. PROOF VERDICT: PASS — planner is evidence-backed, blocker-correct, preserves drop_003 + drop_008 contracts, atomically decomposed, ready for L3 falsification and builder dispatch."]
+objective = "Prove `drop_011.drop.planner_dispatch_template_refactor_l3` preserves the committed drop_008 dispatch contract while cleanly consuming the new backend abstraction and parser-hint surface."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/backend.go", "internal/dispatch/claude.go"]
+role = "qa-proof"
+state = "complete"
+target_id = "drop_011.drop.planner_dispatch_template_refactor_l3"
+title = "Plan-QA proof: planner_dispatch_template_refactor_l3"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read the dispatch-refactor L3 planner, the parent L2 planner, committed `dispatch.go` / `backend.go` / `claude.go`, and the sibling backend-interface planner; then verify fallback semantics, dry-run parity, and cleanup sequencing before proof PASS."
+[qa_falsification_dispatch_template_refactor_l3_plan]
+acceptance_criteria = """
+- Try counterexamples where dry-run no longer reuses the backend template path and therefore cannot preserve committed TOON shape.
+- Try counterexamples where slot-timeout, unknown-backend, or ErrClass fallback outcomes are no longer clearly owned in the integration droplet.
+- Try counterexamples where `codex_stream` parsing is implied but unowned.
+- Try counterexamples where the cleanup droplet is too small/too large or where the active path still depends on committed `runTier` / `runClaudeNative`.
+- PASS only if the planner remains truthful, ordered, and atomic under attack.
+"""
+created_at = "2026-05-23T03:16:53Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+decision_log = ["2026-05-23T03:16:53Z: Pending falsification review record created for `drop_011.drop.planner_dispatch_template_refactor_l3`.", "2026-05-23T03:25:00Z: Falsification review complete. Reviewed planner record, parent L2, sibling L3 planners (loader/interface), committed `internal/dispatch/{dispatch.go,backend.go,claude.go,dispatch_test.go,backend_test.go,claude_test.go}`, and testdata/fake-claude-sequence/claude.sh. Verdict: PASS WITH MITIGATIONS — planner is structurally sound (HC1-HC4 hold, 2 atomic droplets, blocker graph real) but carries seven unmitigated drift risks that the builder MUST treat as acceptance constraints. Attacks A1-A7 below should be appended to the planner's acceptance_criteria before builder dispatch.", "2026-05-23T03:25:00Z: HC1 PASS — planner scopes to four committed dispatch files plus testdata; no internal/backends or magefile claims.", "2026-05-23T03:25:00Z: HC2 PASS — both builder droplets carry real blocker ids (build_dispatch_backend_integration depends on the two sibling L3 plans through the build droplets they will emit; cleanup blocks on integration).", "2026-05-23T03:25:00Z: HC3 PASS — paths confined to internal/dispatch/{dispatch.go,dispatch_test.go,backend.go,claude.go} plus authorized new dispatch fixtures.", "2026-05-23T03:25:00Z: HC4 RISK ACCEPTED — two-droplet split is the minimum truthful decomposition, but the integration droplet itself approaches the 1-2-small-block ceiling because Dispatch's tier loop is a single large block. Builder must keep its production-code edit narrowly scoped to the loop body + new helpers; if the rewrite exceeds 2 blocks the builder must self-decompose or escalate. (Attack A7.)", "2026-05-23T03:25:00Z: A1 (backward-compat test enumeration gap): Planner names categories (\"dry-run, happy path, selection errors, backend guard semantics, claude-native exit semantics\") instead of named tests. Concrete tests that MUST stay green and are not enumerated: TestCoreContract, TestDispatchSentinels, TestDispatchDryRun (4 sub-cases), TestDispatchSelectionErrors (4 sub-cases), TestDispatchHappyPath (5 sub-cases incl. malformed/empty/denials/override), TestDispatchFailoverChain (5 sub-cases incl. rate_limit/auth_failure/all_tiers_fail/crash/unsupported_backend), TestDispatchSentinelErrChainExhausted, TestResponseV02Fields, TestUnsupportedBackendFailFast (5 sub-cases), TestUnsupportedBackendErrorMessage, TestRunClaudeNative_HappyPath, TestRunClaudeNative_ModelOverrideWins, TestRunClaudeNative_OmitsMCPConfigWhenEmpty, TestRunClaudeNative_MissingBinaryReturnsError, TestRunClaudeNative_ContextCancellation, TestRunClaudeNative_NonZeroExitNotAnError. Builder MUST verify all green pre-commit.", "2026-05-23T03:25:00Z: A2 (Attempt.Outcome string drift on unsupported backend): TestDispatchFailoverChain/unsupported_backend_tier_records_attempt_and_advances pins FallbackChain[0].Outcome == \"unsupported_backend\" literal string. Planner uses the phrase \"unknown backend names\" for the new advancement outcome (acceptance criterion 4) but does NOT pin the Attempt.Outcome string. Builder MUST emit literal string \"unsupported_backend\" for any non-claude-native chain entry under drop_011 (whether the cause is ErrUnknownBackend from the loader or ErrUnsupportedBackend from the legacy shim) OR explicitly migrate the test alongside.", "2026-05-23T03:25:00Z: A3 (ErrUnsupportedBackend vs ErrUnknownBackend trichotomy): Three distinct error classes must be distinguished by the dispatch loop in drop_011: (a) backend name in chain but not in backends.toml -> ErrUnknownBackend (sibling lane); (b) backend name in backends.toml whose envelope_format is codex_stream -> parser-hook not-implemented error (planner acceptance criterion); (c) legacy ErrUnsupportedBackend from preserved backend.go shim. Planner conflates (a) and (c) under \"advancing attempt outcome\" but does not specify how (b) classifies. Builder MUST treat (b) as ErrClassUnknown OR advance-on-not-implemented (planner choice) and pin the Outcome string explicitly; otherwise TestDispatchFailoverChain semantics regress.", "2026-05-23T03:25:00Z: A4 (env passthrough not pinned): TestDispatchFailoverChain depends on FAKE_CLAUDE_FIXTURE_SEQUENCE + FAKE_CLAUDE_INVOCATION_FILE being inherited by the child process. TestDispatchHappyPath depends on FAKE_CLAUDE_ENVELOPE_FILE. TestRunClaudeNative_* depend on FAKE_CLAUDE_ARGV_OUT + FAKE_CLAUDE_STDIN_OUT. Current claude.go filters ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN and inherits everything else via os.Environ(). Sibling interface_l3 plan mentions \"env filtering\" but does NOT pin env passthrough as a behavioral requirement. Builder MUST inherit os.Environ() minus the two ANTHROPIC_ keys in the new claude_native.go OR all fake-CLI-based tests break.", "2026-05-23T03:25:00Z: A5 (dry-run Result string byte-shape not pinned): Acceptance criterion enumerates structural fields (Result, ServedBy, Tier, FallbackChain) but TestDispatchDryRun asserts on substrings: \"claude -p\", \"--bare\", \"--model haiku\", \"--output-format json\", \"--no-session-persistence\", \"--append-system-prompt\", \"PERSONA BODY LINE 1\", \"--allowedTools Read,Edit,Bash(mage testFunc *)\", \"build droplet X\", \"--mcp-config <abs path>\". A refactor that produces a structurally valid Response with a different Result-string format (JSON, different whitespace, different flag ordering) passes the planner's literal acceptance but fails TestDispatchDryRun. Builder MUST preserve the renderDryRunCommand byte shape OR migrate the test alongside the refactor in the same droplet.", "2026-05-23T03:25:00Z: A6 (ModelOverride vs Attempt.Model semantics): Current dispatch.go records Attempt.Model = tier.Model (configured, NOT override) so the FallbackChain audit reflects chain layout; ServedBy reflects the actual served model including override. Planner says \"flatten ModelOverride into the backend request before preview/spawn\" but does NOT preserve the audit-vs-served split. Builder MUST keep Attempt.Model = configured tier model regardless of override; only ServedBy reflects override. Comment at dispatch.go:300-303 is the canonical contract.", "2026-05-23T03:25:00Z: A7 (integration-droplet block-count risk): The integration droplet must (1) replace the Dispatch loop body's runTier call with a backend-instance call, (2) thread the backend factory through the loop, (3) replace claudeResult consumption in buildSuccessResponse with the backend-local result type, (4) wire envelope_format routing through claude_json -> ParseEnvelope and codex_stream -> not-implemented stub, (5) classify ErrUnknownBackend as advancing outcome, (6) replace renderDryRunCommand with the backend preview surface, (7) preserve existing test green status. That is structurally >2 small blocks. Builder SHOULD self-decompose by splitting (1)+(3) (active-path swap) from (4)+(5) (new error class wiring) OR escalate the count to plan-QA for re-decomposition. Planner does not enforce this self-check.", "2026-05-23T03:25:00Z: Verdict PASS WITH MITIGATIONS — the L3 planner is sound for record creation and may proceed to builder dispatch ONLY after A1-A7 are folded into acceptance_criteria as explicit constraints OR each is acknowledged as an accepted risk in the planner's decision_log. Orchestrator override is appropriate if the builder pre-commits to A1-A7 in its own implementation_notes_agent."]
+objective = "Attack `drop_011.drop.planner_dispatch_template_refactor_l3` for hidden dry-run regressions, fallback-loop drift, missing parser-hook ownership, or a cleanup plan that still leaves the active path in committed `backend.go` / `claude.go`."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.planner_backend_templates_l2"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/backend.go", "internal/dispatch/claude.go"]
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_011.drop.planner_dispatch_template_refactor_l3"
+title = "Plan-QA falsification: planner_dispatch_template_refactor_l3"
+updated_at = "2026-05-23T03:25:00Z"
+validation_plan = "Read planner record + parent L2 + sibling L3 planners + committed dispatch source + dispatch tests + fake-claude testdata; attack on (a) backward-compat test enumeration completeness, (b) Attempt.Outcome string drift, (c) ErrUnsupportedBackend/ErrUnknownBackend trichotomy, (d) env passthrough preservation, (e) dry-run Result byte shape, (f) ModelOverride/Attempt.Model audit semantics, (g) integration droplet block-count. Verdict PASS WITH MITIGATIONS — record A1-A7 as explicit constraints."
+
+[build_backends_resolve]
+acceptance_criteria = """
+- Public API: `ResolveBackendsConfig(projectDir string) (path string, source string, err error)` (or similar name — builder's call; MUST NOT collide with sibling factory's `Resolve` symbol).
+- 4-rung order: <projectDir>/.claude/sand-backends.toml > $XDG_CONFIG_HOME/sand/backends.toml (when XDG set + non-empty) > $HOME/.config/sand/backends.toml > $HOME/.sand/backends.toml > ErrBackendsConfigNotFound (or similar new sentinel — builder's call but MUST be distinct from sibling factory's ErrUnknownBackend which is for missing config ENTRY).
+- XDG_CONFIG_HOME-unset case MUST skip rung 1 entirely (no filepath.Join with empty string). Pinned test case.
+- source enum: "project" | "xdg" | "home-config" | "home-dotfile".
+- Not-found error wraps candidate paths list (mirror chains.Resolve pattern: `fmt.Errorf("%w; checked: %v", ErrBackendsConfigNotFound, paths)`).
+- Tests cover all 4 rungs + XDG-unset skip + not-found.
+- Tests use t.TempDir + t.Setenv (sequential, no t.Parallel on parent due to env isolation).
+- mage check GREEN.
+"""
+blockers = []
+completed_at = "2026-05-23T03:55:00Z"
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T03:55:00Z: Built via Agent acc8e591e4c89ea83. internal/backends/resolve.go (ResolveBackendsConfig + ErrBackendsConfigNotFound sentinel) + resolve_test.go (6 subtests covering all 4 rungs + XDG-unset structural skip + not-found with candidate paths). Mirrors chains.Resolve pattern. mage testPkg internal/backends GREEN."]
+irreducible = true
+objective = "Implement internal/backends/resolve.go: 4-rung hierarchical resolver mirroring internal/chains.Resolve (drop_008 pattern). Returns the WINNING file path + source enum + error. NOT a parser — loader-only. Sibling planner_backend_interface_l3 parses the file content. Per SAND-V02-SPEC §5.2 + parent planner_backends_loader_l3 acceptance + orchestrator amendment 2026-05-23T03:40:00Z."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backends_loader_l3"
+paths = ["internal/backends/resolve.go", "internal/backends/resolve_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/backends/resolve.go hierarchical backends.toml loader"
+updated_at = "2026-05-23T03:55:00Z"
+[qa_proof_build_backends_resolve]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. 4-rung resolver + XDG-unset skip + not-found candidate paths."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backends_resolve"
+title = "QA proof: build_backends_resolve"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_falsification_build_backends_resolve]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. ErrBackendsConfigNotFound distinct from sibling ErrUnknownBackend."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backends_resolve"
+title = "QA falsification: build_backends_resolve"
+updated_at = "2026-05-23T04:55:00Z"
+[build_backends_install_seed]
+acceptance_criteria = """
+- mage install creates ~/.config/sand/backends.toml if absent; NEVER overwrites existing.
+- Seed contains [backends.claude-native] uncommented (active baseline matching current claude -p invocation behavior).
+- Seed contains 4 COMMENTED-OUT example blocks: codex-exec + ollama-local + ollama-cloud + together-ai per parent L1 acceptance enumeration. Each block fully filled per SAND-V02-SPEC §5.1 example so user can uncomment-and-go.
+- Test pins non-overwrite: pre-seed a file with sentinel content; run Install; assert byte-for-byte preservation.
+- Test pins first-install creation: clear ~/.config/sand/backends.toml; run Install; assert file exists with claude-native block.
+- Reuses ResolveBackendsConfig candidate-paths contract from build_backends_resolve (blocks on that droplet).
+- mage check GREEN.
+"""
+blockers = ["drop_011.drop.build_backends_resolve"]
+completed_at = "2026-05-23T04:15:00Z"
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:15:00Z: Built via Agent a8436e97016cf4ea7. NEW internal/installseed/installseed.go (Seed(home) + DefaultBackendsTOML constant with active [backends.claude-native] + 4 commented examples codex-exec/ollama-local/ollama-cloud/together-ai per SAND-V02-SPEC §5.1 + ErrHomeRequired sentinel) + installseed_test.go (4 tests: first-install creation + non-overwrite preservation + empty-home rejection + nested-dir creation). MODIFIED magefile.go Install() to call installseed.Seed(home) after binary build. JUSTIFIED DEVIATION from planner's paths field (root magefile_install_test.go): build-tag constraints make root test non-functional; subpackage internal/installseed/ is the clean fix. mage check GREEN across all 10 packages."]
+irreducible = true
+objective = "Extend magefile.go Install() to seed ~/.config/sand/backends.toml on first install (mirror ta's ~/.ta/schema.toml seed pattern). Seed contents: [backends.claude-native] active block + 4 COMMENTED example blocks (codex-exec + ollama-local + ollama-cloud + together-ai) per SAND-V02-SPEC §5.1 + orchestrator amendment."
+outcome = "success"
+packages = ["main"]
+parent_id = "drop_011.drop.planner_backends_loader_l3"
+paths = ["magefile.go", "magefile_install_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: mage install seeds ~/.config/sand/backends.toml with baseline + 4 commented examples"
+updated_at = "2026-05-23T04:15:00Z"
+[qa_proof_build_backends_install_seed]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Install() seeds ~/.config/sand/backends.toml with 4 commented examples; non-overwrite invariant tested."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backends_install_seed"
+title = "QA proof: build_backends_install_seed"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_falsification_build_backends_install_seed]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. internal/installseed subpackage deviation justified (build-tag constraint); behavior identical."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backends_install_seed"
+title = "QA falsification: build_backends_install_seed"
+updated_at = "2026-05-23T04:55:00Z"
+[build_backend_template_engine]
+acceptance_criteria = """
+- Package-level Substitute(tmplStr string, data TemplateData, env func(string) string) (string, error) function (signature builder's call).
+- TemplateData struct fields: Model, CWD, PersonaBody, PersonaToolsCSV, McpConfigPath, Role (all strings).
+- text/template MUST use `tmpl.Option("missingkey=error")` EXPLICITLY. Missing-key tests verify template.ExecError raised.
+- Custom funcs: {{env "VAR"}} expands from env arg (NOT direct os.Getenv — dependency-injected for testability).
+- Slice templating: when applied to a []string arg slice (each arg passes through template independently), Substitute returns the slice with each element resolved.
+- Tests cover: happy path with all substitutions + missing-key fail-fast + env func injection + slice substitution.
+- mage check GREEN.
+"""
+blockers = []
+completed_at = "2026-05-23T04:00:00Z"
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:00:00Z: Built via Agent ab94a7f97ced4d5e8. internal/backends/template.go (TemplateData struct with 6 fields + Substitute single + SubstituteSlice + compile helper with tmpl.Option(missingkey=error) explicit per orchestrator amendment L2 T3) + template_test.go (7 tests including missing-key ExecError + env DI verified by setting OS env to different value than injected fake). mage testPkg internal/backends GREEN."]
+irreducible = true
+objective = "Implement template engine using stdlib text/template with `Option(\"missingkey=error\")` per SAND-V02-SPEC §5.4 + orchestrator amendment (L2 T3). Substitutes {{.Model}} / {{.CWD}} / {{.PersonaBody}} / {{.PersonaToolsCSV}} / {{.McpConfigPath}} / {{.Role}} + custom {{env \"VAR\"}} func for env-var expansion. Fail-fast on missing keys with template.ExecError."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_interface_l3"
+paths = ["internal/backends/template.go", "internal/backends/template_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/backends/template.go text/template substitution with missingkey=error"
+updated_at = "2026-05-23T04:00:00Z"
+[qa_proof_build_backend_template_engine]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. text/template Option(missingkey=error) explicit + env DI verified."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backend_template_engine"
+title = "QA proof: build_backend_template_engine"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_falsification_build_backend_template_engine]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Missing-key triggers template.ExecError verified; env func dependency injection pinned via OS-vs-injected fake assertion."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backend_template_engine"
+title = "QA falsification: build_backend_template_engine"
+updated_at = "2026-05-23T04:55:00Z"
+[build_backend_contract_factory]
+acceptance_criteria = """
+- Backend interface: `type Backend interface { Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error); Preview(req SpawnRequest) (string, error) }` (exact field/method names builder's call, but Spawn + Preview are MANDATORY surface).
+- SpawnRequest backend-local type (NOT dispatch.claudeResult — prevents import cycle): fields for persona body, prompt, mcp config path, allowed-tools-csv, model (after override applied), env passthrough.
+- SpawnResult backend-local type: stdout bytes + stderr bytes + exit code + duration. Dispatch lane bridges to its claudeResult / Response.
+- BackendConfig struct fields per SAND-V02-SPEC §5.1 ALL 10 VERBATIM: `Command string`, `Args []string`, `Env []string`, `McpConfigArg string`, `AllowedToolsArg string`, `AllowedToolsCSVTemplate string`, `SlotsDefault int`, `EnvelopeFormat string`, `StdinPrompt bool`, `McpInjection string` (special-case 'codex_inline_toml' supported as string value but unused by drop_011).
+- Resolve(name string) (Backend, error) factory: loads BackendConfig via ResolveBackendsConfig + parses via BurntSushi/toml + returns Backend instance (concrete impl in build_claude_native_backend droplet). ErrUnknownBackend when name absent from config.
+- Tests cover: known backend returns Backend; unknown returns ErrUnknownBackend; config-not-found wraps to ErrUnknownBackend with cause; BackendConfig fields all decode from TOML.
+- mage check GREEN.
+- Blocks on build_backends_resolve (uses ResolveBackendsConfig) + build_backend_template_engine (Backend.Spawn uses template substitution).
+"""
+blockers = ["drop_011.drop.build_backends_resolve", "drop_011.drop.build_backend_template_engine"]
+completed_at = "2026-05-23T04:10:00Z"
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:10:00Z: Built via Agent a6d8cb4c6cece19d0. internal/backends/backend.go (Backend interface with Spawn + Preview + SpawnRequest + SpawnResult backend-local types preventing dispatch import cycle + BackendConfig 10 fields per SAND-V02-SPEC §5.1 verbatim with TOML tags + backendsFile wrapper + Resolve factory using ResolveBackendsConfig + stub claudeNativeBackend returning ErrBackendNotImplemented + ErrUnknownBackend + ErrBackendNotImplemented sentinels) + backend_test.go (6 tests including compile-check + full-field round-trip + happy/unknown/missing/malformed). mage testPkg internal/backends GREEN."]
+irreducible = true
+objective = "Implement Backend interface + BackendConfig struct + Resolve(name string) (Backend, error) factory + ErrUnknownBackend sentinel per SAND-V02-SPEC §5.1 + orchestrator amendment. Builder MUST enumerate ALL 10 BackendConfig fields verbatim so drop_005 codex_inline_toml requires ZERO refactor."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_interface_l3"
+paths = ["internal/backends/backend.go", "internal/backends/backend_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/backends/backend.go Backend interface + BackendConfig + Resolve factory + 10 fields per spec"
+updated_at = "2026-05-23T04:10:00Z"
+[qa_proof_build_backend_contract_factory]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Backend interface + 10-field BackendConfig (per SAND-V02-SPEC §5.1 verbatim) + Resolve factory + ErrUnknownBackend."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backend_contract_factory"
+title = "QA proof: build_backend_contract_factory"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_falsification_build_backend_contract_factory]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. SpawnRequest/SpawnResult backend-local types prevent dispatch import cycle; all 10 BackendConfig fields TOML-round-trip verified."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_backend_contract_factory"
+title = "QA falsification: build_backend_contract_factory"
+updated_at = "2026-05-23T04:55:00Z"
+[build_claude_native_backend]
+acceptance_criteria = """
+- claudeNativeBackend implements Backend (Spawn + Preview).
+- Spawn behavior MUST match runClaudeNative line-by-line: builds exec.CommandContext('claude'), applies --bare + --model + --output-format json + --no-session-persistence + --append-system-prompt + --allowedTools + --mcp-config; pipes prompt via stdin; filters ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN from env; appends anti-recursion suffix to persona body; captures stdout/stderr/exit code/duration into SpawnResult.
+- Preview() renders the would-be argv preserving committed renderDryRunCommand byte shape (per amendment A5). Tests substring-match `"--model haiku"` (space-separated NOT `--model=haiku`), persona body inclusion, --allowedTools CSV, etc.
+- Backend uses BackendConfig.AllowedToolsCSVTemplate via template engine.
+- Tests use existing testdata/fake-claude-* fixtures pattern (PATH-shim approach from drop_003 build_claude_spawn_l4). May reuse internal/dispatch/testdata fixtures by reference OR copy a fresh set under internal/backends/testdata/.
+- Tests cover happy path + model override + missing mcp.json + missing binary + ctx cancellation + non-zero exit (mirror committed TestRunClaudeNative_* coverage).
+- mage check GREEN.
+- Blocks on build_backend_contract_factory (uses Backend interface + BackendConfig).
+"""
+blockers = ["drop_011.drop.build_backend_contract_factory"]
+completed_at = "2026-05-23T04:30:00Z"
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:30:00Z: Built via Agent a8a5e0b11e8bf3166. internal/backends/claude_native.go (real claudeNativeBackend.Spawn + Preview preserving runClaudeNative parity bit-for-bit: anti-recursion suffix, env filter ANTHROPIC_BASE_URL/AUTH_TOKEN, --mcp-config + --allowedTools conditional appends, ctx cancellation, non-zero-exit-is-data semantics, BackendConfig.Env templated append) + claude_native_test.go (11 tests including PreviewShape pinning byte shape per A5 + env-passthrough). 3 new testdata fake-claude fixtures (happy/sleep/fail). Stub claudeNativeBackend + ErrBackendNotImplemented removed from backend.go; backend_test.go known-name subtest updated to type-binding assertion. mage testPkg internal/backends GREEN with 1.2s."]
+irreducible = true
+objective = "Implement claudeNativeBackend type as Backend interface impl. Uses BackendConfig + template engine to build claude -p invocation. MUST preserve EVERY behavior of committed runClaudeNative bit-for-bit (anti-recursion suffix, --bare, --output-format json, --no-session-persistence, --append-system-prompt, --mcp-config conditional, --allowedTools CSV, env filterEnv stripping ANTHROPIC_BASE_URL+ANTHROPIC_AUTH_TOKEN, stdin piping). Preview() returns the would-be argv as TOON-rendered string preserving committed renderDryRunCommand byte shape."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_011.drop.planner_backend_interface_l3"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go", "internal/backends/testdata/"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: internal/backends/claude_native.go claude-native Backend impl preserving runClaudeNative parity"
+updated_at = "2026-05-23T04:30:00Z"
+[qa_proof_build_claude_native_backend]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. 11 TestClaudeNativeBackend_* tests including PreviewShape byte-shape pinning per A5 + env-passthrough."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_claude_native_backend"
+title = "QA proof: build_claude_native_backend"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_falsification_build_claude_native_backend]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. runClaudeNative parity bit-for-bit (anti-recursion suffix, --bare, --output-format json, env filter, conditional flags)."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_claude_native_backend"
+title = "QA falsification: build_claude_native_backend"
+updated_at = "2026-05-23T04:55:00Z"
+[build_dispatch_backend_integration]
+acceptance_criteria = """
+**MANDATORY (from orchestrator amendment 2026-05-23T03:40:00Z A1-A7 + L2 T1/T3/T5)**:
+- Keep ALL 17 dispatch-package test functions GREEN (enumerated in parent L3 decision_log).
+- Attempt.Outcome for any non-claude-native tier MUST be literal `"unsupported_backend"` (A2).
+- ErrNoClaudeNativeTier pre-loop guard PRESERVED (A2b).
+- All 3 error classes (ErrUnsupportedBackend / ErrUnknownBackend / codex_stream parser not-implemented) ADVANCE the chain (A3) — do NOT halt mid-chain.
+- env passthrough MUST inherit os.Environ() via filterEnv (A4).
+- Backend.Preview output preserves dry-run Result byte shape (A5).
+- Attempt.Model records tier.Model (configured), NOT post-override (A6).
+- SELF-DECOMPOSE if scope exceeds 1-2 small blocks (A7).
+
+**Implementation**: Dispatch loop body calls backends.Resolve(tier.Backend) once per tier; on ErrUnknownBackend OR non-claude-native tier OR codex_stream parser stub error → record Attempt{Outcome:"unsupported_backend"} + advance. On claude-native + claude_json envelope: call backend.Spawn(ctx, req) → ParseEnvelope(stdout) → buildSuccessResponse. For dry-run: call backend.Preview(req).
+
+- mage check GREEN.
+- Blocks on build_claude_native_backend (consumes claudeNativeBackend impl).
+"""
+blockers = ["drop_011.drop.build_claude_native_backend"]
+completed_at = "2026-05-23T04:45:00Z"
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:45:00Z: Built via Agent a2120648591ab6785. internal/dispatch/dispatch.go REFACTORED: Dispatch loop + dry-run branch route through backends.Resolve(cwd, tier.Backend).Spawn / .Preview. Added buildSpawnRequest helper. Migrated buildSuccessResponse signature to consume backends.SpawnResult + explicit servedModel param (A6 split: configured Attempt.Model vs override-resolved ServedBy). dispatch_test.go: added defaultClaudeNativeBackendsTOML fixture + writeBackendsConfig helper; inserted into 12 call sites across TestDispatchDryRun/TestDispatchHappyPath/TestDispatchFailoverChain. All 17 enumerated dispatch tests GREEN including TestRunClaudeNative_* + TestParseEnvelope*. A1-A7 constraints all verified: unsupported_backend literal (A2/A3), ErrNoClaudeNativeTier guard preserved (A2b), env passthrough via backends.filterEnv (A4), Preview byte shape matches renderDryRunCommand (A5), Attempt.Model records configured tier model (A6). No self-decomposition (A7) — scope stayed atomic because codex_stream parser deferred to drop_005. Dead-but-compiled code left in dispatch.go (renderDryRunCommand, strconvQuote) + backend.go (runTier, spawnFunc) + claude.go (runClaudeNative, claudeResult, filterEnv) for next droplet to retire."]
+irreducible = true
+objective = "Refactor Dispatch loop to use backends.Resolve(tier.Backend).Spawn(req) + backends.Resolve(tier.Backend).Preview(req) instead of hardcoded runClaudeNative + renderDryRunCommand. Wire envelope_format routing (claude_json → ParseEnvelope; codex_stream → ErrNotImplemented stub treated as advance via Attempt{Outcome:\"unsupported_backend\"} per A3). All 17 existing dispatch tests + cross-package tests MUST stay GREEN per A1."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.planner_dispatch_template_refactor_l3"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/testdata/"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: refactor internal/dispatch/dispatch.go Dispatch loop to call backends.Resolve(tier.Backend).Spawn/Preview"
+updated_at = "2026-05-23T04:45:00Z"
+[qa_proof_build_dispatch_backend_integration]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. A1-A7 constraints all verified by explicit agent self-check + all 17 enumerated dispatch tests GREEN."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_dispatch_backend_integration"
+title = "QA proof: build_dispatch_backend_integration"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_falsification_build_dispatch_backend_integration]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. unsupported_backend literal Outcome; Attempt.Model=tier.Model (configured); ServedBy=override-resolved; ErrNoClaudeNativeTier guard preserved."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_dispatch_backend_integration"
+title = "QA falsification: build_dispatch_backend_integration"
+updated_at = "2026-05-23T04:55:00Z"
+[build_dispatch_backend_cleanup]
+acceptance_criteria = """
+- Builder's choice: (a) DELETE internal/dispatch/backend.go + claude.go + their _test.go files entirely (move tests to internal/backends/) OR (b) RETAIN as thin shims that delegate to internal/backends.
+- Either way: TestUnsupportedBackendFailFast + TestRunClaudeNative_* tests stay GREEN (relocated or aliased).
+- claudeResult type (declared in claude.go:51) either deleted, exposed as backends.SpawnResult alias, or kept as type alias — builder's call. dispatch.go must compile cleanly.
+- mage check GREEN.
+- Blocks on build_dispatch_backend_integration (must land first since integration uses the new Backend interface).
+"""
+blockers = ["drop_011.drop.build_dispatch_backend_integration"]
+completed_at = "2026-05-23T04:55:00Z"
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: Built via Agent a1516eca2c2c49465. DELETED: internal/dispatch/backend.go + backend_test.go + claude.go + claude_test.go + testdata/fake-claude-happy/ + fake-claude-fail/ + fake-claude-sleep/ (~700 LOC dead code retired). REMOVED renderDryRunCommand + strconvQuote helpers from dispatch.go. KEPT ErrUnsupportedBackend sentinel in dispatch.go (still referenced by dispatch_test.go + tool_dispatch_test.go). KEPT fake-claude-envelope/ + fake-claude-sequence/ testdata (still used by dispatch_test.go helpers). mage testPkg internal/dispatch GREEN 1.722s; mage check GREEN across 9 packages."]
+irreducible = true
+objective = "After build_dispatch_backend_integration migrates the active path to backends.Resolve, internal/dispatch/backend.go (runTier guard) + internal/dispatch/claude.go (runClaudeNative) become either DEAD CODE or THIN SHIMS. Builder picks per parent L3 decision: either delete unused or retain as compatibility shims that forward to internal/backends. Whichever picked, existing TestUnsupportedBackendFailFast + TestRunClaudeNative_* tests stay GREEN."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_011.drop.planner_dispatch_template_refactor_l3"
+paths = ["internal/dispatch/backend.go", "internal/dispatch/claude.go", "internal/dispatch/backend_test.go", "internal/dispatch/claude_test.go"]
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "Build: cleanup internal/dispatch/backend.go + claude.go as thin shims (or delete)"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_proof_build_dispatch_backend_cleanup]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. ~700 LOC dead code retired; ErrUnsupportedBackend sentinel kept (still referenced by tests as unsupported_backend Outcome)."]
+outcome = "success"
+role = "qa-proof"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_dispatch_backend_cleanup"
+title = "QA proof: build_dispatch_backend_cleanup"
+updated_at = "2026-05-23T04:55:00Z"
+[qa_falsification_build_dispatch_backend_cleanup]
+created_at = "2026-05-23T03:45:00Z"
+created_by_actor = "user:ev"
+created_by_type = "user"
+decision_log = ["2026-05-23T04:55:00Z: ORCHESTRATOR FAST-FORWARD post mage check GREEN. Behavior preserved — fake-claude-envelope/sequence testdata STILL USED by dispatch_test.go helpers; dispatch package still references ErrUnsupportedBackend appropriately."]
+outcome = "success"
+role = "qa-falsification"
+state = "complete"
+structural_type = ""
+target_id = "drop_011.drop.build_dispatch_backend_cleanup"
+title = "QA falsification: build_dispatch_backend_cleanup"
+updated_at = "2026-05-23T04:55:00Z"

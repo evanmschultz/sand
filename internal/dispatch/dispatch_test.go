@@ -319,6 +319,52 @@ func writeMCPConfig(t *testing.T, cwd string) {
 	}
 }
 
+// defaultClaudeNativeBackendsTOML is the canonical fixture that mirrors the
+// committed runClaudeNative argv contract: `-p`, `--bare`, `--model
+// {{.Model}}`, `--output-format json`, `--no-session-persistence`,
+// `--append-system-prompt {{.PersonaBody}}`, conditional `--mcp-config` and
+// `--allowedTools`, prompt piped via stdin. Mirrors the
+// fullArgsClaudeNativeTOML fixture in internal/backends/claude_native_test.go
+// so the dispatch + backends tests exercise the same template surface.
+const defaultClaudeNativeBackendsTOML = `
+[backends.claude-native]
+command = "claude"
+args = [
+  "-p",
+  "--bare",
+  "--model", "{{.Model}}",
+  "--output-format", "json",
+  "--no-session-persistence",
+  "--append-system-prompt", "{{.PersonaBody}}",
+]
+env = []
+mcp_config_arg = "--mcp-config"
+allowed_tools_arg = "--allowedTools"
+allowed_tools_csv_template = "{{.PersonaToolsCSV}}"
+slots_default = 0
+envelope_format = "claude_json"
+stdin_prompt = true
+mcp_injection = ""
+`
+
+// writeBackendsConfig writes <cwd>/.claude/sand-backends.toml with the given
+// TOML body so backends.Resolve (called from dispatch.Dispatch) finds the
+// project-rung config FIRST and never falls back to HOME / XDG. The project
+// rung wins per resolve.go's resolution order, which makes this safe for
+// t.Parallel() tests — no env mutation needed because the resolver
+// short-circuits before it touches XDG_CONFIG_HOME or HOME.
+func writeBackendsConfig(t *testing.T, cwd, body string) {
+	t.Helper()
+	dir := filepath.Join(cwd, ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("setup backends dir: %v", err)
+	}
+	path := filepath.Join(dir, "sand-backends.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write backends config %s: %v", path, err)
+	}
+}
+
 const builderChainsTOML = `
 [chains]
 "ta-go-builder" = [
@@ -345,6 +391,7 @@ func TestDispatchDryRun(t *testing.T) {
 			"haiku",
 		)
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 		writeMCPConfig(t, cwd)
 
 		ctx := context.Background()
@@ -402,6 +449,7 @@ func TestDispatchDryRun(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 		// Intentionally NO writeMCPConfig — resolveMCPConfig must report
 		// exists=false and Dispatch must drop --mcp-config from the
 		// rendered command.
@@ -427,6 +475,7 @@ func TestDispatchDryRun(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		ctx := context.Background()
 		resp, err := Dispatch(ctx, Params{
@@ -455,6 +504,7 @@ func TestDispatchDryRun(t *testing.T) {
 		// Chain has ollama first then claude-native; selection must
 		// produce the claude-native model "haiku", not skip past it.
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		ctx := context.Background()
 		resp, err := Dispatch(ctx, Params{
@@ -644,6 +694,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 		writeMCPConfig(t, cwd)
 
 		resp, err := Dispatch(context.Background(), Params{
@@ -719,6 +770,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		_, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",
@@ -743,6 +795,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",
@@ -774,6 +827,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",
@@ -807,6 +861,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:          "ta-go-builder",
@@ -891,6 +946,7 @@ func TestDispatchFailoverChain(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, failoverChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",
@@ -943,6 +999,7 @@ func TestDispatchFailoverChain(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, failoverChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",
@@ -972,6 +1029,7 @@ func TestDispatchFailoverChain(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, failoverChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",
@@ -1018,6 +1076,7 @@ func TestDispatchFailoverChain(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, failoverChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",
@@ -1048,6 +1107,7 @@ func TestDispatchFailoverChain(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		writeChainsConfig(t, cwd, builderChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
 
 		resp, err := Dispatch(context.Background(), Params{
 			Role:   "ta-go-builder",

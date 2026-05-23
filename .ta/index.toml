@@ -776,7 +776,7 @@ updated = 2026-05-22T23:03:24.453665Z
 created = 2026-05-22T22:32:33.633103Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-22T22:57:45.816577Z
+updated = 2026-05-22T23:20:26.62854Z
 
 [drop_008.drop.planner_chains_resolve_l3]
 created = 2026-05-22T22:42:20.054752Z
@@ -939,6 +939,212 @@ created = 2026-05-22T22:43:41.191503Z
 db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-05-22T22:48:53.518515Z
+
+[drop_011]
+[drop_011.drop]
+[drop_011.drop.backend_templates]
+created = 2026-05-23T03:17:37.076336Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-23T04:16:24.536265Z
+
+[drop_011.drop.build_backend_contract_factory]
+created = 2026-05-23T03:41:56.707804Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T03:51:45.276388Z
+
+[drop_011.drop.build_backend_template_engine]
+created = 2026-05-23T03:41:56.675398Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T03:47:31.427481Z
+
+[drop_011.drop.build_backends_install_seed]
+created = 2026-05-23T03:41:56.643601Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T03:52:41.791705Z
+
+[drop_011.drop.build_backends_resolve]
+created = 2026-05-23T03:41:56.605431Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T03:44:26.545646Z
+
+[drop_011.drop.build_claude_native_backend]
+created = 2026-05-23T03:41:56.740908Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T04:01:19.643745Z
+
+[drop_011.drop.build_dispatch_backend_cleanup]
+created = 2026-05-23T03:41:56.805517Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T04:16:24.29096Z
+
+[drop_011.drop.build_dispatch_backend_integration]
+created = 2026-05-23T03:41:56.773366Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-23T04:11:27.316975Z
+
+[drop_011.drop.planner_backend_interface_l3]
+created = 2026-05-23T03:31:10.138658Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T03:39:48.589598Z
+
+[drop_011.drop.planner_backend_templates_l2]
+created = 2026-05-23T03:27:56.154719Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T03:29:14.226107Z
+
+[drop_011.drop.planner_backends_loader_l3]
+created = 2026-05-23T03:31:10.124928Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T03:39:48.575752Z
+
+[drop_011.drop.planner_dispatch_template_refactor_l3]
+created = 2026-05-23T03:31:10.15225Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-23T03:39:48.60239Z
+
+[drop_011.drop.qa_falsification_backend_interface_l3_plan]
+created = 2026-05-23T03:31:59.995288Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T03:36:52.606715Z
+
+[drop_011.drop.qa_falsification_backend_templates_l2_plan]
+created = 2026-05-23T03:31:10.165267Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T03:35:25.251977Z
+
+[drop_011.drop.qa_falsification_backends_loader_l3_plan]
+created = 2026-05-23T03:31:59.969903Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T03:36:00.132465Z
+
+[drop_011.drop.qa_falsification_build_backend_contract_factory]
+created = 2026-05-23T03:41:56.729913Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:16:24.403474Z
+
+[drop_011.drop.qa_falsification_build_backend_template_engine]
+created = 2026-05-23T03:41:56.696511Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:16:24.375444Z
+
+[drop_011.drop.qa_falsification_build_backends_install_seed]
+created = 2026-05-23T03:41:56.664416Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:16:24.347945Z
+
+[drop_011.drop.qa_falsification_build_backends_resolve]
+created = 2026-05-23T03:41:56.631828Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:16:24.320546Z
+
+[drop_011.drop.qa_falsification_build_claude_native_backend]
+created = 2026-05-23T03:41:56.762562Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:16:24.431467Z
+
+[drop_011.drop.qa_falsification_build_dispatch_backend_cleanup]
+created = 2026-05-23T03:41:56.825503Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:16:24.523358Z
+
+[drop_011.drop.qa_falsification_build_dispatch_backend_integration]
+created = 2026-05-23T03:41:56.79543Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T04:16:24.458528Z
+
+[drop_011.drop.qa_falsification_dispatch_template_refactor_l3_plan]
+created = 2026-05-23T03:32:00.02275Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-23T03:36:39.132739Z
+
+[drop_011.drop.qa_proof_backend_interface_l3_plan]
+created = 2026-05-23T03:31:59.982874Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T03:38:46.724955Z
+
+[drop_011.drop.qa_proof_backend_templates_l2_plan]
+created = 2026-05-23T03:27:56.172374Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T03:34:38.454213Z
+
+[drop_011.drop.qa_proof_backends_loader_l3_plan]
+created = 2026-05-23T03:31:59.955196Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T03:35:46.965542Z
+
+[drop_011.drop.qa_proof_build_backend_contract_factory]
+created = 2026-05-23T03:41:56.71854Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:16:24.389464Z
+
+[drop_011.drop.qa_proof_build_backend_template_engine]
+created = 2026-05-23T03:41:56.685431Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:16:24.361524Z
+
+[drop_011.drop.qa_proof_build_backends_install_seed]
+created = 2026-05-23T03:41:56.654388Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:16:24.334582Z
+
+[drop_011.drop.qa_proof_build_backends_resolve]
+created = 2026-05-23T03:41:56.620927Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:16:24.305667Z
+
+[drop_011.drop.qa_proof_build_claude_native_backend]
+created = 2026-05-23T03:41:56.751449Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:16:24.417781Z
+
+[drop_011.drop.qa_proof_build_dispatch_backend_cleanup]
+created = 2026-05-23T03:41:56.815398Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:16:24.509883Z
+
+[drop_011.drop.qa_proof_build_dispatch_backend_integration]
+created = 2026-05-23T03:41:56.784502Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T04:16:24.445445Z
+
+[drop_011.drop.qa_proof_dispatch_template_refactor_l3_plan]
+created = 2026-05-23T03:32:00.009376Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-23T03:35:47.894496Z
 
 [ta-closeout]
 created = 2026-05-21T04:59:59.072717Z

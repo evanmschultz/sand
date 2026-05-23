@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evanmschultz/sand/internal/backends"
 	"github.com/evanmschultz/sand/internal/chains"
 	"github.com/evanmschultz/sand/internal/persona"
 	"github.com/evanmschultz/sand/internal/slots"
@@ -97,68 +98,6 @@ func selectClaudeNativeTier(role string, tiers []chains.Tier) (chains.Tier, int,
 	return chains.Tier{}, 0, fmt.Errorf("dispatch: role %q: %w", role, ErrNoClaudeNativeTier)
 }
 
-// renderDryRunCommand produces the human-readable claude command shape
-// returned in Response.Result when Dispatch runs with DryRun=true. The shape
-// mirrors SAND-SPEC §7.3 and the runClaudeNative argv construction: one
-// argument per line so tests can grep for specific flags without parsing a
-// shell-quoted string. The persona body is rendered into
-// `--append-system-prompt` verbatim; the persona's tool list becomes
-// `--allowedTools <csv>`; `--mcp-config <path>` is included only when
-// mcpConfigPath is non-empty.
-//
-// The output is informational only — it does NOT spawn the CLI. Sibling
-// droplets that own the real spawn (claude.go::runClaudeNative) build argv
-// directly via os/exec rather than parsing this rendering.
-func renderDryRunCommand(prompt string, p persona.Persona, model, mcpConfigPath string) string {
-	var b strings.Builder
-	b.WriteString("claude -p\n")
-	b.WriteString("  --bare\n")
-	b.WriteString("  --model " + model + "\n")
-	b.WriteString("  --output-format json\n")
-	b.WriteString("  --no-session-persistence\n")
-	b.WriteString("  --append-system-prompt " + strconvQuote(p.Body) + "\n")
-	if mcpConfigPath != "" {
-		b.WriteString("  --mcp-config " + mcpConfigPath + "\n")
-	}
-	if len(p.Tools) > 0 {
-		b.WriteString("  --allowedTools " + strings.Join(p.Tools, ",") + "\n")
-	}
-	b.WriteString("  <<< " + strconvQuote(prompt) + "\n")
-	return b.String()
-}
-
-// strconvQuote is a tiny indirection so the dry-run rendering can wrap
-// free-form values (persona body, prompt) in a double-quoted form without
-// pulling strconv directly into the call site. Using strconv.Quote guarantees
-// embedded newlines / quotes are escaped so the rendered command stays one
-// argument per line.
-func strconvQuote(s string) string {
-	// Local import-free quoter via strings: we use strconv.Quote semantics
-	// (escape \n, \t, embedded quotes). Implemented inline to avoid widening
-	// the dispatch package's import surface for one call site.
-	var b strings.Builder
-	b.Grow(len(s) + 2)
-	b.WriteByte('"')
-	for _, r := range s {
-		switch r {
-		case '\\':
-			b.WriteString(`\\`)
-		case '"':
-			b.WriteString(`\"`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\t':
-			b.WriteString(`\t`)
-		case '\r':
-			b.WriteString(`\r`)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
-}
-
 // nowFn is the package-level clock seam Dispatch uses to stamp
 // Attempt.AttemptedAt. Tests may override it to make per-attempt timestamps
 // deterministic; production keeps it pointed at time.Now.
@@ -168,10 +107,12 @@ var nowFn = time.Now
 //
 // Per SAND-V02-SPEC §1.4, Dispatch walks the role's fallback chain tier-by-tier:
 // for each tier it (a) optionally acquires a cross-project slot via
-// slots.AcquireSlot when tier.Slots > 0, (b) calls runTier — which preserves
-// the drop_003 ErrUnsupportedBackend guard for non-claude-native backends —
-// (c) classifies the outcome via ClassifyExitError, and (d) records an
-// Attempt row in Response.FallbackChain regardless of success or failure.
+// slots.AcquireSlot when tier.Slots > 0, (b) resolves the backend via
+// backends.Resolve and Spawns it — non-claude-native tiers short-circuit with
+// Attempt{Outcome:"unsupported_backend"} until drops 004/005 land their
+// implementations — (c) classifies the outcome via ClassifyExitError, and
+// (d) records an Attempt row in Response.FallbackChain regardless of success
+// or failure.
 //
 // Outcome policy (mirrors SAND-V02-SPEC §1.4 + §3.3):
 //
@@ -252,12 +193,26 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		// ServedBy naming the first claude-native tier. ModelOverride wins
 		// over the tier's configured model. No FallbackChain rows because
 		// no real attempt happens.
+		//
+		// Per drop_011 amendment A5, the rendered command MUST preserve
+		// renderDryRunCommand's byte shape; the claudeNativeBackend.Preview
+		// implementation matches that contract bit-for-bit. Resolution
+		// goes through backends.Resolve so the dry-run path exercises the
+		// same factory as wet-run.
 		dryRunModel := cnTier.Model
 		if params.ModelOverride != "" {
 			dryRunModel = params.ModelOverride
 		}
+		backend, err := backends.Resolve(params.CWD, backendClaudeNative)
+		if err != nil {
+			return Response{}, fmt.Errorf("dispatch: resolve %s backend for dry-run: %w", backendClaudeNative, err)
+		}
+		preview, err := backend.Preview(buildSpawnRequest(params, p, dryRunModel, renderedMCPPath))
+		if err != nil {
+			return Response{}, fmt.Errorf("dispatch: preview %s backend: %w", backendClaudeNative, err)
+		}
 		return Response{
-			Result:   renderDryRunCommand(params.Prompt, p, dryRunModel, renderedMCPPath),
+			Result:   preview,
 			ServedBy: backendClaudeNative + ":" + dryRunModel,
 			Tier:     0,
 		}, nil
@@ -270,7 +225,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		attempt := Attempt{
 			Tier:        tierIdx,
 			Backend:     tier.Backend,
-			Model:       tier.Model,
+			Model:       tier.Model, // A6: record CONFIGURED model, not override.
 			AttemptedAt: nowFn().UTC(),
 		}
 
@@ -297,16 +252,49 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			slot = s
 		}
 
-		// Model override replaces the served tier's model. Attempt rows
-		// for non-served tiers still record the chain's CONFIGURED model
-		// (set before this branch) so the FallbackChain audit reflects
-		// the actual chain layout, not the override.
-		spawnTier := tier
-		if params.ModelOverride != "" {
-			spawnTier.Model = params.ModelOverride
+		// drop_011 amendment A2 + A3: any non-claude-native tier records
+		// Attempt{Outcome:"unsupported_backend"} literally and advances.
+		// codex/ollama/unknown-name all classify the same way until drops
+		// 004/005 land their respective backends. The check happens BEFORE
+		// backends.Resolve so a chains.toml referencing a backend not in
+		// backends.toml still advances cleanly with the literal outcome
+		// rather than surfacing a config-resolution error.
+		if tier.Backend != backendClaudeNative {
+			if slot != nil {
+				slot.Release()
+			}
+			attempt.Outcome = "unsupported_backend"
+			attempt.Reason = fmt.Sprintf("sand does not yet spawn %q", tier.Backend)
+			chain = append(chain, attempt)
+			continue
 		}
 
-		result, runErr := runTier(ctx, params, p, spawnTier, renderedMCPPath, nil)
+		backend, resolveErr := backends.Resolve(params.CWD, tier.Backend)
+		if resolveErr != nil {
+			// A3: ErrUnknownBackend (config-entry missing) classifies as
+			// "unsupported_backend" + advance. Any other resolve error
+			// (e.g. backends.toml not found, decode failure) also advances
+			// under the same outcome — the chain may have another tier
+			// that resolves correctly.
+			if slot != nil {
+				slot.Release()
+			}
+			attempt.Outcome = "unsupported_backend"
+			attempt.Reason = resolveErr.Error()
+			chain = append(chain, attempt)
+			continue
+		}
+
+		// Model override replaces the served tier's model in the spawn
+		// argv ONLY. Attempt.Model already recorded the CONFIGURED tier
+		// model above (A6).
+		spawnModel := tier.Model
+		if params.ModelOverride != "" {
+			spawnModel = params.ModelOverride
+		}
+
+		req := buildSpawnRequest(params, p, spawnModel, renderedMCPPath)
+		spawnResult, runErr := backend.Spawn(ctx, req)
 
 		// Per-tier slot release: must happen BEFORE we continue or return.
 		// defer would batch all releases until function return, which is
@@ -317,15 +305,8 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		}
 
 		if runErr != nil {
-			if errors.Is(runErr, ErrUnsupportedBackend) {
-				attempt.Outcome = "unsupported_backend"
-				attempt.Reason = fmt.Sprintf("sand does not yet spawn %q", tier.Backend)
-				chain = append(chain, attempt)
-				continue
-			}
 			// Spawn-level failure (e.g. claude binary not on PATH, ctx
-			// cancelled). Classify with exit code -1 / empty stderr — both
-			// land as Crash/Unknown. We treat ctx.Canceled / DeadlineExceeded
+			// cancelled). We treat ctx.Canceled / DeadlineExceeded
 			// distinctly because the caller asked us to stop.
 			if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 				attempt.Outcome = ErrClassTimeout.String()
@@ -341,17 +322,17 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		}
 
 		// Classify by exit code + stderr (errors_class.go). Non-zero exit
-		// is NOT a Go error at runTier's layer — it lives in
-		// claudeResult.ExitCode and stderr.
-		class := ClassifyExitError(result.Stderr, result.ExitCode)
+		// is NOT a Go error at the backend's layer — it lives in
+		// SpawnResult.ExitCode and Stderr.
+		class := ClassifyExitError(spawnResult.Stderr, spawnResult.ExitCode)
 		switch class {
 		case ErrClassSuccess:
 			attempt.Outcome = class.String()
 			chain = append(chain, attempt)
-			return buildSuccessResponse(params, spawnTier, tierIdx, result, chain)
+			return buildSuccessResponse(params, tier, spawnModel, tierIdx, spawnResult, chain)
 		case ErrClassRateLimit, ErrClassAuthFailure, ErrClassNetwork, ErrClassTimeout:
 			attempt.Outcome = class.String()
-			attempt.Reason = summarizeStderr(result.Stderr)
+			attempt.Reason = summarizeStderr(spawnResult.Stderr)
 			chain = append(chain, attempt)
 			continue
 		default:
@@ -359,9 +340,9 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			// SAND-V02-SPEC §3.3. Record + halt with FallbackChain
 			// preserved.
 			attempt.Outcome = class.String()
-			attempt.Reason = summarizeStderr(result.Stderr)
+			attempt.Reason = summarizeStderr(spawnResult.Stderr)
 			chain = append(chain, attempt)
-			return Response{FallbackChain: chain}, fmt.Errorf("dispatch: tier %d (%s:%s) %s: exit %d", tierIdx, tier.Backend, tier.Model, class.String(), result.ExitCode)
+			return Response{FallbackChain: chain}, fmt.Errorf("dispatch: tier %d (%s:%s) %s: exit %d", tierIdx, tier.Backend, tier.Model, class.String(), spawnResult.ExitCode)
 		}
 	}
 
@@ -369,11 +350,43 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 	return Response{FallbackChain: chain}, fmt.Errorf("dispatch: role %q: %w", params.Role, ErrChainExhausted)
 }
 
-// buildSuccessResponse populates Response from a successful claude-native
-// spawn result. Extracted from Dispatch's main body so the success path is
+// buildSpawnRequest constructs the per-tier backends.SpawnRequest from the
+// dispatch-level inputs. Centralised so dry-run + wet-run share the same
+// shape; the only per-call difference is the resolved Model (override-aware
+// for both paths).
+//
+// Persona Tools are joined into the persona_tools_csv field via comma; the
+// claude-native backend's AllowedToolsCSVTemplate then renders it into
+// `--allowedTools` as a CSV. An empty Tools slice yields an empty CSV,
+// which the backend's conditional append elides.
+func buildSpawnRequest(params Params, p persona.Persona, model, mcpConfigPath string) backends.SpawnRequest {
+	return backends.SpawnRequest{
+		PersonaBody:     p.Body,
+		PersonaToolsCSV: strings.Join(p.Tools, ","),
+		Prompt:          params.Prompt,
+		McpConfigPath:   mcpConfigPath,
+		Model:           model,
+		CWD:             params.CWD,
+		Role:            params.Role,
+	}
+}
+
+// buildSuccessResponse populates Response from a successful backend spawn
+// result. Extracted from Dispatch's main body so the success path is
 // inspectable in isolation; the dispatch loop only owns control flow + the
 // FallbackChain accumulator.
-func buildSuccessResponse(params Params, tier chains.Tier, tierIdx int, result claudeResult, chain []Attempt) (Response, error) {
+//
+// servedModel is the model string surfaced in ServedBy — for the wet-run
+// path this is the override-resolved model (so callers see the model the
+// backend actually used). tier.Model is preserved unchanged in the
+// FallbackChain rows per amendment A6.
+//
+// drop_011 keeps the envelope_format hardwired to claude_json — only
+// claude-native ships in this drop. drop_005 will add a codex_stream
+// parser hook keyed off the BackendConfig.EnvelopeFormat field; until
+// then the wet-run path always lands in claude-native and ParseEnvelope
+// is the correct decoder.
+func buildSuccessResponse(params Params, tier chains.Tier, servedModel string, tierIdx int, result backends.SpawnResult, chain []Attempt) (Response, error) {
 	env, err := ParseEnvelope(result.Stdout)
 	if err != nil {
 		return Response{FallbackChain: chain}, fmt.Errorf("dispatch: parse envelope for role %q: %w", params.Role, err)
@@ -381,12 +394,12 @@ func buildSuccessResponse(params Params, tier chains.Tier, tierIdx int, result c
 
 	durationMs := int64(env.DurationMS)
 	if durationMs == 0 {
-		durationMs = result.DurationMs
+		durationMs = result.Duration.Milliseconds()
 	}
 
 	return Response{
 		Result:            env.Result,
-		ServedBy:          tier.Backend + ":" + tier.Model,
+		ServedBy:          tier.Backend + ":" + servedModel,
 		Tier:              tierIdx,
 		Fallback:          tierIdx > 1,
 		DurationMs:        durationMs,
