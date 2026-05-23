@@ -2,10 +2,13 @@ package backends
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 // fullFixtureTOML is a backends.toml document that populates every one
@@ -169,18 +172,34 @@ func TestBackendConfigTOMLDecodeAllFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve claude-native: %v", err)
 	}
-	b2, err := Resolve(projectDir, "codex-exec")
+	// codex-exec uses envelope_format=codex_stream which Resolve declines
+	// until drop_005 ships the codexExecBackend impl. Assert the gate
+	// surfaces ErrUnsupportedEnvelopeFormat so a future codex landing
+	// is a positive enable-flag rather than a behavior regression.
+	if _, err := Resolve(projectDir, "codex-exec"); !errors.Is(err, ErrUnsupportedEnvelopeFormat) {
+		t.Fatalf("Resolve codex-exec: expected ErrUnsupportedEnvelopeFormat, got %v", err)
+	}
+
+	// Decode the file directly so the codex-exec field-decode assertions
+	// below still cover the BackendConfig TOML round-trip — Resolve's
+	// envelope_format gate is independent of TOML decoding correctness.
+	cxPath := filepath.Join(projectDir, ".claude", "sand-backends.toml")
+	raw, err := os.ReadFile(cxPath)
 	if err != nil {
-		t.Fatalf("Resolve codex-exec: %v", err)
+		t.Fatalf("read fixture for codex round-trip: %v", err)
+	}
+	var directDecode backendsFile
+	if _, decodeErr := toml.Decode(string(raw), &directDecode); decodeErr != nil {
+		t.Fatalf("decode fixture for codex round-trip: %v", decodeErr)
+	}
+	gotCXcfg, ok := directDecode.Backends["codex-exec"]
+	if !ok {
+		t.Fatalf("decoded fixture missing codex-exec entry")
 	}
 
 	cn, ok := b1.(*claudeNativeBackend)
 	if !ok {
 		t.Fatalf("Resolve claude-native: expected *claudeNativeBackend, got %T", b1)
-	}
-	cx, ok := b2.(*claudeNativeBackend)
-	if !ok {
-		t.Fatalf("Resolve codex-exec: expected *claudeNativeBackend stub, got %T", b2)
 	}
 
 	// claude-native fixture assertions: every field populated, exercised
@@ -223,7 +242,7 @@ func TestBackendConfigTOMLDecodeAllFields(t *testing.T) {
 	// codex-exec fixture assertions: exercises the contrasting field
 	// values (mcp_injection set, stdin_prompt false, slots_default
 	// non-zero) so per-field decode paths are all hit.
-	gotCX := cx.cfg
+	gotCX := gotCXcfg
 	if gotCX.Command != "codex" {
 		t.Errorf("codex-exec Command: got %q want %q", gotCX.Command, "codex")
 	}

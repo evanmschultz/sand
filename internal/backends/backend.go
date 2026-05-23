@@ -213,13 +213,24 @@ func Resolve(projectDir, name string) (Backend, error) {
 		return nil, fmt.Errorf("backends: %q: %w", name, ErrUnknownBackend)
 	}
 
-	// drop_011 ships only the claude-native concrete Backend; future
-	// drops (004 ollama, 005 codex) extend the switch on
-	// EnvelopeFormat / Command. Every resolved entry today maps to a
-	// claudeNativeBackend bound to the resolved BackendConfig — the
-	// claude-native impl is config-driven so a `[backends.codex-exec]`
-	// entry currently spawns through claude-native's command/arg
-	// pipeline (with different config). This is the v0.1-style fallthrough
-	// the parent acceptance pins.
-	return &claudeNativeBackend{cfg: cfg}, nil
+	// Dispatch by EnvelopeFormat. claudeNativeBackend handles every backend
+	// whose CLI emits claude -p --output-format json envelopes (claude
+	// itself + ollama-local + ollama-cloud + together-ai + any other
+	// provider routed through claude with ANTHROPIC_BASE_URL). drop_005
+	// will widen the switch to dispatch codex_stream to a codexExecBackend.
+	switch cfg.EnvelopeFormat {
+	case "claude_json", "":
+		return &claudeNativeBackend{cfg: cfg}, nil
+	default:
+		return nil, fmt.Errorf(
+			"backends: %q: envelope_format=%q not yet supported (drop_005 will add codex_stream): %w",
+			name, cfg.EnvelopeFormat, ErrUnsupportedEnvelopeFormat,
+		)
+	}
 }
+
+// ErrUnsupportedEnvelopeFormat is returned by Resolve when the configured
+// envelope_format has no Backend impl yet. drop_011 ships only
+// claude_json; drop_005 will add codex_stream. Callers (dispatch loop)
+// treat this the same as ErrUnknownBackend — advance to the next tier.
+var ErrUnsupportedEnvelopeFormat = errors.New("backends: envelope_format not supported")

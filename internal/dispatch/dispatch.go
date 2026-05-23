@@ -252,23 +252,12 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			slot = s
 		}
 
-		// drop_011 amendment A2 + A3: any non-claude-native tier records
-		// Attempt{Outcome:"unsupported_backend"} literally and advances.
-		// codex/ollama/unknown-name all classify the same way until drops
-		// 004/005 land their respective backends. The check happens BEFORE
-		// backends.Resolve so a chains.toml referencing a backend not in
-		// backends.toml still advances cleanly with the literal outcome
-		// rather than surfacing a config-resolution error.
-		if tier.Backend != backendClaudeNative {
-			if slot != nil {
-				slot.Release()
-			}
-			attempt.Outcome = "unsupported_backend"
-			attempt.Reason = fmt.Sprintf("sand does not yet spawn %q", tier.Backend)
-			chain = append(chain, attempt)
-			continue
-		}
-
+		// post-drop_011 short-circuit lift: dispatch defers backend support
+		// decisions to backends.Resolve. Any tier whose name resolves to a
+		// Backend impl spawns; any resolve error (ErrUnknownBackend for
+		// missing config entry, ErrUnsupportedEnvelopeFormat for not-yet-
+		// implemented backend types like codex_stream until drop_005)
+		// records Attempt{Outcome:"unsupported_backend"} + advances.
 		backend, resolveErr := backends.Resolve(params.CWD, tier.Backend)
 		if resolveErr != nil {
 			// A3: ErrUnknownBackend (config-entry missing) classifies as
