@@ -32,6 +32,7 @@ definition_of_complete = """
 - [ ] Commit on sand main + push + hylla ingest BEFORE marking drop_011 closed
 """
 drop_number = 11.0
+end_commit = "09473e3"
 expected_outputs = ["internal/backends/backend.go (Backend interface + BackendConfig + Resolve + ErrUnknownBackend)", "internal/backends/backend_test.go", "internal/backends/resolve.go (hierarchical backends.toml loader)", "internal/backends/resolve_test.go", "internal/backends/template.go (text/template substitution engine)", "internal/backends/template_test.go", "internal/backends/claude_native.go (claude-native Backend impl via template OR thin shim)", "internal/backends/claude_native_test.go", "internal/backends/testdata/ (sample backends.toml + fake CLI fixtures)", "internal/dispatch/dispatch.go (Dispatch loop refactor to call Backend.Spawn)", "internal/dispatch/dispatch_test.go (updated for refactor; existing assertions stay green)", "magefile.go (Install seeds ~/.config/sand/backends.toml)", "magefile_install_test.go (or similar — test for seed behavior)"]
 labels = ["v0.2", "backend-templates", "refactor", "gates-drop-004", "gates-drop-005"]
 objective = "Land the user-configurable backend template system per SAND-V02-SPEC §5. Adding a new provider (codex / ollama-cloud / together.ai / openrouter / WHATEVER) must require ONLY a TOML edit to ~/.config/sand/backends.toml — NO Go code change. Sand becomes truly workflow-agnostic per memory project_sand_mcp_per_project_configurable. (1) New ~/.config/sand/backends.toml schema with hierarchical resolution (project override > XDG > home-config > home-dotfile) mirroring chains.Resolve. (2) New internal/backends/ package with Backend interface + BackendConfig struct + Resolve(name) loader + Spawn(ctx, persona, prompt, mcpConfigPath) per-backend. (3) Refactor internal/dispatch/dispatch.go Dispatch loop to call backends.Resolve(tier.Backend).Spawn(...) instead of hardcoded runClaudeNative / runTier. (4) Move existing claude-native spawn logic into internal/backends/claude_native.go (or implement via template only — builder picks). (5) Template substitution engine: {{model}} / {{cwd}} / {{persona_body}} / {{persona_tools_csv}} / {{mcp_config_path}} / {{env:VAR}}. (6) envelope_format hint dispatching parser (claude_json baseline shipped, codex_stream stub for drop_005). (7) mage install seeds ~/.config/sand/backends.toml with claude-native baseline; never overwrite. Existing claude-native dispatch behavior PRESERVED end-to-end (all current tests stay GREEN)."
@@ -40,7 +41,7 @@ role = "planner"
 state = "complete"
 structural_type = "drop"
 title = "Sand v0.2 — backend templates abstraction (~/.config/sand/backends.toml + Backend interface + claude-native refactor)"
-updated_at = "2026-05-23T04:55:00Z"
+updated_at = "2026-05-23T05:05:00Z"
 [planner_backend_templates_l2]
 acceptance_criteria = """
 - L2 emits exactly 3 L3 planners: `drop_011.drop.planner_backends_loader_l3`, `drop_011.drop.planner_backend_interface_l3`, and `drop_011.drop.planner_dispatch_template_refactor_l3`.
