@@ -1,56 +1,45 @@
 # sand-chains.toml — per-role fallback chains for sand's dispatch.
 #
-# This project's chain overrides the home-rung default at
-# ~/.config/sand/chains.toml (project rung wins per the hierarchical
-# resolver). It declares the full multi-provider chain you asked for:
+# Chain rationale per project owner:
+#   builder       = ollama-local (qwen3-coder:30b, slots=1 SYSTEM-WIDE) → claude haiku fallback
+#   planning      = codex gpt-5.4 high read-only (matches the old bin-sh chain)
+#   qa-falsif     = codex gpt-5.4 high workspace-write (matches old bin-sh)
+#   qa-proof      = claude opus (matches old bin-sh)
+#   closeout      = claude opus (matches old bin-sh)
 #
-#   ollama-cloud (slots=3, wait=10s) -> ollama-local (slots=1, wait=30s)
-#     -> codex-exec -> claude-native:haiku -> claude-native:sonnet
-#
-# Slot caps are enforced cross-process via syscall.Flock on
-# /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock so the 1+3 ollama
-# ceilings hold across every concurrent sand-dispatch on this machine.
-#
-# Backends referenced here must be uncommented in
-# ~/.config/sand/backends.toml. Env vars required:
-#   OLLAMA_API_KEY   (ollama-cloud only)
-# codex-exec reads ~/.codex/auth.json; claude-native uses normal claude CLI auth.
+# Slot enforcement is cross-process via syscall.Flock on
+# /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock. ollama-local slots=1
+# means at most ONE qwen3-coder:30b spawn at a time across every sand binary
+# on the machine — VRAM/thermal budget protection.
 
 [chains]
 
-# Builder — atomic 1-2 small blocks per cascade methodology. Cheapest
-# tiers first; claude-native:sonnet is the last-resort quality floor.
+# Builder — atomic 1-2 small blocks per cascade methodology.
+# Tier 1 ollama-local (free, GPU-bound, slots=1).
+# Tier 2 claude-native haiku (3x cheaper than sonnet per Anthropic pricing).
 "ta-go-builder" = [
-  { backend = "ollama-cloud",  model = "qwen3-coder-cloud-235b", slots = 3, wait_max = 10, opts = "" },
-  { backend = "ollama-local",  model = "qwen3-coder:30b",        slots = 1, wait_max = 30, opts = "" },
-  { backend = "codex-exec",    model = "gpt-5.4",                slots = 0, wait_max = 0,  opts = "--sandbox workspace-write" },
-  { backend = "claude-native", model = "haiku",                  slots = 0, wait_max = 0,  opts = "" },
-  { backend = "claude-native", model = "sonnet",                 slots = 0, wait_max = 0,  opts = "" },
+  { backend = "ollama-local",  model = "qwen3-coder:30b", slots = 1, wait_max = 30, opts = "" },
+  { backend = "claude-native", model = "haiku",           slots = 0, wait_max = 0,  opts = "" },
 ]
 
-# Planning — strong reasoning required. Cloud ollama (235b) first for
-# cost, codex gpt-5.4 high for fallback reasoning, claude opus last.
+# Planning — codex gpt-5.4 high reasoning, read-only sandbox.
+# Single tier — matches the legacy bin-sh chain exactly.
 "ta-go-planning" = [
-  { backend = "ollama-cloud",  model = "qwen3-coder-cloud-235b", slots = 3, wait_max = 10, opts = "" },
-  { backend = "codex-exec",    model = "gpt-5.4",                slots = 0, wait_max = 0,  opts = "--sandbox read-only -c model_reasoning_effort=high" },
-  { backend = "claude-native", model = "opus",                   slots = 0, wait_max = 0,  opts = "" },
+  { backend = "codex-exec", model = "gpt-5.4", slots = 0, wait_max = 0, opts = "--sandbox read-only -c model_reasoning_effort=high" },
 ]
 
-# QA Falsification — adversarial; codex high reasoning is the canonical
-# attacker. Cloud ollama as cheaper backstop, claude opus as quality floor.
+# QA Falsification — codex gpt-5.4 high reasoning, workspace-write so
+# mage check / mage testPkg can run. Matches legacy bin-sh.
 "ta-go-qa-falsification" = [
-  { backend = "codex-exec",    model = "gpt-5.4",                slots = 0, wait_max = 0,  opts = "--sandbox workspace-write -c model_reasoning_effort=high" },
-  { backend = "ollama-cloud",  model = "qwen3-coder-cloud-235b", slots = 3, wait_max = 10, opts = "" },
-  { backend = "claude-native", model = "opus",                   slots = 0, wait_max = 0,  opts = "" },
+  { backend = "codex-exec", model = "gpt-5.4", slots = 0, wait_max = 0, opts = "--sandbox workspace-write -c model_reasoning_effort=high" },
 ]
 
-# QA Proof — thorough verification quality floor. Claude opus only;
-# no fallback because the role demands a known-quality reviewer.
+# QA Proof — claude opus quality floor. Matches legacy bin-sh.
 "ta-go-qa-proof" = [
   { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
 ]
 
-# Closeout — final commit gate. Same quality-floor rationale as qa-proof.
+# Closeout — claude opus quality floor. Matches legacy bin-sh.
 "ta-closeout" = [
   { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
 ]

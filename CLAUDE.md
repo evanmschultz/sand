@@ -23,18 +23,18 @@ When a fallback to the legacy bash dispatcher is genuinely needed (e.g. for cros
 
 ## Agent routing — backend dispatch (chain mode)
 
-Each role has a fallback chain (primary + ordered fallbacks). See [`../ta/main/.claude/agent-chains.sh`](../../ta/main/.claude/agent-chains.sh) for the current per-role chain table. Summary:
+Each role has a fallback chain defined in [`.claude/sand-chains.toml`](.claude/sand-chains.toml). All dispatch goes through `mcp__sand__dispatch(role, prompt)` — never the native Agent tool, never the legacy bash dispatcher. Summary:
 
 ```
-role-primaries{role,backend,model,dispatch}:
-ta-go-builder,claude-native,haiku,agent-tool
-ta-go-planning,codex-exec,gpt-5.4+high,bash-dispatcher
-ta-go-qa-falsification,codex-exec,gpt-5.4+high,bash-dispatcher
-ta-go-qa-proof,claude-native,opus,agent-tool
-ta-closeout,claude-native,opus,agent-tool
+role-chains{role,tier-1,tier-2}:
+ta-go-builder,ollama-local:qwen3-coder:30b (slots=1 system-wide),claude-native:haiku
+ta-go-planning,codex-exec:gpt-5.4 high read-only,(no fallback — matches legacy bin-sh)
+ta-go-qa-falsification,codex-exec:gpt-5.4 high workspace-write,(no fallback — matches legacy bin-sh)
+ta-go-qa-proof,claude-native:opus,(no fallback)
+ta-closeout,claude-native:opus,(no fallback)
 ```
 
-**Cascade methodology constraint** ([`../ta/main/docs/cascade-methodology.md`](../../ta/main/docs/cascade-methodology.md)): builder droplets touch **1-2 small blocks of code INCLUDING their tests**. Builder primary is `claude-native|haiku` via the `Agent` tool — fast + cheap (3x cheaper per-token than sonnet per Anthropic pricing). Local Ollama (qwen3-coder:30b) was dropped 2026-05-21 because running many 30B agents concurrently pressured VRAM/thermal budget and slowed iteration loops; haiku trades local-compute-free for cloud-speed + predictable concurrency. Sonnet fallback if haiku fails.
+**Cascade methodology constraint** ([`../ta/main/docs/cascade-methodology.md`](../../ta/main/docs/cascade-methodology.md)): builder droplets touch **1-2 small blocks of code INCLUDING their tests**. Builder primary is `ollama-local|qwen3-coder:30b` via sand with slots=1 system-wide (kernel flock on /tmp/sand-slots/) — one local 30B spawn at a time across every sand binary, preventing VRAM/thermal pressure. Fallback tier is `claude-native|haiku` via sand (3x cheaper per-token than sonnet per Anthropic pricing) — used when ollama daemon is unavailable or slot-busy.
 
 **Planner + plan-QA enforcement rule**: every planner output MUST be reviewed by plan-QA to confirm each terminal builder droplet is 1-2 small blocks. If a droplet would be larger, the planner MUST decompose further before plan-QA passes. Per [[orch-fabrication-self-check]], orchestrator MUST audit each builder's tool-call stream post-dispatch — self-reported "verdict: pass" is not authoritative when the JSON envelope shows zero Edit/Write tool_use events.
 
@@ -47,7 +47,7 @@ Every dispatched agent runs inside its host runtime with a tool allowlist scoped
 - **Builders**: Edit, Write, Read, Grep, Glob, Bash, LSP. ta get/search but NOT ta create/update.
 - **Closeout**: Read + `Bash(git *)` + `Bash(mage check)` + ta update. No Edit / Write.
 
-The dispatcher passes the persona's frontmatter `tools:` line as `--allowedTools` to Claude Code (or maps it for codex). **The persona file IS the sandbox spec for that role.**
+Sand passes the persona's frontmatter `tools:` line as `--allowedTools` to the spawned claude CLI (or maps it to per-tool `approval_mode = "approve"` for codex). **The persona file IS the sandbox spec for that role.**
 
 **Tool-call audit after every dispatch.** Open the dispatch output and verify each agent claim against the actual stream — codex `mcp: <server>/<tool> (completed)` lines plus claude-native/ollama JSON envelope `tool_use` events. Self-reported "verdict: pass" or "tool X succeeded" is not authoritative; if the stream doesn't show the required tool calls (record updates, file edits, tests), the work didn't happen — re-dispatch or finish orchestrator-direct. Flag out-of-scope tool calls (anything outside the persona's `tools:` allowlist) as a discipline violation.
 
