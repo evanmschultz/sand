@@ -140,6 +140,10 @@ type SpawnResult struct {
 //   - AllowedToolsCSVTemplate is the template string rendered to
 //     produce the value paired with AllowedToolsArg. Typically
 //     `{{persona_tools_csv}}` for claude-style backends.
+//   - ToolsArg is the flag name (e.g. "--tools") used to restrict the
+//     available toolset.
+//   - ToolsCSVTemplate is the template string rendered to produce the
+//     value paired with ToolsArg. Typically `{{.PersonaToolNamesCSV}}`.
 //   - SlotsDefault is the default slot count for this backend when a
 //     chain tier omits the `slots` field. 0 means unlimited.
 //   - EnvelopeFormat selects the dispatcher's output parser:
@@ -159,6 +163,8 @@ type BackendConfig struct {
 	McpConfigArg            string   `toml:"mcp_config_arg"`
 	AllowedToolsArg         string   `toml:"allowed_tools_arg"`
 	AllowedToolsCSVTemplate string   `toml:"allowed_tools_csv_template"`
+	ToolsArg                string   `toml:"tools_arg"`
+	ToolsCSVTemplate        string   `toml:"tools_csv_template"`
 	SlotsDefault            int      `toml:"slots_default"`
 	EnvelopeFormat          string   `toml:"envelope_format"`
 	StdinPrompt             bool     `toml:"stdin_prompt"`

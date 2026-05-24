@@ -20,6 +20,8 @@ env = ["FOO=bar", "BAZ=qux"]
 mcp_config_arg = "--mcp-config"
 allowed_tools_arg = "--allowedTools"
 allowed_tools_csv_template = "{{persona_tools_csv}}"
+tools_arg = "--tools"
+tools_csv_template = "{{.PersonaToolNamesCSV}}"
 slots_default = 0
 envelope_format = "claude_json"
 stdin_prompt = true

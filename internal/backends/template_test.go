@@ -39,17 +39,18 @@ func TestSubstituteHappyPath(t *testing.T) {
 	t.Parallel()
 
 	data := TemplateData{
-		Model:           "haiku",
-		CWD:             "/Users/ev/code/sand",
-		PersonaBody:     "PERSONA_BODY_PLACEHOLDER",
-		PersonaToolsCSV: "Read,Edit,Bash",
-		McpConfigPath:   "/Users/ev/code/sand/.mcp.json",
-		Role:            "ta-go-builder",
+		Model:               "haiku",
+		CWD:                 "/Users/ev/code/sand",
+		PersonaBody:         "PERSONA_BODY_PLACEHOLDER",
+		PersonaToolsCSV:     "Read,Edit,Bash",
+		PersonaToolNamesCSV: "Read,Edit,Bash",
+		McpConfigPath:       "/Users/ev/code/sand/.mcp.json",
+		Role:                "ta-go-builder",
 	}
 	env, _ := fakeEnv(map[string]string{"OLLAMA_API_KEY": "secret-token"})
 
 	tmplStr := `model={{.Model}} cwd={{.CWD}} body={{.PersonaBody}} ` +
-		`tools={{.PersonaToolsCSV}} mcp={{.McpConfigPath}} role={{.Role}} ` +
+		`tools={{.PersonaToolsCSV}} toolnames={{.PersonaToolNamesCSV}} mcp={{.McpConfigPath}} role={{.Role}} ` +
 		`key={{env "OLLAMA_API_KEY"}}`
 
 	got, err := Substitute(tmplStr, data, env)
@@ -58,7 +59,7 @@ func TestSubstituteHappyPath(t *testing.T) {
 	}
 
 	want := `model=haiku cwd=/Users/ev/code/sand body=PERSONA_BODY_PLACEHOLDER ` +
-		`tools=Read,Edit,Bash mcp=/Users/ev/code/sand/.mcp.json role=ta-go-builder ` +
+		`tools=Read,Edit,Bash toolnames=Read,Edit,Bash mcp=/Users/ev/code/sand/.mcp.json role=ta-go-builder ` +
 		`key=secret-token`
 	if got != want {
 		t.Errorf("Substitute output mismatch:\n got:  %q\n want: %q", got, want)

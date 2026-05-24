@@ -56,6 +56,12 @@ type TemplateData struct {
 	// Role is the persona role identifier (e.g. "ta-go-builder"). Useful
 	// for backends that tag spawns by role in logs or metrics.
 	Role string
+
+	// PersonaToolNamesCSV is the persona's Tools slice joined with `,
+	// but with the scoped patterns stripped to bare names (e.g. "Read",
+	// "Edit", "Bash" instead of "Bash(mage *)" to support future
+	// --tools CSV rendering without leaking scoped patterns).
+	PersonaToolNamesCSV string
 }
 
 // Substitute renders a single template string against `data` with the
