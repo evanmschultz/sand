@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -256,9 +257,128 @@ func TestConfigChain(t *testing.T) {
 				t.Fatalf("Chain(%q) tier count = %d, want %d", tc.role, len(got), len(tc.wantTiers))
 			}
 			for i := range tc.wantTiers {
-				if got[i] != tc.wantTiers[i] {
+				// reflect.DeepEqual because Tier carries a RetryOn
+				// []string field — struct equality (==) no longer
+				// compiles for tiers with slice fields.
+				if !reflect.DeepEqual(got[i], tc.wantTiers[i]) {
 					t.Errorf("Chain(%q) tier[%d] = %+v, want %+v", tc.role, i, got[i], tc.wantTiers[i])
 				}
+			}
+		})
+	}
+}
+
+// TestTierRetryOnDecodesFromTOML pins the drop_009 wire contract: the
+// per-tier `retry_on = ["..."]` field decodes into Tier.RetryOn as a
+// string slice without tripping the strict-decode guard (Parse rejects any
+// TOML key that does not map to a destination field). The field is opt-in;
+// omitting it from a tier must leave RetryOn as the zero value (a nil
+// slice) so the dispatcher's default-policy fallthrough still fires.
+func TestTierRetryOnDecodesFromTOML(t *testing.T) {
+	t.Parallel()
+
+	const retryOnConfig = `
+[chains]
+"ta-go-builder" = [
+  { backend = "claude-native", model = "haiku",  opts = "", wait_max = 0, slots = 0, retry_on = ["rate_limit", "slot_timeout"] },
+  { backend = "claude-native", model = "sonnet", opts = "", wait_max = 0, slots = 0 },
+]
+`
+
+	cfg, err := Parse(strings.NewReader(retryOnConfig))
+	if err != nil {
+		t.Fatalf("Parse(retry_on config) unexpected error: %v", err)
+	}
+
+	tiers, err := cfg.Chain("ta-go-builder")
+	if err != nil {
+		t.Fatalf("Chain(ta-go-builder) unexpected error: %v", err)
+	}
+	if got, want := len(tiers), 2; got != want {
+		t.Fatalf("tier count = %d, want %d", got, want)
+	}
+
+	// Tier 0: explicit retry_on list decodes in declared order.
+	got := tiers[0].RetryOn
+	want := []string{"rate_limit", "slot_timeout"}
+	if len(got) != len(want) {
+		t.Fatalf("tiers[0].RetryOn = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("tiers[0].RetryOn[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	// Tier 1: omitted retry_on decodes as nil (zero value) so the
+	// dispatcher's default policy still fires on tiers that did not opt in.
+	if tiers[1].RetryOn != nil {
+		t.Errorf("tiers[1].RetryOn = %#v, want nil (field omitted)", tiers[1].RetryOn)
+	}
+}
+
+// TestTierShouldRetry pins the three-state contract of Tier.ShouldRetry:
+// empty RetryOn surfaces (false, false) — "no opinion" — so the dispatcher
+// falls through to its built-in policy; non-empty + matching outcome
+// surfaces (true, true) — advance; non-empty + non-matching outcome
+// surfaces (false, true) — halt under the user-configured whitelist.
+func TestTierShouldRetry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		retryOn     []string
+		outcome     string
+		wantAdvance bool
+		wantOpinion bool
+	}{
+		{
+			name:        "empty retry_on yields no opinion",
+			retryOn:     nil,
+			outcome:     "rate_limit",
+			wantAdvance: false,
+			wantOpinion: false,
+		},
+		{
+			name:        "explicit empty slice yields no opinion",
+			retryOn:     []string{},
+			outcome:     "rate_limit",
+			wantAdvance: false,
+			wantOpinion: false,
+		},
+		{
+			name:        "whitelisted outcome advances",
+			retryOn:     []string{"rate_limit", "timeout"},
+			outcome:     "rate_limit",
+			wantAdvance: true,
+			wantOpinion: true,
+		},
+		{
+			name:        "non-whitelisted outcome halts",
+			retryOn:     []string{"rate_limit"},
+			outcome:     "network",
+			wantAdvance: false,
+			wantOpinion: true,
+		},
+		{
+			name:        "exact match required not substring",
+			retryOn:     []string{"rate_limit"},
+			outcome:     "rate",
+			wantAdvance: false,
+			wantOpinion: true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tier := Tier{Backend: "claude-native", Model: "haiku", RetryOn: tc.retryOn}
+			advance, hasOpinion := tier.ShouldRetry(tc.outcome)
+			if advance != tc.wantAdvance || hasOpinion != tc.wantOpinion {
+				t.Errorf("ShouldRetry(%q) = (advance=%v, hasOpinion=%v); want (advance=%v, hasOpinion=%v)",
+					tc.outcome, advance, hasOpinion, tc.wantAdvance, tc.wantOpinion)
 			}
 		})
 	}

@@ -178,12 +178,32 @@ var ErrHomeRequired = errors.New("installseed: home directory required")
 // Seed never overwrites. It returns nil on no-op (file already exists), nil
 // on successful first-install, and a wrapped error on filesystem failure.
 func Seed(home string) error {
+	return seedFile(home, "backends.toml", DefaultBackendsTOML)
+}
+
+// SeedChains writes the baseline chains.toml to <home>/.config/sand/chains.toml
+// when that file does not already exist. Same non-overwrite + mkdir contract
+// as Seed.
+//
+// The baseline references only the claude-native backend so the seed is
+// portable across users — anyone who has installed sand has claude-native
+// active by default (Seed writes its block uncommented). Users who want
+// ollama / codex / together-ai tiers must edit chains.toml after activating
+// the matching backend block in backends.toml.
+func SeedChains(home string) error {
+	return seedFile(home, "chains.toml", DefaultChainsTOML)
+}
+
+// seedFile is the shared body for Seed and SeedChains: stat target,
+// MkdirAll the enclosing dir, write the supplied baseline content iff the
+// target does not exist. Never overwrites.
+func seedFile(home, name, content string) error {
 	if home == "" {
 		return ErrHomeRequired
 	}
 
 	configDir := filepath.Join(home, ".config", "sand")
-	target := filepath.Join(configDir, "backends.toml")
+	target := filepath.Join(configDir, name)
 
 	// Non-overwrite check FIRST. A successful Stat means the file exists and
 	// we MUST NOT touch it; any error other than ENOENT also halts (we won't
@@ -198,9 +218,60 @@ func Seed(home string) error {
 		return fmt.Errorf("installseed: mkdir %s: %w", configDir, err)
 	}
 
-	if err := os.WriteFile(target, []byte(DefaultBackendsTOML), 0o644); err != nil {
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("installseed: write %s: %w", target, err)
 	}
 
 	return nil
 }
+
+// DefaultChainsTOML is the baseline content written to
+// $HOME/.config/sand/chains.toml on first install by SeedChains. It declares
+// claude-native-only chains for the five canonical roles so a fresh install
+// boots a working chain regardless of which backends the user later
+// uncomments in backends.toml.
+//
+// Users override per-project by dropping a `.claude/sand-chains.toml` in
+// the project root; the project rung wins per the hierarchical resolver.
+const DefaultChainsTOML = `# sand chains.toml — per-role fallback chains.
+#
+# This baseline references claude-native only so it works out-of-the-box
+# regardless of which backends you uncomment in backends.toml. Edit any
+# role's tier list to add ollama-cloud / ollama-local / codex-exec tiers
+# AFTER uncommenting the matching backend block in
+# ~/.config/sand/backends.toml.
+#
+# Tier fields:
+#   backend     — must match a [backends.NAME] entry in backends.toml
+#   model       — backend-specific model identifier
+#   slots       — cross-process concurrency cap; 0 = unlimited
+#   wait_max    — seconds to wait for a slot before advancing
+#   opts        — opaque extra CLI flags forwarded to the backend command
+#
+# Hierarchical resolution (first hit wins): project .claude/sand-chains.toml
+# > $XDG_CONFIG_HOME/sand/chains.toml > ~/.config/sand/chains.toml >
+# ~/.sand/chains.toml.
+
+[chains]
+
+"ta-go-builder" = [
+  { backend = "claude-native", model = "haiku",  slots = 0, wait_max = 0, opts = "" },
+  { backend = "claude-native", model = "sonnet", slots = 0, wait_max = 0, opts = "" },
+]
+
+"ta-go-planning" = [
+  { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
+]
+
+"ta-go-qa-falsification" = [
+  { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
+]
+
+"ta-go-qa-proof" = [
+  { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
+]
+
+"ta-closeout" = [
+  { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
+]
+`

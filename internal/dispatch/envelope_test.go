@@ -235,6 +235,44 @@ func TestParseEnvelopeIgnoresMalformedEventRows(t *testing.T) {
 	}
 }
 
+// TestParseEnvelope_OrderedToolCalls locks the drop_007a contract: the
+// preserved-order per-call breakdown captures every classified tool_use AND
+// permission_denial event in iteration order, with 1-based Index, the
+// event's Name/Tool string, and an IsError flag distinguishing the two
+// families. The existing aggregate maps continue to count totals; this test
+// asserts only the ordered slice (the aggregate behavior is locked by
+// TestParseEnvelope + TestParseEnvelopeIgnoresMalformedEventRows).
+func TestParseEnvelope_OrderedToolCalls(t *testing.T) {
+	payload := map[string]any{
+		"result": "ordered breakdown",
+		"iterations": []map[string]any{
+			{"type": "tool_use", "name": "Read"},
+			{"type": "tool_use", "name": "Edit"},
+			{"type": "permission_denial", "tool": "Bash"},
+			{"type": "tool_use", "name": "Read"},
+		},
+	}
+	stdout, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	got, err := ParseEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseEnvelope err = %v, want nil", err)
+	}
+
+	want := []OrderedToolCall{
+		{Index: 1, Name: "Read", IsError: false},
+		{Index: 2, Name: "Edit", IsError: false},
+		{Index: 3, Name: "Bash", IsError: true},
+		{Index: 4, Name: "Read", IsError: false},
+	}
+	if !reflect.DeepEqual(got.ToolCallsOrdered, want) {
+		t.Fatalf("ToolCallsOrdered = %+v, want %+v", got.ToolCallsOrdered, want)
+	}
+}
+
 // readFixture loads a JSON fixture from testdata/ and fails the test if the
 // file is missing or unreadable.
 func readFixture(t *testing.T, name string) []byte {

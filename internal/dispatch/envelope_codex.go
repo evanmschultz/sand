@@ -22,10 +22,12 @@ package dispatch
 // patterns are accepted because codex variants observed in the wild use
 // either form.
 //
-// Per drop_005 orchestrator amendment B2, Response.ToolCalls (the ordered
-// per-call breakdown) is DEFERRED to drop_007. ParseCodexEnvelope populates
-// only the aggregate maps (ToolsUsed + PermissionDenials) to match the
-// claude_json baseline today.
+// drop_007a wires the ordered per-call breakdown: ParseCodexEnvelope now
+// populates Envelope.ToolCallsOrdered alongside the aggregate maps, and
+// dispatch.buildSuccessResponse copies that into Response.ToolCalls so the
+// ordered audit complement reaches the TOON encoder. ToolsUsed +
+// PermissionDenials remain authoritative for total counts; the ordered slice
+// preserves the original event sequence.
 
 import (
 	"bufio"
@@ -81,10 +83,12 @@ const codexPermissionDenialMarker = "permission_denial"
 //     always non-nil maps so downstream TOON emission can render empty
 //     `tools_used[0]` / `permission_denials[0]` rows without nil checks.
 //
-// ToolCalls (the ordered per-call breakdown described in SAND-V02-SPEC §4)
-// is intentionally left empty: drop_005 orchestrator amendment B2 defers
-// that field to drop_007 polish so the codex_stream parser matches
-// claude_json baseline behavior today.
+// ToolCallsOrdered (the ordered per-call breakdown described in
+// SAND-V02-SPEC §4) is populated by drop_007a from the same line scan: each
+// `(completed)` mcp line appends an OrderedToolCall with IsError=false; each
+// `(failed)` mcp line and each free-form `permission_denial` line appends
+// one with IsError=true. The 1-based Index is assigned at emit time so it
+// stays aligned with the operator-visible event sequence.
 func ParseCodexEnvelope(stdout []byte) (Envelope, error) {
 	if len(stdout) == 0 {
 		return Envelope{}, ErrEmptyEnvelope
@@ -93,6 +97,7 @@ func ParseCodexEnvelope(stdout []byte) (Envelope, error) {
 	env := Envelope{
 		ToolsUsed:         make(map[string]int),
 		PermissionDenials: make(map[string]int),
+		ToolCallsOrdered:  make([]OrderedToolCall, 0),
 	}
 
 	scanner := bufio.NewScanner(bytes.NewReader(stdout))
@@ -104,7 +109,7 @@ func ParseCodexEnvelope(stdout []byte) (Envelope, error) {
 		line := scanner.Text()
 		trimmed := strings.TrimRight(line, " \t\r")
 
-		if classified := classifyCodexLine(trimmed, env.ToolsUsed, env.PermissionDenials); classified {
+		if classified := classifyCodexLine(trimmed, env.ToolsUsed, env.PermissionDenials, &env.ToolCallsOrdered); classified {
 			continue
 		}
 		narrative = append(narrative, line)
@@ -128,7 +133,14 @@ func ParseCodexEnvelope(stdout []byte) (Envelope, error) {
 // true when the line was classified (so the caller skips narrative
 // accumulation). Empty / whitespace-only lines are classified as
 // non-narrative so they do not pollute Result with trailing blanks.
-func classifyCodexLine(line string, tools, denials map[string]int) bool {
+//
+// drop_007a: the ordered slice pointer carries the preserved-order per-call
+// breakdown. Every classified tool_use / permission_denial event appends a
+// row whose Index is 1-based across the combined sequence (Index = len+1 at
+// emit time). Empty / whitespace-only lines and unrecognised mcp suffixes do
+// NOT bump the ordered sequence so the Index aligns with operator-visible
+// audit events only.
+func classifyCodexLine(line string, tools, denials map[string]int, ordered *[]OrderedToolCall) bool {
 	if line == "" {
 		return true
 	}
@@ -144,6 +156,11 @@ func classifyCodexLine(line string, tools, denials map[string]int) bool {
 				return true
 			}
 			tools[tool]++
+			*ordered = append(*ordered, OrderedToolCall{
+				Index:   len(*ordered) + 1,
+				Name:    tool,
+				IsError: false,
+			})
 			return true
 
 		case strings.HasSuffix(body, " "+codexFailedSuffix):
@@ -153,6 +170,11 @@ func classifyCodexLine(line string, tools, denials map[string]int) bool {
 				return true
 			}
 			denials[tool]++
+			*ordered = append(*ordered, OrderedToolCall{
+				Index:   len(*ordered) + 1,
+				Name:    tool,
+				IsError: true,
+			})
 			return true
 		}
 		// `mcp:` prefix without a recognised suffix → treat as narrative
@@ -166,6 +188,11 @@ func classifyCodexLine(line string, tools, denials map[string]int) bool {
 			tool = codexPermissionDenialMarker
 		}
 		denials[tool]++
+		*ordered = append(*ordered, OrderedToolCall{
+			Index:   len(*ordered) + 1,
+			Name:    tool,
+			IsError: true,
+		})
 		return true
 	}
 

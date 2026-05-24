@@ -48,12 +48,49 @@ type Config struct {
 //     for codex-exec and claude-native tiers.
 //   - Slots is the ollama-local concurrency cap (0 = unlimited); ignored
 //     for codex-exec and claude-native tiers.
+//   - RetryOn opts in to a user-configurable per-tier override of the
+//     dispatcher's default outcome-to-action policy. When non-empty, ONLY
+//     outcomes whose ErrClass.String() value appears in this list will
+//     advance the chain; all others halt — including the categories the
+//     default policy would have advanced (rate_limit, auth_failure,
+//     network, timeout). When empty (the zero value), the dispatcher
+//     falls back to its built-in policy (Rate/Auth/Network/Timeout →
+//     advance; Crash/Unknown → halt). Whitelist semantics — the list is
+//     authoritative when present and silent when absent.
 type Tier struct {
-	Backend string `toml:"backend"`
-	Model   string `toml:"model"`
-	Opts    string `toml:"opts"`
-	WaitMax int    `toml:"wait_max"`
-	Slots   int    `toml:"slots"`
+	Backend string   `toml:"backend"`
+	Model   string   `toml:"model"`
+	Opts    string   `toml:"opts"`
+	WaitMax int      `toml:"wait_max"`
+	Slots   int      `toml:"slots"`
+	RetryOn []string `toml:"retry_on"`
+}
+
+// ShouldRetry reports whether the given outcome string should advance the
+// dispatcher to the next tier under this tier's user-configured RetryOn
+// override.
+//
+// When RetryOn is non-empty, it is the authoritative whitelist: membership =
+// advance, miss = halt; hasOpinion is true so the caller knows to honor the
+// (advance, !advance) decision unconditionally. When RetryOn is empty the
+// method returns (false, false) to signal "I have no opinion" and the caller
+// MUST fall through to its built-in classification policy — the false in the
+// advance slot is a placeholder, not a halt verdict.
+//
+// The 3-state (advance, hasOpinion) tuple keeps the caller's fallthrough
+// simple: a single `if hasOpinion { ... }` covers both the advance and the
+// halt arms of the override without forcing the caller to re-derive whether
+// the tier opted in.
+func (t Tier) ShouldRetry(outcome string) (advance, hasOpinion bool) {
+	if len(t.RetryOn) == 0 {
+		return false, false
+	}
+	for _, allowed := range t.RetryOn {
+		if outcome == allowed {
+			return true, true
+		}
+	}
+	return false, true
 }
 
 // Parse decodes a sand chains TOML document from r into a Config.

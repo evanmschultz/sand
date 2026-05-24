@@ -90,6 +90,88 @@ func TestInstallSeedEmptyHomeRejected(t *testing.T) {
 	}
 }
 
+// TestSeedChainsFirstInstall pins: a fresh home with no chains.toml gains
+// the baseline file containing claude-native-only tiers for every canonical
+// role. The seed is intentionally claude-native-only so the file is
+// portable regardless of which backends the user later activates.
+func TestSeedChainsFirstInstall(t *testing.T) {
+	home := t.TempDir()
+
+	if err := SeedChains(home); err != nil {
+		t.Fatalf("SeedChains first-install returned error: %v", err)
+	}
+
+	target := filepath.Join(home, ".config", "sand", "chains.toml")
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read seeded file %s: %v", target, err)
+	}
+
+	body := string(got)
+
+	if !strings.Contains(body, "[chains]") {
+		t.Errorf("seeded chains.toml missing [chains] header")
+	}
+	requiredRoles := []string{
+		`"ta-go-builder"`,
+		`"ta-go-planning"`,
+		`"ta-go-qa-falsification"`,
+		`"ta-go-qa-proof"`,
+		`"ta-closeout"`,
+	}
+	for _, want := range requiredRoles {
+		if !strings.Contains(body, want) {
+			t.Errorf("seeded chains.toml missing role key %s", want)
+		}
+	}
+	// Baseline is claude-native-only — ollama / codex tier ENTRIES must NOT
+	// appear in the default seed so the file works on any sand install. The
+	// check looks for `backend = "X"` lines, not bare substrings, so prose
+	// in comments referring to those backends does not trip the assertion.
+	for _, forbidden := range []string{"ollama-local", "ollama-cloud", "codex-exec", "together-ai"} {
+		needle := `backend = "` + forbidden + `"`
+		if strings.Contains(body, needle) {
+			t.Errorf("seeded chains.toml has tier %q; baseline must be claude-native-only", needle)
+		}
+	}
+}
+
+// TestSeedChainsNeverOverwrite pins the non-overwrite invariant for
+// chains.toml (same contract as Seed for backends.toml).
+func TestSeedChainsNeverOverwrite(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".config", "sand")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("setup mkdir %s: %v", configDir, err)
+	}
+
+	target := filepath.Join(configDir, "chains.toml")
+	sentinel := []byte("DO NOT OVERWRITE\nuser-customized-chains = true\n")
+	if err := os.WriteFile(target, sentinel, 0o644); err != nil {
+		t.Fatalf("setup write %s: %v", target, err)
+	}
+
+	if err := SeedChains(home); err != nil {
+		t.Fatalf("SeedChains against existing file returned error: %v", err)
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read after SeedChains %s: %v", target, err)
+	}
+	if string(got) != string(sentinel) {
+		t.Fatalf("SeedChains overwrote existing file:\nwant: %q\ngot:  %q", sentinel, got)
+	}
+}
+
+// TestSeedChainsEmptyHomeRejected pins: SeedChains never invents a home dir.
+func TestSeedChainsEmptyHomeRejected(t *testing.T) {
+	err := SeedChains("")
+	if !errors.Is(err, ErrHomeRequired) {
+		t.Fatalf("SeedChains(\"\") error = %v, want ErrHomeRequired", err)
+	}
+}
+
 // TestInstallSeedCreatesNestedDir pins: when ~/.config/sand does not exist,
 // Seed creates it (along with ~/.config when needed). Covers the
 // fresh-home-no-config-dir case.

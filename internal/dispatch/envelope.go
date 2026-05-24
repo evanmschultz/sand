@@ -41,6 +41,28 @@ type Usage struct {
 	CacheCreationTokens int `json:"cache_creation_input_tokens"`
 }
 
+// OrderedToolCall is one entry in Envelope.ToolCallsOrdered: the
+// preserved-order per-call breakdown of tool invocations a parser observed in
+// the dispatched agent's event stream. Index is 1-based call order across
+// BOTH successful tool_use and permission-denied events combined, so a
+// downstream Response.ToolCalls renderer can reconstruct the exact sequence
+// the agent attempted.
+//
+// IsError is true when the call was a permission denial (or, for the codex
+// stream, a `(failed)` invocation). The aggregate ToolsUsed /
+// PermissionDenials maps remain authoritative for total counts; this slice is
+// the ordered audit complement.
+//
+// Per-call timing is intentionally NOT carried here — neither the claude
+// envelope's Iteration record nor the codex stream's mcp log line surfaces a
+// per-invocation duration today. Response.ToolCall.DurationMs is documented
+// as zero pending an upstream emitter that publishes per-call timing.
+type OrderedToolCall struct {
+	Index   int
+	Name    string
+	IsError bool
+}
+
 // Iteration is one structured event in the envelope's iterations array.
 //
 // The canonical event types ParseEnvelope inspects are:
@@ -103,6 +125,14 @@ type Envelope struct {
 	// events keyed by the event's Tool. Populated by ParseEnvelope; not
 	// decoded from JSON.
 	PermissionDenials map[string]int `json:"-"`
+
+	// ToolCallsOrdered is the preserved-order per-call breakdown of tool
+	// invocations the parser observed. drop_007a wires this from both
+	// ParseEnvelope (Iteration walk) and ParseCodexEnvelope (mcp: line
+	// scan). The aggregate ToolsUsed / PermissionDenials maps stay
+	// authoritative for total counts; ToolCallsOrdered is the ordered
+	// complement that lets Response.ToolCalls reconstruct the sequence.
+	ToolCallsOrdered []OrderedToolCall `json:"-"`
 }
 
 // ParseEnvelope decodes the claude CLI's JSON envelope from stdout and
@@ -135,6 +165,7 @@ func ParseEnvelope(stdout []byte) (Envelope, error) {
 
 	env.ToolsUsed = make(map[string]int)
 	env.PermissionDenials = make(map[string]int)
+	env.ToolCallsOrdered = make([]OrderedToolCall, 0, len(env.Iterations))
 
 	for _, it := range env.Iterations {
 		switch it.Type {
@@ -143,11 +174,21 @@ func ParseEnvelope(stdout []byte) (Envelope, error) {
 				continue
 			}
 			env.ToolsUsed[it.Name]++
+			env.ToolCallsOrdered = append(env.ToolCallsOrdered, OrderedToolCall{
+				Index:   len(env.ToolCallsOrdered) + 1,
+				Name:    it.Name,
+				IsError: false,
+			})
 		case "permission_denial", "permission_denied":
 			if it.Tool == "" {
 				continue
 			}
 			env.PermissionDenials[it.Tool]++
+			env.ToolCallsOrdered = append(env.ToolCallsOrdered, OrderedToolCall{
+				Index:   len(env.ToolCallsOrdered) + 1,
+				Name:    it.Tool,
+				IsError: true,
+			})
 		}
 	}
 

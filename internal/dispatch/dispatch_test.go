@@ -525,9 +525,14 @@ func TestDispatchDryRun(t *testing.T) {
 // TestDispatchSelectionErrors covers the four failure modes the droplet
 // acceptance criteria call out: persona load failure, missing chains config,
 // unknown role, and no-claude-native-tier.
+//
+// The parent test is intentionally NOT t.Parallel: one subtest
+// (missing_chains_config_errors) calls t.Setenv to isolate from the
+// developer's real ~/.config/sand/chains.toml, and Go forbids t.Setenv in
+// any subtest whose ancestor is parallel. Siblings that want parallelism
+// can still call t.Parallel() themselves and will run concurrently with
+// each other.
 func TestDispatchSelectionErrors(t *testing.T) {
-	t.Parallel()
-
 	t.Run("persona load error propagates", func(t *testing.T) {
 		t.Parallel()
 
@@ -554,7 +559,12 @@ func TestDispatchSelectionErrors(t *testing.T) {
 	})
 
 	t.Run("missing chains config errors", func(t *testing.T) {
-		t.Parallel()
+		// Cannot t.Parallel: t.Setenv mutates process-global env vars to
+		// isolate the test from the developer's real ~/.config/sand/chains.toml
+		// (drop_011's hierarchical resolver walks past CWD into HOME).
+		// Without this isolation, the seeded baseline chains.toml landed by
+		// `mage install` makes Resolve succeed and breaks the "no chains
+		// config" contract this test exists to pin.
 
 		// NOTE: dispatch.loadChainsConfig migrated to chains.Resolve in
 		// drop_008. The drop_003 contract (os.ErrNotExist substring
@@ -563,6 +573,11 @@ func TestDispatchSelectionErrors(t *testing.T) {
 		cwd := t.TempDir()
 		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
 		// No sand-chains.toml.
+
+		// Pin HOME + XDG to empty tempdirs so the hierarchical resolver
+		// finds nothing at any rung and surfaces ErrChainConfigNotFound.
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("XDG_CONFIG_HOME", "")
 
 		ctx := context.Background()
 		_, err := Dispatch(ctx, Params{
@@ -1184,6 +1199,108 @@ func TestDispatchFailoverChain(t *testing.T) {
 		}
 		if resp.FallbackChain[0].Backend != "ollama-local" {
 			t.Errorf("FallbackChain[0].Backend = %q, want %q", resp.FallbackChain[0].Backend, "ollama-local")
+		}
+		if resp.FallbackChain[1].Outcome != "success" {
+			t.Errorf("FallbackChain[1].Outcome = %q, want %q", resp.FallbackChain[1].Outcome, "success")
+		}
+	})
+}
+
+// TestDispatchFailoverChainRetryOn exercises the drop_009 user-configurable
+// per-tier retry_on override of the default outcome→action policy.
+//
+// Two sub-tests pin the contract:
+//
+//   - retry_on_overrides_default_advance: a tier sets retry_on=["rate_limit"]
+//     but the spawn produces a network-class outcome. Under the DEFAULT
+//     policy network would advance the chain; under the retry_on whitelist
+//     network is NOT a member and the chain must HALT mid-walk with a
+//     wrapped error and a partial FallbackChain of length 1.
+//   - retry_on_advances_on_whitelisted: a tier sets retry_on=["rate_limit"]
+//     and the spawn produces a rate_limit outcome. The chain MUST advance
+//     to the next tier and the second tier succeeds. The recorded
+//     FallbackChain pins both attempts.
+func TestDispatchFailoverChainRetryOn(t *testing.T) {
+	// retryOnAdvanceChainsTOML opts tier 1 into retry_on=["rate_limit"];
+	// tier 2 is the default-policy fallthrough so the override only fires
+	// on the first tier. Both tiers use claude-native + slots=0 (unlimited)
+	// so the fake-CLI seam drives all per-tier outcomes deterministically.
+	const retryOnAdvanceChainsTOML = `
+[chains]
+"ta-go-builder" = [
+  { backend = "claude-native", model = "haiku",  opts = "", wait_max = 0, slots = 0, retry_on = ["rate_limit"] },
+  { backend = "claude-native", model = "sonnet", opts = "", wait_max = 0, slots = 0 },
+]
+`
+
+	t.Run("retry_on_overrides_default_advance", func(t *testing.T) {
+		// Sequence has only one entry — under the retry_on whitelist the
+		// chain MUST halt after tier 1's network outcome. The fake CLI
+		// is never invoked a second time; if it were the missing second
+		// fixture would exit 2 and surface as a different error.
+		installFakeClaudeSequence(t, "network")
+
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		writeChainsConfig(t, cwd, retryOnAdvanceChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
+
+		resp, err := Dispatch(context.Background(), Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err == nil {
+			t.Fatalf("expected halt-by-retry_on error, got nil; resp=%#v", resp)
+		}
+		if errors.Is(err, ErrChainExhausted) {
+			t.Errorf("retry_on halt should NOT exhaust the chain; got ErrChainExhausted: %v", err)
+		}
+		if !strings.Contains(err.Error(), "retry_on policy") {
+			t.Errorf("error message should mention retry_on policy; got %q", err.Error())
+		}
+		if len(resp.FallbackChain) != 1 {
+			t.Fatalf("FallbackChain len = %d, want 1 (chain halted under retry_on whitelist); chain=%#v",
+				len(resp.FallbackChain), resp.FallbackChain)
+		}
+		if resp.FallbackChain[0].Outcome != "network" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "network")
+		}
+		if resp.FallbackChain[0].Reason == "" {
+			t.Errorf("FallbackChain[0].Reason is empty; want stderr summary")
+		}
+		if resp.Tier != 0 {
+			t.Errorf("Tier = %d, want 0 on retry_on halt", resp.Tier)
+		}
+	})
+
+	t.Run("retry_on_advances_on_whitelisted", func(t *testing.T) {
+		installFakeClaudeSequence(t, "rate-limit,success")
+
+		cwd := t.TempDir()
+		writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+		writeChainsConfig(t, cwd, retryOnAdvanceChainsTOML)
+		writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
+
+		resp, err := Dispatch(context.Background(), Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			CWD:    cwd,
+		})
+		if err != nil {
+			t.Fatalf("Dispatch with retry_on advance: %v", err)
+		}
+		if resp.Tier != 2 {
+			t.Errorf("Tier = %d, want 2 (tier 2 served after retry_on-whitelisted rate_limit on tier 1)", resp.Tier)
+		}
+		if resp.ServedBy != "claude-native:sonnet" {
+			t.Errorf("ServedBy = %q, want %q", resp.ServedBy, "claude-native:sonnet")
+		}
+		if len(resp.FallbackChain) != 2 {
+			t.Fatalf("FallbackChain len = %d, want 2; chain=%#v", len(resp.FallbackChain), resp.FallbackChain)
+		}
+		if resp.FallbackChain[0].Outcome != "rate_limit" {
+			t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "rate_limit")
 		}
 		if resp.FallbackChain[1].Outcome != "success" {
 			t.Errorf("FallbackChain[1].Outcome = %q, want %q", resp.FallbackChain[1].Outcome, "success")

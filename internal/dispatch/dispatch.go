@@ -317,11 +317,31 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		// is NOT a Go error at the backend's layer — it lives in
 		// SpawnResult.ExitCode and Stderr.
 		class := ClassifyExitError(spawnResult.Stderr, spawnResult.ExitCode)
-		switch class {
-		case ErrClassSuccess:
+		if class == ErrClassSuccess {
 			attempt.Outcome = class.String()
 			chain = append(chain, attempt)
 			return buildSuccessResponse(params, backend, tier, spawnModel, tierIdx, spawnResult, chain)
+		}
+
+		// drop_009 user-configurable retry policy: when the tier opts in
+		// via retry_on, the whitelist supersedes the default outcome→
+		// action switch below. Membership = advance; non-membership =
+		// halt — INCLUDING outcomes the default policy would have
+		// advanced (rate_limit, auth_failure, network, timeout). When
+		// the tier did not opt in (RetryOn empty), ShouldRetry returns
+		// hasOpinion=false and we fall through to the default switch.
+		outcomeStr := class.String()
+		if advance, hasOpinion := tier.ShouldRetry(outcomeStr); hasOpinion {
+			attempt.Outcome = outcomeStr
+			attempt.Reason = summarizeStderr(spawnResult.Stderr)
+			chain = append(chain, attempt)
+			if advance {
+				continue
+			}
+			return Response{FallbackChain: chain}, fmt.Errorf("dispatch: tier %d (%s:%s) %s halted by retry_on policy: exit %d", tierIdx, tier.Backend, tier.Model, outcomeStr, spawnResult.ExitCode)
+		}
+
+		switch class {
 		case ErrClassRateLimit, ErrClassAuthFailure, ErrClassNetwork, ErrClassTimeout:
 			attempt.Outcome = class.String()
 			attempt.Reason = summarizeStderr(spawnResult.Stderr)
@@ -414,8 +434,33 @@ func buildSuccessResponse(params Params, backend backends.Backend, tier chains.T
 		Tokens:            tokensFromEnvelope(env.Usage),
 		ToolsUsed:         toolUsesFromMap(env.ToolsUsed),
 		PermissionDenials: permissionDenialsFromMap(env.PermissionDenials),
+		ToolCalls:         toolCallsFromOrdered(env.ToolCallsOrdered),
 		FallbackChain:     chain,
 	}, nil
+}
+
+// toolCallsFromOrdered copies the parser-level OrderedToolCall slice into the
+// Response-level []ToolCall shape. The two types are intentionally distinct:
+// OrderedToolCall lives on Envelope and carries only what either parser can
+// actually observe today, while ToolCall mirrors the SAND-SPEC §3.1 TOON row
+// layout (index / name / duration_ms / is_error).
+//
+// DurationMs is set to zero: neither the claude envelope's Iteration record
+// nor the codex stream's `mcp:` log line surfaces a per-call duration. The
+// gap is documented on Envelope.OrderedToolCall and on Response.ToolCall;
+// when an upstream emitter starts publishing per-invocation timing this
+// helper is the single point of update.
+func toolCallsFromOrdered(in []OrderedToolCall) []ToolCall {
+	out := make([]ToolCall, 0, len(in))
+	for _, c := range in {
+		out = append(out, ToolCall{
+			Index:      c.Index,
+			Name:       c.Name,
+			DurationMs: 0,
+			IsError:    c.IsError,
+		})
+	}
+	return out
 }
 
 // summarizeStderr collapses the captured stderr to a single trimmed line

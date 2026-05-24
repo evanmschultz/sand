@@ -48,6 +48,10 @@ func Install() error {
 		return fmt.Errorf("install: seed backends.toml: %w", err)
 	}
 
+	if err := installseed.SeedChains(home); err != nil {
+		return fmt.Errorf("install: seed chains.toml: %w", err)
+	}
+
 	return nil
 }
 

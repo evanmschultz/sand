@@ -238,6 +238,34 @@ func TestParseCodexEnvelopePreservesTokenWithSlash(t *testing.T) {
 	}
 }
 
+// TestParseCodexEnvelope_OrderedToolCalls locks the drop_007a contract for
+// the codex parser: each classified mcp `(completed)` appends an
+// OrderedToolCall with IsError=false; each `(failed)` appends one with
+// IsError=true; the 1-based Index advances across the combined sequence in
+// the order the stream emitted the events. Aggregate behavior is locked by
+// TestParseCodexEnvelope; this test asserts only the ordered slice.
+func TestParseCodexEnvelope_OrderedToolCalls(t *testing.T) {
+	stdout := []byte(
+		"mcp: ta/get (completed)\n" +
+			"mcp: shell/bash (failed)\n" +
+			"mcp: ta/update (completed)\n",
+	)
+
+	got, err := ParseCodexEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseCodexEnvelope err = %v, want nil", err)
+	}
+
+	want := []OrderedToolCall{
+		{Index: 1, Name: "ta/get", IsError: false},
+		{Index: 2, Name: "shell/bash", IsError: true},
+		{Index: 3, Name: "ta/update", IsError: false},
+	}
+	if !reflect.DeepEqual(got.ToolCallsOrdered, want) {
+		t.Fatalf("ToolCallsOrdered = %+v, want %+v", got.ToolCallsOrdered, want)
+	}
+}
+
 // TestParseCodexEnvelopeMalformedMcpLine locks behavior for an `mcp:`
 // prefix without a recognised `(completed)` / `(failed)` suffix. The line
 // must NOT inflate aggregates and must be preserved in Result so an audit

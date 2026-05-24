@@ -29,10 +29,19 @@ import (
 // Backend identifiers used throughout this package. They match the strings
 // the chains parser produces for the Tier.Backend field per SAND-SPEC §5 and
 // must stay in sync with the chain-validator's accepted values.
+//
+// The four claude-CLI-routed backends (claude-native, ollama-local,
+// ollama-cloud, together-ai) all preflight to the same check — "claude" on
+// PATH — because the actual API auth happens at wet-run time and surfaces
+// via auth_failure → advance per the chain policy. Distinguishing them at
+// preflight would require probing each provider's auth endpoint, which is
+// out of scope for a connectivity check.
 const (
 	BackendOllamaLocal  = "ollama-local"
+	BackendOllamaCloud  = "ollama-cloud"
 	BackendCodexExec    = "codex-exec"
 	BackendClaudeNative = "claude-native"
+	BackendTogetherAI   = "together-ai"
 )
 
 // ollamaVersionURL is the daemon liveness endpoint per SAND-SPEC §3.2.
@@ -126,7 +135,9 @@ func checkTier(ctx context.Context, p Probe, idx int, t chains.Tier) Result {
 	r := Result{Tier: idx, Backend: t.Backend, Model: t.Model}
 
 	switch t.Backend {
-	case BackendClaudeNative:
+	case BackendClaudeNative, BackendOllamaCloud, BackendTogetherAI:
+		// All three route through the claude CLI; auth differs at wet-run
+		// but the preflight connectivity check is identical.
 		r.OK, r.Reason = checkCLI(p, "claude")
 	case BackendCodexExec:
 		r.OK, r.Reason = checkCLI(p, "codex")
