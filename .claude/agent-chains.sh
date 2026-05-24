@@ -39,8 +39,14 @@ emit_chain_for_role() {
   case "$1" in
     ta-go-builder|ta-fe-builder)                     chain_builder ;;
     ta-go-planning|ta-fe-planning)                   chain_planning ;;
-    ta-go-qa-falsification|ta-fe-qa-falsification)   chain_qa_falsification ;;
-    ta-go-qa-proof|ta-fe-qa-proof)                   chain_qa_proof ;;
+    # Proof QA (plan + build, fe + go) → claude-native opus via Agent tool.
+    ta-go-plan-qa-proof|ta-fe-plan-qa-proof|ta-go-build-qa-proof|ta-fe-build-qa-proof) \
+                                                     chain_qa_proof ;;
+    # Falsification QA (plan + build, fe + go) → codex. FE roles get the
+    # Playwright MCP injected (dispatch_codex), Go roles get gopls; so the
+    # mandatory FE-Playwright gate is satisfied on codex, not only claude-native.
+    ta-go-plan-qa-falsification|ta-fe-plan-qa-falsification|ta-go-build-qa-falsification|ta-fe-build-qa-falsification) \
+                                                     chain_qa_falsification ;;
     ta-closeout)                                     chain_closeout ;;
     *)  echo "" ;;
   esac
