@@ -3,7 +3,7 @@
 // BackendConfig TOML shape and the Resolve factory that ties a backend
 // name to a Backend instance.
 //
-// This file is the v0.2 §5.1 contract surface. The CONCRETE Backend
+// This file is the SAND-SPEC §5.1 contract surface. The CONCRETE Backend
 // implementations (claudeNativeBackend, codexExecBackend, etc.) live in
 // sibling files in this package; the dispatch package consumes them via
 // the Backend interface only, preventing an import cycle between
@@ -38,7 +38,7 @@ var ErrUnknownBackend = errors.New("backends: unknown backend")
 // Preview renders the would-be argv + env + stdin shape as a
 // human-readable string WITHOUT spawning a subprocess. It is the
 // dry-run surface used by the `preflight` MCP tool and by `--dry-run`
-// dispatches per SAND-V02-SPEC §8.3.
+// dispatches per SAND-SPEC §8.3.
 //
 // EnvelopeFormat declares the backend's stdout dialect ("claude_json",
 // "codex_stream", ...) so the dispatch package can pick the right
@@ -105,7 +105,7 @@ type SpawnRequest struct {
 // is responsible for any structural decoding.
 //
 // ExitCode is the subprocess's exit code; 0 == success for most
-// backends but the dispatcher's error classifier (SAND-V02-SPEC §3)
+// backends but the dispatcher's error classifier (SAND-SPEC §3)
 // inspects stderr text in addition to exit code to assign an ErrClass.
 //
 // Duration is wall-clock time from spawn start to process exit. It
@@ -118,7 +118,7 @@ type SpawnResult struct {
 }
 
 // BackendConfig is the TOML shape for a single `[backends.<name>]`
-// table per SAND-V02-SPEC §5.1. All 10 fields are declared verbatim
+// table per SAND-SPEC §5.1. All 10 fields are declared verbatim
 // per the drop_011 L3 planner amendment so future backends
 // (together-ai, openrouter, etc.) can be added without touching Go.
 //

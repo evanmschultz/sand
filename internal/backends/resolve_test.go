@@ -9,7 +9,7 @@ import (
 )
 
 // TestResolveBackendsConfig covers the 4-rung hierarchical backends-config
-// resolution order per SAND-V02-SPEC §5.2, plus the ErrBackendsConfigNotFound
+// resolution order per SAND-SPEC §5.2, plus the ErrBackendsConfigNotFound
 // terminal case and the XDG-unset skip case pinned by the planner.
 //
 // Each subtest isolates HOME + XDG_CONFIG_HOME via t.Setenv and seeds only

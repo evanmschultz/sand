@@ -13,22 +13,13 @@ These two things are easy to confuse:
 
 Implication for design: persona resolution in sand source = `filepath.Join(projectDir, ".claude", "agents", role+".md")`. Never bake persona content into the binary. Never look up persona content from `~/.ta/agents/` or `~/.claude/agents/` — the project tree is the only source of truth.
 
-## Bootstrap reality — sand builds via ta's dispatcher
+## Dispatch reality — sand dispatches via its own MCP server
 
-Sand does not exist yet as a binary. During the v0.1 build cascade, all dispatches go through ta's existing bash dispatcher in `../ta/main`:
+Sand's binary lives at `~/.local/bin/sand` (built by `mage install`) and registers in sand's own `.mcp.json` as a project MCP server. Cascades dispatch via `mcp__sand__dispatch(role, prompt)`.
 
-```
-echo "<task prompt>" | /Users/evanschultz/Documents/Code/hylla/ta/main/bin/agent-dispatch.sh --role ta-go-builder --cwd /Users/evanschultz/Documents/Code/hylla/sand/main
-```
+Chain config for cascades targeting sand's own code lives in [`.claude/sand-chains.toml`](.claude/sand-chains.toml) (project rung), with home-rung fallback defaults seeded by `mage install` into `~/.config/sand/chains.toml`. Sand reads the per-role fallback chain hierarchically (project → XDG → `~/.config/sand` → `~/.sand`) on every dispatch — no restart required when config changes.
 
-(Stdin pipe shown above; `--prompt "..."` inline is the alternative. **Never use `--prompt-file`** — temp files obscure the call site and don't reproduce.)
-
-Chain config: [`../ta/main/.claude/agent-chains.sh`](../../ta/main/.claude/agent-chains.sh) — sand reuses ta's chains until sand-the-server is functional and ports the chains to TOML.
-
-After sand v0.1 ships:
-1. Sand binary lives at `~/.local/bin/sand` (built by `mage install`).
-2. Sand registers in sand's own `.mcp.json` as a project MCP server.
-3. Future cascades dispatch via `mcp__sand__dispatch(role, prompt)` instead of `Bash(./bin/agent-dispatch.sh)`.
+When a fallback to the legacy bash dispatcher is genuinely needed (e.g. for cross-project ta-side cascades), prefer stdin-pipe or inline `--prompt`. **Never use `--prompt-file`** — temp files obscure the call site and don't reproduce.
 
 ## Agent routing — backend dispatch (chain mode)
 
@@ -64,7 +55,7 @@ The dispatcher passes the persona's frontmatter `tools:` line as `--allowedTools
 
 Agents NEVER run raw language tooling. No `go test`, no `go vet`, no `go build`, no `gofmt`, no `gofumpt`. All test / build / check commands route through mage. **Orchestrators are the exception** — they're trusted; agents are scoped.
 
-Sand-the-project does NOT have `magefile.go` yet — it lands during the v0.1 build cascade. Until then, mage targets referenced in personas are NOT runnable in sand and dispatched agents will fail loudly if they try. That is correct — sand needs the magefile before QA personas can run their gates.
+Sand-the-project ships a `magefile.go` exposing `testFunc` / `testPkg` / `Test` / `Check` targets. Personas reference those targets directly.
 
 Per-role scoped Bash allowlist (verified in ta — `--allowedTools` filters tools from the model's visible toolset). TOON form (the project's adopted encoding — see SAND-SPEC §4):
 
@@ -83,7 +74,7 @@ bash-allowlist{role,allowed,denied}:
 
 ## Editing role personas
 
-`.claude/agents/ta-*.md` files are ta records under the `claude_agents.agent` schema. Both the native `Agent` tool AND the bash dispatcher (and, post-v0.1, sand) read these. NEVER edit them directly with Edit / Write. Workflow:
+`.claude/agents/ta-*.md` files are ta records under the `claude_agents.agent` schema. The native `Agent` tool, the bash dispatcher, and sand all read these. NEVER edit them directly with Edit / Write. Workflow:
 
 1. `mcp__ta__update` on the agent record id (e.g. `ta-go-builder`) with the desired field overlay.
 2. `ta template save --kind=agent --path=./.claude/agents/<file>.md --group=ta --overwrite` — pushes the updated persona into `~/.ta/agents/ta/<file>.md`.
@@ -156,6 +147,6 @@ Launch Claude Code FROM `sand/main` to pick up cwd-inheritance for other MCP ser
 
 ## Project-specific docs
 
-- [`SAND-SPEC.md`](SAND-SPEC.md) — full sand v0.1 design: MCP tools, TOON format, chain config schema, dispatch matrix, build cascade entry-point.
+- [`SAND-SPEC.md`](SAND-SPEC.md) — full sand design: MCP tools, TOON format, chain config schema, dispatch matrix, build cascade entry-point.
 - [`../ta/main/docs/cascade-methodology.md`](../../ta/main/docs/cascade-methodology.md) — the canonical cascade contract sand's build cascade follows.
 - [`../ta/main/docs/agent-backend-routing.md`](../../ta/main/docs/agent-backend-routing.md) — full explainer for the multi-backend routing pattern sand reimplements.

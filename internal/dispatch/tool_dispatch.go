@@ -132,7 +132,7 @@ func DispatchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 }
 
 // responseToTOON builds the toon.Object that mirrors the SAND-SPEC §3.1 +
-// SAND-V02-SPEC §4 dispatch response layout. Field order matches the spec's
+// SAND-SPEC §4 dispatch response layout. Field order matches the spec's
 // golden example so encoder output stays byte-stable for orchestrator-side
 // fixtures.
 //
@@ -141,7 +141,7 @@ func DispatchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 // header is always present (the encoder writes `name[0]{...}:` when there are
 // zero rows, per spec).
 //
-// Field order (SAND-V02-SPEC §4):
+// Field order (SAND-SPEC §4):
 //
 //	result, served_by, tier, fallback, duration_ms, cost_usd, tokens,
 //	fallback_chain[N], tools_used[N], permission_denials[N], tool_calls[N],
@@ -189,7 +189,7 @@ func permissionDenialsTabular(denials []PermissionDenial) toon.Tabular {
 }
 
 // fallbackChainTabular converts a []Attempt into the tabular array shape per
-// SAND-V02-SPEC §4 `fallback_chain[N]{tier,backend,model,attempted_at,outcome,reason}:`.
+// SAND-SPEC §4 `fallback_chain[N]{tier,backend,model,attempted_at,outcome,reason}:`.
 //
 // Attempt.AttemptedAt is rendered as an RFC3339 timestamp (UTC). An empty
 // FallbackChain still emits the `fallback_chain[0]{...}:` header — the
@@ -213,7 +213,7 @@ func fallbackChainTabular(chain []Attempt) toon.Tabular {
 }
 
 // toolCallsTabular converts a []ToolCall into the tabular array shape per
-// SAND-V02-SPEC §4 `tool_calls[N]{idx,name,duration_ms,is_error}:`.
+// SAND-SPEC §4 `tool_calls[N]{idx,name,duration_ms,is_error}:`.
 //
 // The `idx` column is populated from ToolCall.Index — the 1-based ordering
 // captured at envelope-parse time. An empty ToolCalls still emits the

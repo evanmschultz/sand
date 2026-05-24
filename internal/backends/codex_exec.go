@@ -2,7 +2,7 @@
 //
 // This file owns codexExecBackend: the Backend impl that spawns the
 // codex CLI via os/exec under `codex exec --ephemeral --ignore-rules
-// --skip-git-repo-check -C <cwd> -m <model>` per SAND-V02-SPEC §7.1.
+// --skip-git-repo-check -C <cwd> -m <model>` per SAND-SPEC §7.1.
 //
 // Key differences from claudeNativeBackend:
 //

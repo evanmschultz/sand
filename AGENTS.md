@@ -9,13 +9,7 @@ Project-local guidance for agent runners (Codex, etc.) working inside the `sand`
 
 ## Bootstrap reality
 
-Sand binary does not exist yet. During v0.1 build cascade, dispatch goes through ta's bash dispatcher:
-
-```
-echo "<prompt>" | /Users/evanschultz/Documents/Code/hylla/ta/main/bin/agent-dispatch.sh --role ta-go-builder --cwd /Users/evanschultz/Documents/Code/hylla/sand/main
-```
-
-Chain config: [`../ta/main/.claude/agent-chains.sh`](../../ta/main/.claude/agent-chains.sh). Sand reuses ta's chains until sand v0.1 ports them to TOML.
+Sand's binary now exists and dispatches go through `mcp__sand__dispatch` from sand's own `.mcp.json`. Historical bootstrap (when sand had no binary) shelled out to ta's bash dispatcher; sand's chains are now ported to TOML and live in [`.claude/sand-chains.toml`](.claude/sand-chains.toml) (project rung) plus the seeded home-rung defaults.
 
 ## Subagent spawn defaults — background-first
 
@@ -23,7 +17,7 @@ Spawn agents with background-mode by default (Codex's equivalent of Claude Code'
 
 ## Mage-only Bash discipline
 
-Agents NEVER run raw language tooling. No `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. All test / build / check commands route through mage **once `magefile.go` exists in sand** (lands during v0.1 build cascade).
+Agents NEVER run raw language tooling. No `go test` / `go vet` / `go build` / `gofmt` / `gofumpt`. All test / build / check commands route through mage.
 
 If a capability is missing, add a mage target — do NOT broaden the persona's Bash scope.
 

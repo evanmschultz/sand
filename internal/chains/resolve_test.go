@@ -9,7 +9,7 @@ import (
 )
 
 // TestResolve covers the 4-rung hierarchical chain-config resolution order
-// per SAND-V02-SPEC §2.1, plus the ErrChainConfigNotFound terminal case and
+// per SAND-SPEC §2.1, plus the ErrChainConfigNotFound terminal case and
 // the XDG-unset skip case pinned by qa_falsification_chains_resolve_l3.
 //
 // Each subtest isolates HOME + XDG_CONFIG_HOME via t.Setenv and seeds only

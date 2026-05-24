@@ -1,5 +1,5 @@
 // Package backends owns the user-configurable backend template surface
-// described in SAND-V02-SPEC §5. This file is the templating engine that
+// described in SAND-SPEC §5. This file is the templating engine that
 // drives backend command rendering from `~/.config/sand/backends.toml`
 // entries.
 //
@@ -23,7 +23,7 @@ import (
 )
 
 // TemplateData is the substitution surface every backend template renders
-// against. Fields cover the SAND-V02-SPEC §5.4 inputs needed by the
+// against. Fields cover the SAND-SPEC §5.4 inputs needed by the
 // committed claude-native spawn behavior (model, cwd, persona body,
 // persona tools CSV, mcp config path, role).
 //

@@ -35,7 +35,7 @@ import (
 
 // fullArgsCodexExecTOML is the backends.toml fixture used by every
 // TestCodexExecBackend_* test. It populates BackendConfig with the
-// canonical SAND-V02-SPEC §7.1 codex argv:
+// canonical SAND-SPEC §7.1 codex argv:
 // `exec --ephemeral --ignore-rules --skip-git-repo-check -C {{.CWD}}
 //
 //	-m {{.Model}}`.

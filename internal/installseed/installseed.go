@@ -6,7 +6,7 @@
 // standard `go test ./...`. A regular Go subpackage satisfies both — magefile
 // imports installseed.Seed and the package's tests run under any tag set.
 //
-// The seed contents mirror SAND-V02-SPEC §5.1: one ACTIVE [backends.claude-
+// The seed contents mirror SAND-SPEC §5.1: one ACTIVE [backends.claude-
 // native] block matching the current `claude -p` invocation behavior, plus
 // four COMMENTED example blocks (codex-exec, ollama-local, ollama-cloud,
 // together-ai) so a user can uncomment-and-go for any of the supported

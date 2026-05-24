@@ -15,7 +15,7 @@ import (
 // test runs (and a `go test ./... -count=N` cycle on the same machine)
 // cannot collide on lock files at /tmp/sand-slots/<backend>/...
 //
-// /tmp/sand-slots/ is the production lock root by SAND-V02-SPEC §1 — it is
+// /tmp/sand-slots/ is the production lock root by SAND-SPEC §1 — it is
 // intentionally NOT under t.TempDir(). Tests therefore namespace via a
 // unique backend name and clean up after themselves.
 func uniqBackend(t *testing.T) string {
@@ -196,7 +196,7 @@ func TestAcquireSlot_Timeout(t *testing.T) {
 // TestAcquireSlot_UnlimitedZero verifies the slots=0 unlimited sentinel:
 // returns (nil, nil) and does NOT create any /tmp/sand-slots/<backend>
 // directory tree. This is the load-bearing "skip the filesystem entirely"
-// promise from SAND-V02-SPEC §1.4.
+// promise from SAND-SPEC §1.4.
 func TestAcquireSlot_UnlimitedZero(t *testing.T) {
 	t.Parallel()
 
@@ -301,5 +301,5 @@ func TestSlotConcurrent_RaceFreeIndexAssignment(t *testing.T) {
 }
 
 // Compile-time sanity: ensure Slot fields are exported as documented in
-// SAND-V02-SPEC §1.2.
+// SAND-SPEC §1.2.
 var _ = &Slot{Backend: "claude-native", Model: "haiku", Index: 1}

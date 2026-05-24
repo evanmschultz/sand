@@ -5,7 +5,7 @@ package dispatch
 // envelope.go (the claude_json baseline).
 //
 // Codex emits a streaming text format rather than a single JSON envelope.
-// Per SAND-V02-SPEC §7.3, each MCP tool invocation surfaces as one log line
+// Per SAND-SPEC §7.3, each MCP tool invocation surfaces as one log line
 // of the form:
 //
 //	mcp: <server>/<tool> (completed)
@@ -84,7 +84,7 @@ const codexPermissionDenialMarker = "permission_denial"
 //     `tools_used[0]` / `permission_denials[0]` rows without nil checks.
 //
 // ToolCallsOrdered (the ordered per-call breakdown described in
-// SAND-V02-SPEC §4) is populated by drop_007a from the same line scan: each
+// SAND-SPEC §4) is populated by drop_007a from the same line scan: each
 // `(completed)` mcp line appends an OrderedToolCall with IsError=false; each
 // `(failed)` mcp line and each free-form `permission_denial` line appends
 // one with IsError=true. The 1-based Index is assigned at emit time so it

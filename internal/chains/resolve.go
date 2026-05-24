@@ -14,11 +14,11 @@ import (
 // Callers should match it via errors.Is so wrapping with %w stays transparent.
 var ErrChainConfigNotFound = errors.New("chains: no chain config found")
 
-// Resolve walks the v0.2 hierarchical chain-config resolution order and returns
+// Resolve walks the hierarchical chain-config resolution order and returns
 // the absolute path of the first existing chains.toml, plus a source label
 // identifying which rung won.
 //
-// Resolution order (per SAND-V02-SPEC §2.1, project-first override semantics):
+// Resolution order (per SAND-SPEC §2.1, project-first override semantics):
 //
 //  1. <projectDir>/.claude/sand-chains.toml          source = "project"
 //  2. $XDG_CONFIG_HOME/sand/chains.toml              source = "xdg"

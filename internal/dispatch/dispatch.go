@@ -37,16 +37,16 @@ import (
 // can compare without re-typing the literal.
 const backendClaudeNative = "claude-native"
 
-// loadChainsConfig resolves the caller's chain config via the v0.2
-// hierarchical rules (project → XDG → $HOME/.config → $HOME/.sand — see
-// chains.Resolve) and parses the winning file.
+// loadChainsConfig resolves the caller's chain config via the hierarchical
+// rules (project → XDG → $HOME/.config → $HOME/.sand — see chains.Resolve)
+// and parses the winning file.
 //
 // When no config exists on any rung, chains.Resolve returns
 // ErrChainConfigNotFound; loadChainsConfig surfaces an error that satisfies
 // BOTH errors.Is(err, chains.ErrChainConfigNotFound) AND
 // errors.Is(err, os.ErrNotExist). The dual-target wrap is intentional: the
 // drop_003 tests pin os.ErrNotExist for the "no chains config" case and we
-// keep that contract intact while the v0.2 hierarchical resolver lands.
+// keep that contract intact alongside the hierarchical resolver.
 //
 // Errors from parse propagate via %w so callers can use errors.Is / errors.As
 // against the underlying toml package errors.
@@ -59,7 +59,7 @@ func loadChainsConfig(cwd string) (chains.Config, error) {
 	path, _, err := chains.Resolve(absCwd)
 	if err != nil {
 		if errors.Is(err, chains.ErrChainConfigNotFound) {
-			// Preserve drop_003-era os.ErrNotExist contract AND the v0.2
+			// Preserve drop_003-era os.ErrNotExist contract AND the
 			// ErrChainConfigNotFound sentinel via errors.Join. The literal
 			// "sand-chains.toml" string is preserved in the error text so
 			// the existing TestDispatchSelectionErrors substring assertion
@@ -105,7 +105,7 @@ var nowFn = time.Now
 
 // Dispatch is the public entry point for sand's `sand.dispatch` MCP tool.
 //
-// Per SAND-V02-SPEC §1.4, Dispatch walks the role's fallback chain tier-by-tier:
+// Per SAND-SPEC §1.4, Dispatch walks the role's fallback chain tier-by-tier:
 // for each tier it (a) optionally acquires a cross-project slot via
 // slots.AcquireSlot when tier.Slots > 0, (b) resolves the backend via
 // backends.Resolve and Spawns it — non-claude-native tiers short-circuit with
@@ -114,7 +114,7 @@ var nowFn = time.Now
 // (d) records an Attempt row in Response.FallbackChain regardless of success
 // or failure.
 //
-// Outcome policy (mirrors SAND-V02-SPEC §1.4 + §3.3):
+// Outcome policy (mirrors SAND-SPEC §1.4 + §3.3):
 //
 //   - success            : record Attempt + return populated Response.
 //   - slot_timeout       : record Attempt + advance to next tier.
@@ -349,7 +349,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			continue
 		default:
 			// ErrClassCrash / ErrClassUnknown — unrecoverable per
-			// SAND-V02-SPEC §3.3. Record + halt with FallbackChain
+			// SAND-SPEC §3.3. Record + halt with FallbackChain
 			// preserved.
 			attempt.Outcome = class.String()
 			attempt.Reason = summarizeStderr(spawnResult.Stderr)
@@ -602,7 +602,7 @@ type Response struct {
 // Attempt is one row of Response.FallbackChain. Each row records the
 // per-tier outcome — backend, model, attempt timestamp, outcome class, and
 // a one-line human reason — so callers (and the TOON encoder) can render the
-// full chain walk per SAND-V02-SPEC §4. Outcome values mirror ErrClass.String()
+// full chain walk per SAND-SPEC §4. Outcome values mirror ErrClass.String()
 // plus the slot-only "slot_timeout" and "unsupported_backend" values that
 // classification does not produce.
 type Attempt struct {
@@ -678,7 +678,7 @@ var (
 	ErrNoClaudeNativeTier = errors.New("dispatch: chain contains no claude-native tier")
 
 	// ErrChainExhausted is returned (wrapped) when every tier in a role's
-	// fallback chain produced a non-success Attempt. Per SAND-V02-SPEC §1.4
+	// fallback chain produced a non-success Attempt. Per SAND-SPEC §1.4
 	// it signals "this dispatch had no winner" — distinct from a single
 	// unrecoverable spawn failure (which halts the chain mid-walk with the
 	// underlying error) because exhaustion means the caller-supplied chain

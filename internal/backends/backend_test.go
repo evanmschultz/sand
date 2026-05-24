@@ -9,7 +9,7 @@ import (
 )
 
 // fullFixtureTOML is a backends.toml document that populates every one
-// of the 10 BackendConfig fields verbatim per SAND-V02-SPEC §5.1.
+// of the 10 BackendConfig fields verbatim per SAND-SPEC §5.1.
 // Used by both TestBackendResolve and TestBackendConfigTOMLDecodeAllFields
 // to exercise full round-trip fidelity.
 const fullFixtureTOML = `
@@ -149,7 +149,7 @@ func TestBackendResolve(t *testing.T) {
 
 // TestBackendConfigTOMLDecodeAllFields verifies every one of the 10
 // BackendConfig fields round-trips correctly when decoded from a TOML
-// fixture containing the full set per SAND-V02-SPEC §5.1. Per-field
+// fixture containing the full set per SAND-SPEC §5.1. Per-field
 // assertions (not reflection-equality) so a single failing field
 // surfaces a precise diagnostic.
 func TestBackendConfigTOMLDecodeAllFields(t *testing.T) {
@@ -190,7 +190,7 @@ func TestBackendConfigTOMLDecodeAllFields(t *testing.T) {
 	}
 
 	// claude-native fixture assertions: every field populated, exercised
-	// against the SAND-V02-SPEC §5.1 example.
+	// against the SAND-SPEC §5.1 example.
 	gotCN := cn.cfg
 	if gotCN.Command != "claude" {
 		t.Errorf("claude-native Command: got %q want %q", gotCN.Command, "claude")

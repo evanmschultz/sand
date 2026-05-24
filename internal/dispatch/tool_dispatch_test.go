@@ -215,7 +215,7 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 
 	text := resultText(t, result)
 	// Spot-check that the TOON encoding embeds the SAND-SPEC §3.1 +
-	// SAND-V02-SPEC §4 known keys. We deliberately do NOT pin the full
+	// SAND-SPEC §4 known keys. We deliberately do NOT pin the full
 	// byte-for-byte output here; that is the encoder's responsibility
 	// (covered by the toon package tests). What matters at this layer is
 	// that the handler ran the Response through toon.Encode and surfaced
@@ -241,7 +241,7 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 		}
 	}
 
-	// Pin field order per SAND-V02-SPEC §4: result, served_by, tier,
+	// Pin field order per SAND-SPEC §4: result, served_by, tier,
 	// fallback, duration_ms, cost_usd, tokens, fallback_chain[N],
 	// tools_used[N], permission_denials[N], tool_calls[N], log_path.
 	wantOrder := []string{
@@ -266,7 +266,7 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 			continue
 		}
 		if idx < prev {
-			t.Errorf("TOON field %q at offset %d appears BEFORE prior field %q at offset %d; want strict order per SAND-V02-SPEC §4. Got:\n%s",
+			t.Errorf("TOON field %q at offset %d appears BEFORE prior field %q at offset %d; want strict order per SAND-SPEC §4. Got:\n%s",
 				key, idx, prevKey, prev, text)
 		}
 		prev = idx
@@ -275,7 +275,7 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 }
 
 // TestDispatchHandlerHappyPathEmptyAuditArrays pins the empty-array TOON shape
-// per SAND-V02-SPEC §4: empty FallbackChain still emits the
+// per SAND-SPEC §4: empty FallbackChain still emits the
 // `fallback_chain[0]{...}:` header with no rows; empty ToolCalls still emits
 // the `tool_calls[0]{...}:` header. This is the contract callers rely on for
 // schema-stable parsing regardless of whether any tier failed or any tools

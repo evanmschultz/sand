@@ -23,11 +23,11 @@ import (
 // config FILE).
 var ErrBackendsConfigNotFound = errors.New("backends: no backends config found")
 
-// ResolveBackendsConfig walks the v0.2 hierarchical backends-config
-// resolution order and returns the absolute path of the first existing
-// backends.toml, plus a source label identifying which rung won.
+// ResolveBackendsConfig walks the hierarchical backends-config resolution
+// order and returns the absolute path of the first existing backends.toml,
+// plus a source label identifying which rung won.
 //
-// Resolution order (per SAND-V02-SPEC §5.2, project-first override semantics
+// Resolution order (per SAND-SPEC §5.2, project-first override semantics
 // mirroring chains.Resolve from drop_008):
 //
 //  1. <projectDir>/.claude/sand-backends.toml        source = "project"

@@ -5,7 +5,7 @@
 // to the next tier (RateLimit / AuthFailure / Network / Timeout) or to halt
 // (Crash / Unknown — though policy lives in the dispatch loop, not here).
 //
-// Per SAND-V02-SPEC §3, classification is a pure function of the spawned
+// Per SAND-SPEC §3, classification is a pure function of the spawned
 // subprocess's stderr text + exit code — NEVER the agent's narrative text
 // in the JSON envelope's `result` field. The orchestrator memory note
 // feedback_always_verify_tool_calls is explicit: trust parsed event streams
@@ -71,7 +71,7 @@ const (
 	// ErrClassCrash — subprocess died abnormally (SIGKILL=137, SIGSEGV=139,
 	// SIGTERM=143, OR any non-zero exit with empty stderr). Does NOT
 	// trigger default fallback — surfaces as an unrecoverable dispatch
-	// error per SAND-V02-SPEC §3.3.
+	// error per SAND-SPEC §3.3.
 	ErrClassCrash
 
 	// ErrClassUnknown — non-zero exit that matched no other class. Does

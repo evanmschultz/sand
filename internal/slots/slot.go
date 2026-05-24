@@ -3,7 +3,7 @@
 // advisory file lock (syscall.Flock with LOCK_EX|LOCK_NB) on a lock file
 // under /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock. Locks are
 // auto-released by the kernel when the holding process dies, so no PID
-// liveness polling is needed (SIGKILL-safe). See SAND-V02-SPEC.md §1 for
+// liveness polling is needed (SIGKILL-safe). See SAND-SPEC.md §1 for
 // the full design rationale.
 //
 // slots=0 is the explicit "unlimited" sentinel: AcquireSlot returns

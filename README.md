@@ -238,5 +238,5 @@ MIT — see [LICENSE](LICENSE).
 
 ## Design docs
 
-- [SAND-V02-SPEC.md](SAND-V02-SPEC.md) — canonical v0.2 design: 10 sections covering MCP tools, TOON envelope, chain config schema, backend templates, slot subsystem, error classification, dispatch matrix.
+- [SAND-SPEC.md](SAND-SPEC.md) — canonical design: 10 sections covering MCP tools, TOON envelope, chain config schema, backend templates, slot subsystem, error classification, dispatch matrix.
 - [CLAUDE.md](CLAUDE.md) — project guidance for orchestrators working on sand itself.

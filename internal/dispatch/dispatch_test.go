@@ -1003,7 +1003,7 @@ const failoverChainsTOML = `
 ]
 `
 
-// TestDispatchFailoverChain exercises the new SAND-V02-SPEC §1.4 fallback
+// TestDispatchFailoverChain exercises the new SAND-SPEC §1.4 fallback
 // loop: tier-1 fails with a classifiable error, tier-2 succeeds, and the
 // Response carries a FallbackChain with both attempts recorded.
 //
@@ -1138,7 +1138,7 @@ func TestDispatchFailoverChain(t *testing.T) {
 
 	t.Run("crash_halts_chain_with_partial_FallbackChain", func(t *testing.T) {
 		// First tier crashes (exit 137, empty stderr -> ErrClassCrash).
-		// Per SAND-V02-SPEC §3.3, Crash is unrecoverable: the loop must
+		// Per SAND-SPEC §3.3, Crash is unrecoverable: the loop must
 		// halt mid-walk and surface a wrapped error WITHOUT exhausting
 		// the remaining tiers. Sequence only needs the first entry; the
 		// second is never consumed.
@@ -1310,7 +1310,7 @@ func TestDispatchFailoverChainRetryOn(t *testing.T) {
 
 // TestDispatchSentinelErrChainExhausted pins ErrChainExhausted's surface area
 // alongside the other dispatch sentinels (TestDispatchSentinels covers the
-// pre-existing trio; this sub-test adds the v0.2 sentinel without re-running
+// pre-existing trio; this sub-test adds ErrChainExhausted without re-running
 // the full distinctness matrix).
 func TestDispatchSentinelErrChainExhausted(t *testing.T) {
 	t.Parallel()
@@ -1339,10 +1339,11 @@ func TestDispatchSentinelErrChainExhausted(t *testing.T) {
 	}
 }
 
-// TestResponseV02Fields exercises the v0.2 fields added to Response:
-// FallbackChain []Attempt and ToolCalls []ToolCall. Verifies the field names,
-// element-type field names, and zero-value behavior so the sibling
-// toon_extension droplet has a stable contract to compile against.
+// TestResponseV02Fields exercises the FallbackChain []Attempt and ToolCalls
+// []ToolCall fields on Response. Verifies the field names, element-type field
+// names, and zero-value behavior so the sibling toon_extension droplet has a
+// stable contract to compile against. (Function name retained as a stable
+// test identifier cited by .ta cascade records.)
 func TestResponseV02Fields(t *testing.T) {
 	t.Parallel()
 

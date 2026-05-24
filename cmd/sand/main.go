@@ -22,10 +22,11 @@ const (
 func main() {
 	s := server.NewMCPServer(serverName, serverVersion)
 
-	// projectDir source for tool wiring. v0.1 derives this from cwd; the
-	// `--project <abs-path>` flag (mirroring ta's MCP convention) lands in
-	// v0.2. Tools that accept a project root (persona_get, future chains_list,
-	// future preflight) close over this single value at registration time.
+	// projectDir source for tool wiring. Currently derives from cwd; the
+	// `--project <abs-path>` flag (mirroring ta's MCP convention) is the
+	// planned upgrade. Tools that accept a project root (persona_get,
+	// chains_list, preflight) close over this single value at registration
+	// time.
 	projectDir, _ := os.Getwd()
 
 	// drop_006: sand.persona_get
