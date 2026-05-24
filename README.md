@@ -132,7 +132,7 @@ Template substitutions inside string values:
 ```toon
 template-vars{var,resolved-to}:
   {{.Model}},the chain tier's model (override-aware)
-  {{.Cwd}},caller project absolute path
+  {{.CWD}},caller project absolute path
   {{.PersonaBody}},loaded persona markdown body (system prompt)
   {{.PersonaToolsCSV}},persona Tools slice joined with commas
   {{.McpConfigPath}},<cwd>/.mcp.json when present, else empty

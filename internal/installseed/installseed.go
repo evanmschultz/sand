@@ -39,7 +39,7 @@ const DefaultBackendsTOML = `# sand backends.toml — per-backend spawn template
 #
 # Template substitution applies inside string values:
 #   {{.Model}}             - tier's model name (e.g. "haiku", "gpt-5.4")
-#   {{.Cwd}}               - caller project directory
+#   {{.CWD}}               - caller project directory
 #   {{.PersonaBody}}       - loaded persona file body (system prompt)
 #   {{.PersonaToolsCSV}}   - persona's tools joined with commas
 #   {{.McpConfigPath}}     - <cwd>/.mcp.json when present, else empty
@@ -77,7 +77,7 @@ stdin_prompt = true
 #   "--ephemeral",
 #   "--ignore-rules",
 #   "--skip-git-repo-check",
-#   "-C", "{{.Cwd}}",
+#   "-C", "{{.CWD}}",
 #   "-m", "{{.Model}}",
 # ]
 # mcp_injection = "codex_inline_toml"

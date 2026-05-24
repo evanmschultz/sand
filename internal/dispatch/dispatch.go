@@ -463,20 +463,34 @@ func toolCallsFromOrdered(in []OrderedToolCall) []ToolCall {
 	return out
 }
 
-// summarizeStderr collapses the captured stderr to a single trimmed line
+// summarizeStderr collapses the captured stderr to a single logical line
 // suitable for Attempt.Reason. The TOON encoder renders the reason column
-// inline, so multi-line stderr would break the table layout; we take the
-// first non-empty line (or fall back to the whole trimmed text when stderr
-// is single-line).
+// inline, so a raw multi-line stderr would break the table layout.
+//
+// We DO NOT take the first line only: the first stderr line is frequently a
+// banner (e.g. codex prints "Reading prompt from stdin..." / a session header
+// before the real diagnostic), so first-line summarization hides the actual
+// error. Instead we keep EVERY non-empty line, join them with " | ", and cap
+// the total length so a pathological stderr cannot bloat the row. The whole
+// diagnostic is preserved (up to the cap) — surfacing all errors is the point.
 func summarizeStderr(stderr []byte) string {
 	trimmed := strings.TrimSpace(string(stderr))
 	if trimmed == "" {
 		return ""
 	}
-	if idx := strings.IndexByte(trimmed, '\n'); idx >= 0 {
-		return strings.TrimSpace(trimmed[:idx])
+	lines := strings.Split(trimmed, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, ln := range lines {
+		if s := strings.TrimSpace(ln); s != "" {
+			kept = append(kept, s)
+		}
 	}
-	return trimmed
+	joined := strings.Join(kept, " | ")
+	const maxLen = 1500
+	if len(joined) > maxLen {
+		joined = joined[:maxLen] + " …(truncated)"
+	}
+	return joined
 }
 
 // tokensFromEnvelope copies the claude CLI Usage block into the dispatch

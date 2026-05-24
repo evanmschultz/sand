@@ -120,7 +120,16 @@ func DispatchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 
 	resp, err := dispatchFn(ctx, params)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("dispatch: %v", err)), nil
+		// Surface ALL errors: the top-level error string alone hides WHY each
+		// tier failed. Append the full Response as TOON so the fallback_chain
+		// table (per-tier outcome + stderr summary in the `reason` column) is
+		// always visible to the caller, not just on success. The encode is
+		// best-effort — if it fails we still return the original error.
+		detail := fmt.Sprintf("dispatch: %v", err)
+		if encoded, encErr := toon.Encode(responseToTOON(resp)); encErr == nil {
+			detail = detail + "\n\n" + string(encoded)
+		}
+		return mcp.NewToolResultError(detail), nil
 	}
 
 	encoded, err := toon.Encode(responseToTOON(resp))
