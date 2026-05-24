@@ -1,0 +1,68 @@
+[dispatch_realignment]
+acceptance_criteria = """
+ASSURANCE STRATEGY (load-bearing -- this is HOW we know it's right):
+- ORACLE EQUIVALENCE (primary): for every codex role (ta-go-planning, ta-go-plan-qa-falsification, ta-go-build-qa-falsification, and FE equivalents), sand's rendered codex command (Preview/dry-run) MUST be byte-equivalent (modulo the ephemeral CODEX_HOME tmp path + mktemp randomness) to `bin/agent-dispatch.sh --role <role> --dry-run` output. The bin dispatcher is the executable spec; a diff is a defect. Golden tests pin the exact tokens (--ignore-user-config, web_search, project_doc_max_bytes=0, the per-role MCP -c blocks with per-tool approval_mode, hylla-skipped-for-build-qa, gopls-for-go, opts).
+- LIVE HERMETICITY SMOKE TEST (prove the negatives): a test/dispatch that confirms a codex agent under sand's hermetic config does NOT see global ~/.codex/config.toml servers, global/project AGENTS.md, or global skills; AND proves the positives (planning/plan-qa CAN reach hylla+context7+gopls; *build-qa* CANNOT reach hylla; go roles get gopls).
+- DUAL-PATH REFUSAL: sand REFUSES OAuth claude-native roles with the Agent-tool redirect signal (oracle: bin dispatch_claude_native). A test asserts the refusal + message.
+- OPTS THREADING: tier.Opts is appended to the codex argv; a test proves `--sandbox read-only -c model_reasoning_effort=high` (planning) and `--sandbox workspace-write ...` (falsification) reach the rendered command.
+- `mage check` GREEN across all packages; all existing tests stay green or are updated with rationale.
+- AGONISTIC QA: plan-QA-falsification (codex, bin-dispatched) attacks the plan BEFORE build; build-QA-falsification (codex) attacks shipped code; build-QA-proof + plan-QA-proof (claude opus via Agent tool) prove acceptance. Different backend per stance per artifact -- never the same backend for both stances.
+- UPSTREAM GROUNDING: every hermetic flag grounded in live `codex exec --help` (0.133) + Context7 codex docs + cited issues (#14316 no-skills-disable, #16501 per-tool approval, #21907 skill discovery).
+- TILLSYN CROSS-CHECK: reconcile sand's interpretation against tillsyn/main/AGENT_DISPATCH.md (the mirror) as a planning-evidence step.
+- No new external Go deps beyond stdlib.
+- BUILD BOOTSTRAP: built via bin/agent-dispatch.sh (codex roles) + Agent tool (OAuth roles), NOT mcp__sand__dispatch (cannot dogfood the codex path under repair).
+"""
+created_at = "2026-05-24T20:45:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+decision_log = ["2026-05-24T20:45:00Z: drop_013 created to realign sand dispatch to AGENT_DISPATCH.md, using bin/agent-dispatch.sh as the proven ORACLE. Scope = dispatch correctness (hermetic codex + dual-path OAuth-refuse + opts threading + role-conditional MCP + 6-role alignment); config-generation (sec7-9) deferred to a later drop. Assurance strategy (user-confirmed): oracle-equivalence golden tests (sand Preview == bin dry-run per role) as the backbone + live hermeticity smoke tests (prove negatives: no HOME config/AGENTS.md/skills leak; positives: per-role MCP reachability) + cross-backend agonistic QA (codex falsification vs claude proof, never same backend per stance) + upstream CLI/issue grounding + tillsyn mirror cross-check. Supersedes drop_012 remaining builders 3-5 (OAuth uses Agent tool, not sand -p --tools). Build bootstrap: bin dispatcher (codex) + Agent tool (OAuth), NOT mcp__sand__dispatch."]
+definition_of_complete = """
+- [ ] codex_exec.go emits the hermetic command oracle-equivalent to bin dispatch_codex (golden test per codex role)
+- [ ] role-conditional MCP injection replaces uniform .mcp.json injection (hylla skipped for build-qa; gopls for go; context7 always; playwright for fe)
+- [ ] ephemeral CODEX_HOME symlink wired + cleaned up
+- [ ] tier.Opts threaded into argv (test-proven)
+- [ ] claude_native REFUSES OAuth roles (test-proven)
+- [ ] chains + personas reflect the 6-role model
+- [ ] live hermeticity smoke test passes (negatives + positives)
+- [ ] mage check GREEN; prior tests green/updated
+- [ ] all planner + plan-QA twins complete+success BEFORE builders
+- [ ] all builder + build-QA twins complete+success (cross-backend stance rule honored)
+- [ ] tillsyn AGENT_DISPATCH.md cross-checked
+- [ ] commit + push + hylla ingest @main BEFORE closeout
+"""
+drop_number = 13.0
+labels = ["realignment", "codex-hermetic", "dual-path", "role-conditional-mcp", "oracle-equivalence"]
+objective = """
+Bring sand's Go dispatch logic into conformance with the canonical AGENT_DISPATCH.md model, using the CORRECTED bin/sh system (bin/agent-dispatch.sh + .claude/agent-chains.sh) as the proven-working ORACLE. SCOPE = dispatch CORRECTNESS only; the agent-dispatch TOML config-generation (AGENT_DISPATCH.md sec7-9) is a SEPARATE later drop that builds on correct dispatch.
+
+THE MODEL (AGENT_DISPATCH.md + bin reference): dual-path dispatch keyed by auth model. (1) OAuth/subscription claude roles (builder haiku->sonnet, plan-qa-proof, build-qa-proof, closeout opus) MUST dispatch via the orchestrator's built-in Agent tool, NEVER `claude -p` (--bare disables OAuth). Sand is a subprocess spawner and CANNOT invoke the Agent tool, so sand MUST REFUSE OAuth claude roles with a clear signal (mirror bin's dispatch_claude_native refusal: tell caller to use Agent(subagent_type=<role>)). (2) codex roles (planning, plan-qa-falsification, build-qa-falsification) dispatch via HERMETIC codex exec. (3) non-OAuth claude (-p --bare --mcp-config --allowedTools) is the dormant ollama/API-key path (ollama removed from chains; keep working but not primary).
+
+HERMETIC CODEX REQUIREMENTS (port bin/agent-dispatch.sh dispatch_codex EXACTLY): `codex exec --ephemeral --ignore-user-config --ignore-rules --skip-git-repo-check -C <cwd> -m <model>` + `-c web_search="live"` + `-c project_doc_max_bytes=0` (AGENTS.md kill) + ephemeral CODEX_HOME = mktemp dir symlinking ONLY auth.json/version.json/installation_id/models_cache.json from ~/.codex (then rm -rf after) + tier opts appended + ROLE-CONDITIONAL inline MCP injection with per-tool approval_mode="approve": ta always (stdio `ta --project <cwd>`, tools get/update/list_sections/search/schema/create/delete/move/init); hylla planning+plan-qa ONLY, SKIP if role matches *build-qa* (stdio `/Users/evanschultz/go/bin/hylla mcp`, read-only tool set); context7 always (HTTP url=https://mcp.context7.com/mcp, env_http_headers CONTEXT7_API_KEY); gopls if role matches *-go-* (stdio `gopls mcp` cwd=<cwd>, 6 go_* tools); playwright if role matches *-fe-* (stdio playwright-mcp --headless --isolated, browser_* tools).
+
+KEY GAPS in current sand to fix: (a) codex_exec.go missing --ignore-user-config, web_search, project_doc_max_bytes=0, hermetic CODEX_HOME, role-conditional injection (currently probes .mcp.json + injects ALL servers uniformly via codex_mcp_probe.go -- must switch to the role matrix above, NOT .mcp.json-driven); (b) tier.Opts is DEAD (never threaded into argv -- only displayed by chains_list.go:121) -- must append opts tokens to the codex argv; (c) claude_native.go must REFUSE OAuth (dual-path); (d) chains + personas must reflect the 6-role model (planning, plan-qa-proof, plan-qa-falsification, builder, build-qa-proof, build-qa-falsification + closeout).
+
+Reuse from drop_012 (already built, uncommitted): TemplateData.PersonaToolNamesCSV + BackendConfig.ToolsArg/ToolsCSVTemplate (useful for the non-OAuth --tools path).
+"""
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/installseed/installseed.go", ".claude/sand-chains.toml"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "Sand drop_013 — realign dispatch to AGENT_DISPATCH.md (hermetic codex + dual-path + role-conditional MCP), oracle-verified vs bin/sh"
+updated_at = "2026-05-24T20:45:00Z"
+
+[planner_dispatch_realignment_l2]
+created_at = "2026-05-24T20:45:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+decision_log = ["2026-05-24T20:45:00Z: Orchestrator created L2 stub for drop_013. ta-go-planning (bin/agent-dispatch.sh, hermetic codex) to fill decomposition + create L3/builder/QA-twin children."]
+objective = "STUB for the ta-go-planning agent (bin-dispatched, hermetic codex) to fill. Decompose drop_013.drop.dispatch_realignment into atomic builder droplets + plan-QA twins, with oracle-equivalence-to-bin/sh as each codex-backend droplet's acceptance gate + a dedicated hermeticity smoke-test droplet."
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_013.drop.dispatch_realignment"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", ".claude/sand-chains.toml"]
+priority = "high"
+role = "planner"
+state = "todo"
+title = "L2 planner — sand dispatch realignment decomposition"
+updated_at = "2026-05-24T20:45:00Z"

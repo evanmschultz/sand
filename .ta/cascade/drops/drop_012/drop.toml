@@ -14,7 +14,7 @@ acceptance_criteria = """
 created_at = "2026-05-24T16:40:08Z"
 created_by_actor = "agent:orchestrator"
 created_by_type = "agent"
-decision_log = ["2026-05-24T16:40:08Z: Drop_012 created from a 2026-05-24 dogfood finding. Live claude CLI probes proved `--allowedTools` does NOT restrict the toolset (Bash ran under `--allowedTools Read`); `--tools Read` DID restrict (Bash unavailable). Sand renders persona tools into `--allowedTools` only (installseed.go:64), so the documented 'persona file IS the sandbox' guarantee is currently false. Scope = claude-native sandbox enforcement only. Parser/tool-audit defect tracked as drop_013. User directive 2026-05-24: fix D2 (sandbox) before D1 (parser).", "2026-05-24T17:30:00Z: BLOCKERS HIT + FIXED while starting this cascade (orchestrator-direct, user-approved bootstrap exceptions). D3: codex backend template var `{{.Cwd}}` did not match TemplateData field `CWD` (text/template case-sensitive) -> all codex dispatch failed at argv render. Fixed `{{.Cwd}}`->`{{.CWD}}` in installseed.go seed+doc, README.md, SAND-SPEC.md, and live ~/.config/sand/backends.toml. Kept field as CWD because tests already assert {{.CWD}}. ERROR-SURFACING (user directive 'surface ALL errors ALWAYS'): summarizeStderr took only first stderr line (codex banner) hiding real error; MCP handler discarded fallback_chain on failure. Fixed both: summarizeStderr now joins all non-empty lines (cap 1500), handler appends fallback_chain TOON to error result. mage check GREEN; verified by driving rebuilt binary over stdio. D4: surfaced root cause = empty cwd -> codex `-C \"\"` -> exit 2 (`a value is required for '--cd <DIR>'`). sand does not honor documented 'cwd defaults to project dir' behavior. WORKAROUND: pass cwd explicitly on dispatch (verified codex success). D4-proper fix (default cwd->projectdir + omit -C when empty) queued as its own drop. These infra fixes are uncommitted in the working tree."]
+decision_log = ["2026-05-24T16:40:08Z: Drop_012 created from a 2026-05-24 dogfood finding. Live claude CLI probes proved `--allowedTools` does NOT restrict the toolset (Bash ran under `--allowedTools Read`); `--tools Read` DID restrict (Bash unavailable). Sand renders persona tools into `--allowedTools` only (installseed.go:64), so the documented 'persona file IS the sandbox' guarantee is currently false. Scope = claude-native sandbox enforcement only. Parser/tool-audit defect tracked as drop_013. User directive 2026-05-24: fix D2 (sandbox) before D1 (parser).", "2026-05-24T17:30:00Z: BLOCKERS HIT + FIXED while starting this cascade (orchestrator-direct bootstrap exceptions). D3: codex `{{.Cwd}}`->`{{.CWD}}` template (committed 5f2ac2a). Error-surfacing: summarizeStderr full + handler emits fallback_chain on failure (5f2ac2a). D4: empty cwd -> codex `-C \"\"` exit 2; WORKAROUND pass cwd; proper fix queued. D5: chains/persona drift -> reconciled chains to ta-go-plan-qa/ta-go-build-qa (5fe45a8). L2 plan-QA PASSED. Builders 1-2 (PersonaToolNamesCSV in template.go; BackendConfig.ToolsArg/ToolsCSVTemplate in backend.go) BUILT+VERIFIED (mage testPkg green), UNCOMMITTED.", "2026-05-24T20:30:00Z: MODEL SHIFT — AGENT_DISPATCH.md (new canonical spec) + corrected bin/agent-dispatch.sh + agent-chains.sh + 4-way QA persona split (all uncommitted working tree) REFRAME this drop. New dispatch model: (1) OAuth/subscription claude roles (builder haiku->sonnet, plan-qa-proof, build-qa-proof, closeout opus) dispatch via the orchestrator's BUILT-IN Agent tool ONLY -- NEVER `claude -p` (--bare disables OAuth). sand (a subprocess spawner) CANNOT invoke the Agent tool, so sand must REFUSE OAuth claude roles and signal orchestrator. (2) codex roles (planning, plan-qa-falsification, build-qa-falsification) dispatch via HERMETIC codex exec: --ignore-user-config + -c web_search=live + -c project_doc_max_bytes=0 (AGENTS.md kill) + ephemeral CODEX_HOME symlinking only auth.json/version.json/installation_id/models_cache.json + role-conditional inline MCP injection (ta always; hylla planning+plan-qa ONLY skip build-qa; context7 HTTP always; gopls *-go-*; playwright *-fe-*; per-tool approval_mode=approve). (3) non-OAuth claude (-p --bare --mcp-config --allowedTools) dormant (ollama removed). IMPLICATION: drop_012's premise (enforce sandbox on sand's claude -p for the real roles) is OBSOLETE -- OAuth claude never goes through sand's -p. Builders 1-2 KEPT (useful for the dormant non-OAuth --tools path). Builders 3-5 (build_claude_tools_sandbox, build_installseed_sandbox_defaults, build_docs_sandbox_contract) PAUSED -- to be folded into a sand-realignment plan covering: hermetic codex backend, dual-path dispatch w/ OAuth-refuse, opts threading (tier.Opts currently DEAD -- never reaches argv), role-conditional MCP injection, chains/persona 6-role alignment, agent-dispatch TOML config generation (AGENT_DISPATCH.md sec8/9), skills/hooks->codex translation (sec7). Build the realignment via bin/agent-dispatch.sh (codex) + Agent tool (OAuth), NOT mcp__sand__dispatch (can't dogfood the codex path being fixed). hylla current for committed Go (sand@main 9e195c6 == 5fe45a8 Go); no ingest needed. Awaiting user direction on realignment planning vs architecture confirmation."]
 definition_of_complete = """
 - [ ] internal/backends/ renders persona tool allowlist into a toolset-restricting flag (--tools) plus auto-approve (--allowedTools), per planner recipe
 - [ ] De-scoping helper (names vs scoped patterns) implemented + unit-tested
@@ -48,7 +48,7 @@ role = "planner"
 state = "todo"
 structural_type = "drop"
 title = "Sand drop_012 — enforce the persona tool sandbox (--tools, not just --allowedTools)"
-updated_at = "2026-05-24T16:40:08Z"
+updated_at = "2026-05-24T20:30:00Z"
 [planner_sandbox_enforcement_l2]
 acceptance_criteria = """
 - This L2 planner stays `todo` until 3 L3 planners and all 6 L3 plan-QA twins exist with the ids named in `expected_outputs`; its own plan-QA twins are created as sibling records under `drop_012.drop.sandbox_enforcement`.
@@ -192,20 +192,21 @@ acceptance_criteria = """
 created_at = "2026-05-24T17:38:52Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+decision_log = ["2026-05-24T17:38:52Z: created by ta-go-planning alongside L2.", "2026-05-24T19:05:00Z: PROOF VERDICT = PASS-WITH-FINDINGS (outcome=success, no blocking gaps). Verified at sand@9e195c6 (live HEAD = 5fe45a8, clean worktree; .CWD seed/doc fixes already committed, so L2 risk_notes wording about 'dirty worktree' is a stale-evidence NIT that does not change plan content). EVIDENCE+SYMBOL GROUNDING (axis 1): every existing symbol the plan cites is real per Hylla artifact_ref github.com/evanmschultz/sand@main and direct Read of the working tree. (a) BackendConfig (internal/backends/backend.go:155-166) — 10 fields, currently AllowedToolsArg + AllowedToolsCSVTemplate but no ToolsArg/ToolsCSVTemplate; confirms NEW. (b) TemplateData (internal/backends/template.go:33-59) — 6 fields, no PersonaToolNamesCSV; confirms NEW. (c) claudeNativeBackend.renderArgs (claude_native.go:254-294) — appends --mcp-config + --allowedTools conditionally and is shared with Preview (claude_native.go:188); existing. (d) claudeNativeBackend.renderAllowedToolsCSV (claude_native.go:301-317) — existing; falls back to req.PersonaToolsCSV when template empty. (e) SubstituteSlice + Substitute (template.go:75-105) + missingkey=error in compile (template.go:115-131) — existing; plan correctly preserves the fail-fast contract. (f) installseed.DefaultBackendsTOML (installseed.go:33-162) — active claude-native block currently seeds only allowed_tools_arg=\"--allowedTools\" + allowed_tools_csv_template=\"{{.PersonaToolsCSV}}\"; ollama-local/ollama-cloud/together-ai commented examples follow the same pattern; codex-exec example uses mcp_injection=codex_inline_toml (no --allowedTools-style flag, confirms codex parity note). (g) codexExecBackend + RenderMCPInlineTOML (codex_mcp_probe.go) — RenderMCPInlineTOML hard-codes approval_mode=\"approve\" per discovered MCP tool; codex backend ignores persona built-in tools for argv — confirms the explicit codex-distinction note. (h) Docs misclaims confirmed live: README.md:164-166, CLAUDE.md:41/50/54/60, SAND-SPEC.md:236/251/335/495 all still state '--allowedTools' is the sandbox; build_docs_sandbox_contract paths cover exactly those files. ATOMICITY (axis 2): each builder is one production file + one test file in declared scope; build_claude_tools_sandbox is the largest (de-scope helper + renderArgs widening + de-scope table tests + Spawn/Preview parity asserts ~estimated 70-90 LOC across prod+test) and lands AT the single renderArgs seam, so splitting it further would over-fragment one coherent edit — accept-with-NIT. build_docs_sandbox_contract spans three docs files but is one prose cluster, as declared by HC4 carve-out. RECIPE GROUNDING (axis 3): /tmp/claude-help.txt directly confirms (i) --tools as toolset RESTRICTOR ('Specify the list of available tools from the built-in set'), (ii) --allowedTools as auto-approve LIST ('Comma or space-separated list of tool names to allow'), (iii) --permission-mode <mode> with 'dontAsk' as a real choice. --disallowedTools exists too but planner correctly rejected it because it would forbid the scoped Bash(...) allowlist subset. The de-scope rule (bare names for --tools, scoped patterns retained for --allowedTools) is testably specified in build_claude_tools_sandbox AC: table-driven helper tests for plain names, Bash(...), MCP tools, mixed lists, duplicate collapse, first-seen order preserved. BLOCKER DAG (axis 4): every blocker id resolves to a real droplet — build_backend_tool_names_template (root) -> build_backend_tools_contract -> build_claude_tools_sandbox + build_installseed_sandbox_defaults (parallel) -> build_docs_sandbox_contract. Same-file races impossible (each builder writes a disjoint file set: template.go, backend.go, claude_native.go, installseed.go, docs). build_installseed and build_claude_tools_sandbox correctly NOT mutually serialized — preserves legitimate parallelism. COVERAGE (axis 5): every parent acceptance item routed — backend runtime (3 droplets), installseed seed (1 droplet), docs (1 droplet across 3 files), codex-parity (explicit decision_log + risk_notes note rather than fake builder, defensible because committed codexExecBackend.Spawn never uses PersonaToolsCSV for built-in restriction and RenderMCPInlineTOML already auto-approves discovered MCP tools via approval_mode=\"approve\"). OPEN QUESTIONS routed for build-QA: (1) exact semantics of --permission-mode dontAsk vs read-only Bash exception — risk_notes already discloses; build-QA twin must validate via live claude probe before docs prose claims absolute denial; (2) build_claude_tools_sandbox LOC budget is borderline — build-QA must enforce <=80 LOC prod+test or escalate; (3) docs builder should explicitly mention codex parity distinction (per drop AC: 'documented why') — minor NIT, can absorb into SAND-SPEC §13.3 prose. NO unmitigated counterexamples; evidence completeness CONFIRMED via Hylla artifact ref + working-tree Read + /tmp/claude-help.txt direct inspection. CONVERGENCE: (a) no unmitigated counterexample, (b) evidence completeness confirmed for every existing-symbol claim and every new-symbol claim, (c) Unknowns routed via build-QA + risk_notes. Verdict: PROOF PASSES; downstream cascade (3 L3 planners + 6 L3 plan-QA twins) cleared to descend. Tools used: mcp__ta__get, mcp__ta__list_sections, mcp__hylla__hylla_artifact_list, mcp__hylla__hylla_search_keyword (BackendConfig, renderAllowedToolsCSV, TemplateData, SubstituteSlice, renderArgs, DefaultBackendsTOML, RenderMCPInlineTOML, codexExecBackend), Bash(git log, git status, rg over docs), Read(claude_native.go, template.go, backend.go, installseed.go, README.md, /tmp/claude-help.txt)."]
 objective = "Proof-review the L2 drop_012 decomposition before any child planner is allowed to descend into builder work."
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/installseed"]
 parent_id = "drop_012.drop.sandbox_enforcement"
 paths = ["internal/backends/template.go", "internal/backends/backend.go", "internal/backends/claude_native.go", "internal/installseed/installseed.go", "README.md", "CLAUDE.md", "SAND-SPEC.md"]
 priority = "high"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.planner_sandbox_enforcement_l2"
 title = "Plan-QA proof: sandbox_enforcement_l2"
-updated_at = "2026-05-24T17:38:52Z"
+updated_at = "2026-05-24T19:05:00Z"
 updated_by_actor = "agent:ta-go-planning"
 updated_by_type = "agent"
 validation_plan = "Read the L2 planner, the root drop, the current backend/installseed/docs seams, and the cited Claude docs; then confirm the recipe, recursion split, and real blocker graph are evidence-complete."
-
 [qa_falsification_sandbox_enforcement_l2_plan]
 acceptance_criteria = """
 - Try to falsify the L2 recipe by showing `--tools` is not actually the restrictor, `--allowedTools` is being overclaimed, or `dontAsk` is being described more strongly than the docs allow.
@@ -216,20 +217,79 @@ acceptance_criteria = """
 created_at = "2026-05-24T17:38:52Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+decision_log = ["""
+2026-05-24T18:30:00Z: FALSIFICATION VERDICT = PASS-WITH-FINDINGS (outcome=success, no unmitigated counterexample). Evidence anchor = hylla artifact github.com/evanmschultz/sand@main snapshot 10 (commit 9e195c693a614f3d7f498cf2c95d4ff9cded4480), plus committed source reads of internal/backends/claude_native.go, internal/backends/codex_exec.go, internal/installseed/installseed.go; live `claude --help` output captured this session.
+
+## Attack outcomes
+
+1. RECIPE (--tools + --allowedTools + --permission-mode dontAsk): MITIGATED.
+   - Live `claude --help` confirms `--permission-mode` accepts `dontAsk` as a real choice (alongside acceptEdits, auto, bypassPermissions, default, plan). The flag is NOT hallucinated.
+   - `--tools` help string confirms it IS the toolset restrictor: 'Specify the list of available tools from the built-in set. Use "" to disable all tools, "default" to use all tools, or specify tool names (e.g. "Bash,Edit,Read")'.
+   - `--allowedTools` help confirms it is additive auto-approve (matches pattern syntax `Bash(git *) Edit`).
+   - `--disallowedTools` is real but the planner correctly rejects using `--disallowedTools Bash` because it would forbid the allowed scoped `Bash(...)` subset.
+   - Read-only Bash carve-out under `dontAsk` is explicitly routed in L2 `risk_notes` so neither builder nor docs claim absolute Bash denial. For personas that OMIT Bash entirely from `tools:`, the `--tools` restriction removes Bash from the tool surface and the carve-out cannot apply — that is the strong sandbox case in the parent acceptance criteria. For personas with scoped `Bash(...)`, mutating off-pattern calls like `git commit` remain denied under dontAsk; only read-only Bash can leak, and that limitation is owned by the docs builder.
+   - No falsification trigger.
+
+2. DE-SCOPE HELPER: MITIGATED with NIT.
+   - Plan specifies table-driven tests for: plain names, scoped Bash, MCP tools, mixed lists, duplicate collapse. Contract = `Bash(...)` collapses to `Bash`, MCP tools (`mcp__ta__get`) stay intact, plain names pass through, first-seen order preserved.
+   - NIT: empty input, whitespace-only entries, and the generic `Tool(pattern)` collapse rule (e.g. is Edit-scoped collapse defined?) are not explicitly enumerated. Build-QA falsification on the claude droplet should pin these. Not a blocker because the helper lives inside one file and the test surface is table-driven; build-QA can add cases.
+
+3. HALLUCINATED SYMBOLS: PASS — all claimed existing symbols verified in hylla@9e195c6 / HEAD source:
+   - EXISTING: BackendConfig, SpawnRequest, TemplateData (fields Model/CWD/PersonaBody/PersonaToolsCSV/McpConfigPath/Role), Substitute, SubstituteSlice, claudeNativeBackend, claudeNativeBackend.Spawn, claudeNativeBackend.Preview, claudeNativeBackend.renderArgs (line 254 of HEAD claude_native.go), claudeNativeBackend.renderAllowedToolsCSV (line 301), Resolve, codexExecBackend, codexExecBackend.renderArgs (line 272 HEAD codex_exec.go — confirms 'does NOT append conditional --mcp-config / --allowedTools pairs'), RenderMCPInlineTOML (confirms `approval_mode="approve"` MCP-only auto-approval), ProbeMCPServer, DefaultBackendsTOML, Seed, ErrHomeRequired.
+   - NEW (correctly marked [NEW]): TemplateData.PersonaToolNamesCSV, BackendConfig.ToolsArg, BackendConfig.ToolsCSVTemplate — keyword search returned zero hits in hylla snapshot 10.
+   - Together-ai claude-routed example confirmed at installseed.go line 138-162 (commented `[backends.together-ai]` with command="claude" + ANTHROPIC_BASE_URL=together endpoint), matching planner enumeration of three claude-routed seed examples.
+
+4. ATOMICITY / BLOCKERS: MITIGATED.
+   - Five builder droplets each scoped to 1 prod + 1 test (4 code droplets) or 1 prose cluster (docs); all within atomicity budget. The claude_tools_sandbox droplet bundles de-scope helper + --tools render + Preview tests + dontAsk-arg assertions; same-file co-located logic justifies one droplet rather than a fake intermediate state.
+   - Blocker graph: template -> backend-contract -> claude-render (intra-package strict serialization on shared file group), installseed blocks on template+contract (needs settled NEW field names), docs blocks on claude-render + installseed (prose must match landed runtime+seed). Disjoint sibling lanes: installseed and claude-render can run parallel after template+contract land; docs is final.
+   - HC2 verification: every blocker id in the L2 acceptance and inside each droplet matches a real planned record id created by this cascade. No fake placeholders.
+   - HC3 verification: write scopes disjoint (internal/backends/** vs internal/installseed/** vs README+CLAUDE+SAND-SPEC). No overlap.
+   - HC4 verification: each terminal builder confined to one production/test pair or one prose cluster.
+
+5. CODEX PARITY: MITIGATED with OPEN QUESTION (not a blocker).
+   - Hylla-verified: codexExecBackend.renderArgs only SubstituteSlices BackendConfig.Args; does NOT append --allowedTools. RenderMCPInlineTOML only emits `approval_mode="approve"` for discovered MCP tools. The seeded `[backends.codex-exec]` example (installseed.go ~73-86) has no allowed_tools_arg + no PersonaToolsCSV reference.
+   - The plan's claim 'codex has no analogous gap (different mechanism)' is TECHNICALLY accurate for the specific `--allowedTools-misuse` defect: codex argv has no equivalent of `--allowedTools` to misuse.
+   - HOWEVER: the broader 'persona file IS the sandbox' promise from CLAUDE.md / README is ALSO false on codex — codex built-in tools are restricted only by ~/.codex/config.toml / `--ephemeral` / `--ignore-rules`, NOT by persona `tools:`. The persona tools: line is functionally ignored for codex built-ins. The L2 risk_notes acknowledges this honestly but the framing 'distinct mechanism' could be read as deflective.
+   - OPEN QUESTION: should drop_012 emit a sentinel TODO record / drop_014-marker capturing the codex built-in-tool sandbox question, so the documented 'no analogous gap' position is paired with a routed follow-up rather than left implicit? Not a FAIL trigger because the L2 acceptance criterion (`either no analogous gap (documented why), or fixed in scope`) is satisfied by the documented rationale; but build-QA / commit-time review should confirm the docs builder words this caveat honestly in SAND-SPEC.
+
+6. SCOPE / COVERAGE: MITIGATED.
+   - Every parent acceptance criterion is covered by at least one builder droplet: `--tools` enforcement (droplet 3), scoped Bash allow + deny-by-default (droplet 3 + dontAsk via seed in droplet 4), BackendConfig schema extension (droplet 2), de-scope helper unit tests (droplet 3), mage install seed with non-overwrite (droplet 4), docs correction across README/CLAUDE/SAND-SPEC (droplet 5), no Go hardcoding (dontAsk lives in seeded args, not Go).
+   - Scope creep check: no droplet writes outside the declared paths union (internal/backends/{template,backend,claude_native}.{go,_test.go}, internal/installseed/{installseed,installseed_test}.go, README.md, CLAUDE.md, SAND-SPEC.md). cmd/sand/**, internal/dispatch/**, internal/chains/**, magefile.go are NOT touched. ✓
+   - Dirty worktree (.CWD comment deltas in README+SAND-SPEC+installseed.go) is explicitly preserved by the installseed and docs droplets' acceptance criteria — no revert risk. ✓
+   - Shipping-but-not-wired check: PersonaToolNamesCSV new template field → consumed by installseed seed via tools_csv_template. New ToolsArg/ToolsCSVTemplate config fields → consumed by claude_native renderArgs. dontAsk → seeded in args. End-to-end wired. ✓
+
+## NITs surfaced (build-QA absorbable)
+
+- N1: de-scope helper test table should explicitly cover empty CSV, whitespace, and generic `Tool(pattern)` collapse semantics beyond just Bash.
+- N2: docs builder must cite the exact Context7 / claude-docs fragment describing `dontAsk` semantics (especially the read-only Bash carve-out) so SAND-SPEC §6 / CLAUDE.md is anchored to a verifiable source, not just 'current Claude docs'.
+- N3: claude-native droplet should pin a Preview-assertion test that proves `--permission-mode dontAsk` is emitted BEFORE --tools/--allowedTools in argv order, so any future seed reorder doesn't silently lose the dontAsk arg.
+
+## Open questions (routed)
+
+- OQ1: should drop_012 emit an explicit follow-up record (e.g. drop_014 marker) for the codex built-in-tool sandbox gap, or is the L2 risk_notes 'documented why' sufficient? Defer to user / commit-time review. Non-blocking.
+
+## Convergence
+
+(a) No unmitigated counterexample — every attack vector resolved to MITIGATED / NIT / routed open question.
+(b) Evidence completeness confirmed — hylla artifact_ref github.com/evanmschultz/sand@main snapshot 10 (commit 9e195c693a614f3d7f498cf2c95d4ff9cded4480) plus committed HEAD reads of claude_native.go / codex_exec.go / installseed.go cover every named symbol; live `claude --help` validates the flag recipe.
+(c) Unknowns routed — read-only Bash carve-out, codex built-in scope, dontAsk exact docs anchor all surfaced as NITs/open questions for build-QA + commit review.
+
+VERDICT outcome=success. Plan is sound enough for downstream builder dispatch.
+"""]
 objective = "Attack the L2 decomposition for recipe drift, missing template surface, bogus blockers, hidden file overlap, or a hand-waved codex parity claim."
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/installseed"]
 parent_id = "drop_012.drop.sandbox_enforcement"
 paths = ["internal/backends/template.go", "internal/backends/backend.go", "internal/backends/claude_native.go", "internal/installseed/installseed.go", "README.md", "CLAUDE.md", "SAND-SPEC.md"]
 priority = "high"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_012.drop.planner_sandbox_enforcement_l2"
 title = "Plan-QA falsification: sandbox_enforcement_l2"
-updated_at = "2026-05-24T17:38:52Z"
-updated_by_actor = "agent:ta-go-planning"
+updated_at = "2026-05-24T18:30:00Z"
+updated_by_actor = "agent:ta-go-plan-qa"
 updated_by_type = "agent"
 validation_plan = "Attack the recipe choice, the de-scoped template requirement, the blocker graph, and the codex explicit note before any child planner is treated as sound."
-
 [planner_backend_sandbox_enforcement_l3]
 acceptance_criteria = """
 - L3 plans exactly 3 ordered builder droplets:
@@ -496,23 +556,23 @@ command_snippets = ["mage testPkg ./internal/backends", "TA_TEST_PKG=./internal/
 created_at = "2026-05-24T17:38:52Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
-decision_log = ["2026-05-24T17:38:52Z: Atomic droplet planned: one template-surface file plus one test file. This lands the new bare-name CSV surface without mixing config or claude-native argv logic."]
+decision_log = ["2026-05-24T19:15:00Z: Built by ta-go-builder (ollama-local qwen3-coder:30b, tier 1). Orchestrator VERIFIED at ground truth: git diff shows PersonaToolNamesCSV field added to internal/backends/template.go (+doc) and table-driven tests extended in template_test.go (PersonaToolNamesCSV:\"Read,Edit,Bash\" + {{.PersonaToolNamesCSV}} in template string + missingkey=error preserved); ONLY those 2 files touched; `mage testPkg ./internal/backends` GREEN (4.6s, orchestrator-run). Atomic 1 prod + 1 test. Work not yet committed (closeout)."]
 expected_outputs = ["internal/backends/template.go", "internal/backends/template_test.go"]
 irreducible = true
 objective = "Add the template surface needed for `tools_csv_template` to reference a de-scoped bare-name CSV instead of the full scoped persona CSV. Evidence: committed `internal/backends/template.go` currently exposes only `PersonaToolsCSV`, so `tools_csv_template = \"{{.PersonaToolsCSV}}\"` would leak scoped `Bash(...)` strings into `--tools`."
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/backends"]
 parent_id = "drop_012.drop.planner_backend_sandbox_enforcement_l3"
 paths = ["internal/backends/template.go", "internal/backends/template_test.go"]
 priority = "high"
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "Build: add backend template field for de-scoped bare tool-name CSV"
-updated_at = "2026-05-24T17:38:52Z"
+updated_at = "2026-05-24T19:15:00Z"
 updated_by_actor = "agent:ta-go-planning"
 updated_by_type = "agent"
 validation_plan = "Builder runs `mage testPkg ./internal/backends` and checks that existing missing-key tests still pass while the new bare-name field substitutes cleanly."
-
 [qa_proof_build_backend_tool_names_template]
 acceptance_criteria = """
 - Verify the builder added exactly one new template-data field and did not weaken `missingkey=error` behavior.
@@ -572,23 +632,23 @@ command_snippets = ["mage testPkg ./internal/backends", "TA_TEST_PKG=./internal/
 created_at = "2026-05-24T17:38:52Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
-decision_log = ["2026-05-24T17:38:52Z: Atomic droplet planned: one contract file plus one test file. The new backend config fields land separately from claude-native argv logic so QA can prove the config surface before render behavior changes."]
+decision_log = ["2026-05-24T19:30:00Z: Built by ta-go-builder (ollama-local qwen3-coder:30b, tier 1). Orchestrator VERIFIED at ground truth: BackendConfig.ToolsArg (toml:tools_arg) + ToolsCSVTemplate (toml:tools_csv_template) added to internal/backends/backend.go:166-167 with docs; backend_test.go TOML round-trip extended; existing fields intact; ONLY backend.go+backend_test.go touched; `mage testPkg ./internal/backends` GREEN (3.8s, orchestrator-run). Atomic. Contract-only (no render logic). UNCOMMITTED (closeout)."]
 expected_outputs = ["internal/backends/backend.go", "internal/backends/backend_test.go"]
 irreducible = true
 objective = "Add the TOML-configurable `tools_arg` / `tools_csv_template` backend-contract surface required by the root drop. Evidence: committed `backends.BackendConfig` currently has only `AllowedToolsArg` / `AllowedToolsCSVTemplate`, so claude-native cannot yet render the real toolset-restricting flag from config."
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/backends"]
 parent_id = "drop_012.drop.planner_backend_sandbox_enforcement_l3"
 paths = ["internal/backends/backend.go", "internal/backends/backend_test.go"]
 priority = "high"
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "Build: extend BackendConfig with tools_arg and tools_csv_template"
-updated_at = "2026-05-24T17:38:52Z"
+updated_at = "2026-05-24T19:30:00Z"
 updated_by_actor = "agent:ta-go-planning"
 updated_by_type = "agent"
 validation_plan = "Builder runs `mage testPkg ./internal/backends` and verifies the new config fields decode while existing config semantics remain intact."
-
 [qa_proof_build_backend_tools_contract]
 acceptance_criteria = """
 - Verify `BackendConfig` gained exactly the two planned fields and no unrelated contract drift.

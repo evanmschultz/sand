@@ -1322,13 +1322,13 @@ updated = 2026-05-23T03:35:47.894496Z
 created = 2026-05-24T17:45:45.55793Z
 db_name = 'cascade'
 type = 'droplet'
-updated = 2026-05-24T17:45:45.55793Z
+updated = 2026-05-24T19:11:28.574083Z
 
 [drop_012.drop.build_backend_tools_contract]
 created = 2026-05-24T17:45:45.594635Z
 db_name = 'cascade'
 type = 'droplet'
-updated = 2026-05-24T17:45:45.594635Z
+updated = 2026-05-24T19:24:58.627929Z
 
 [drop_012.drop.build_claude_tools_sandbox]
 created = 2026-05-24T17:45:45.632227Z
@@ -1424,7 +1424,7 @@ updated = 2026-05-24T17:43:35.86917Z
 created = 2026-05-24T17:43:35.803103Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T17:43:35.803103Z
+updated = 2026-05-24T18:51:58.776704Z
 
 [drop_012.drop.qa_proof_backend_sandbox_enforcement_l3_plan]
 created = 2026-05-24T17:43:35.825182Z
@@ -1478,13 +1478,27 @@ updated = 2026-05-24T17:43:35.858496Z
 created = 2026-05-24T17:43:35.791972Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T17:43:35.791972Z
+updated = 2026-05-24T18:45:51.369563Z
 
 [drop_012.drop.sandbox_enforcement]
 created = 2026-05-24T16:40:42.847372Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-24T17:30:06.027927Z
+updated = 2026-05-24T21:52:13.237015Z
+
+[drop_013]
+[drop_013.drop]
+[drop_013.drop.dispatch_realignment]
+created = 2026-05-24T22:02:34.241845Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-05-24T22:02:34.241845Z
+
+[drop_013.drop.planner_dispatch_realignment_l2]
+created = 2026-05-24T22:02:34.25607Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-24T22:02:34.25607Z
 
 [ta-closeout]
 created = 2026-05-21T04:59:59.072717Z
