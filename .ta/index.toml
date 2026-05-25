@@ -1488,101 +1488,323 @@ updated = 2026-05-24T21:52:13.237015Z
 
 [drop_013]
 [drop_013.drop]
+[drop_013.drop.bqa_falsif_chains_update]
+created = 2026-05-25T04:14:45.167473Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:14:45.167473Z
+
+[drop_013.drop.bqa_falsif_claude_bare]
+created = 2026-05-25T04:13:28.852417Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:13:28.852417Z
+
+[drop_013.drop.bqa_falsif_claude_oauth]
+created = 2026-05-25T04:13:28.830435Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:13:28.830435Z
+
+[drop_013.drop.bqa_falsif_hermeticity]
+created = 2026-05-25T04:14:08.025565Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:14:08.025565Z
+
+[drop_013.drop.bqa_falsif_opts_threading]
+created = 2026-05-25T04:14:08.0015Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:14:08.0015Z
+
+[drop_013.drop.bqa_falsif_personas_bash]
+created = 2026-05-25T04:14:45.190239Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:14:45.190239Z
+
+[drop_013.drop.bqa_proof_chains_update]
+created = 2026-05-25T04:14:45.15557Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:14:45.15557Z
+
+[drop_013.drop.bqa_proof_claude_bare]
+created = 2026-05-25T04:13:28.841573Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:13:28.841573Z
+
+[drop_013.drop.bqa_proof_claude_oauth]
+created = 2026-05-25T04:13:28.817813Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:13:28.817813Z
+
+[drop_013.drop.bqa_proof_hermeticity]
+created = 2026-05-25T04:14:08.012475Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:14:08.012475Z
+
+[drop_013.drop.bqa_proof_opts_threading]
+created = 2026-05-25T04:14:07.990811Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:14:07.990811Z
+
+[drop_013.drop.bqa_proof_personas_bash]
+created = 2026-05-25T04:14:45.17965Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:14:45.17965Z
+
 [drop_013.drop.dispatch_realignment]
 created = 2026-05-24T22:02:34.241845Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-24T22:24:54.945273Z
+updated = 2026-05-25T04:15:13.291412Z
+
+[drop_013.drop.droplet_chains_update]
+created = 2026-05-25T04:14:45.130791Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-25T04:14:45.130791Z
+
+[drop_013.drop.droplet_claude_bare_disallowed]
+created = 2026-05-25T04:13:28.804591Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-25T04:13:28.804591Z
+
+[drop_013.drop.droplet_claude_oauth_refusal]
+created = 2026-05-25T04:13:28.786112Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-25T04:13:28.786112Z
+
+[drop_013.drop.droplet_hermeticity_smoke]
+created = 2026-05-25T04:14:07.978389Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-25T04:14:07.978389Z
+
+[drop_013.drop.droplet_opts_threading]
+created = 2026-05-25T04:14:07.962781Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-25T04:14:07.962781Z
+
+[drop_013.drop.droplet_personas_bash_scope]
+created = 2026-05-25T04:14:45.143804Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-25T04:14:45.143804Z
+
+[drop_013.drop.l3_chains_personas]
+created = 2026-05-25T04:11:31.816929Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-25T04:11:31.816929Z
+
+[drop_013.drop.l3_claude_dualpath]
+created = 2026-05-25T04:10:43.48754Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-25T04:10:43.48754Z
+
+[drop_013.drop.l3_codex_hermetic]
+created = 2026-05-25T04:10:43.475649Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-25T04:10:43.475649Z
+
+[drop_013.drop.l3_config_contract]
+created = 2026-05-25T04:10:43.464517Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-25T04:10:43.464517Z
+
+[drop_013.drop.l3_dispatch_threading]
+created = 2026-05-25T04:11:31.805337Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-25T04:11:31.805337Z
+
+[drop_013.drop.l3_gate]
+created = 2026-05-25T04:11:31.792333Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-25T04:11:31.792333Z
 
 [drop_013.drop.planner_chains_personas_l3]
 created = 2026-05-24T22:23:44.710576Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-24T22:27:54.951178Z
+updated = 2026-05-25T04:16:38.56099Z
 
 [drop_013.drop.planner_codex_hermetic_l3]
 created = 2026-05-24T22:23:44.684021Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-24T22:23:44.684021Z
+updated = 2026-05-25T04:16:38.531054Z
 
 [drop_013.drop.planner_config_schema_l3]
 created = 2026-05-24T22:23:44.670207Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-24T22:23:44.670207Z
+updated = 2026-05-25T04:16:38.517252Z
 
 [drop_013.drop.planner_dispatch_realignment_l2]
 created = 2026-05-24T22:02:34.25607Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-24T22:23:10.449443Z
+updated = 2026-05-25T04:16:38.502349Z
 
 [drop_013.drop.planner_dual_path_refusal_l3]
 created = 2026-05-24T22:23:44.697814Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-24T22:23:44.697814Z
+updated = 2026-05-25T04:16:38.545961Z
+
+[drop_013.drop.planner_l2]
+created = 2026-05-25T04:09:55.548797Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-25T04:16:17.492311Z
+
+[drop_013.drop.qa_falsif_l3_chains]
+created = 2026-05-25T04:12:44.06207Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:12:44.06207Z
+
+[drop_013.drop.qa_falsif_l3_claude]
+created = 2026-05-25T04:12:07.322284Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:12:07.322284Z
+
+[drop_013.drop.qa_falsif_l3_codex]
+created = 2026-05-25T04:12:07.295357Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:12:07.295357Z
+
+[drop_013.drop.qa_falsif_l3_config]
+created = 2026-05-25T04:12:07.269791Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:12:07.269791Z
+
+[drop_013.drop.qa_falsif_l3_dispatch]
+created = 2026-05-25T04:12:44.033999Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:12:44.033999Z
+
+[drop_013.drop.qa_falsif_l3_gate]
+created = 2026-05-25T04:12:43.972844Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-25T04:12:43.972844Z
 
 [drop_013.drop.qa_falsification_planner_chains_personas_l3]
 created = 2026-05-24T22:24:01.014074Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T22:24:01.014074Z
+updated = 2026-05-25T04:16:48.652095Z
 
 [drop_013.drop.qa_falsification_planner_codex_hermetic_l3]
 created = 2026-05-24T22:24:00.964928Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T22:24:00.964928Z
+updated = 2026-05-25T04:16:48.590424Z
 
 [drop_013.drop.qa_falsification_planner_config_schema_l3]
 created = 2026-05-24T22:24:00.93972Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T22:24:00.93972Z
+updated = 2026-05-25T04:16:48.560902Z
 
 [drop_013.drop.qa_falsification_planner_dispatch_realignment_l2]
 created = 2026-05-24T22:27:38.458375Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T22:27:38.458375Z
+updated = 2026-05-25T04:16:48.679459Z
 
 [drop_013.drop.qa_falsification_planner_dual_path_refusal_l3]
 created = 2026-05-24T22:24:00.989142Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-24T22:24:00.989142Z
+updated = 2026-05-25T04:16:48.621961Z
+
+[drop_013.drop.qa_proof_l3_chains]
+created = 2026-05-25T04:12:44.050075Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:12:44.050075Z
+
+[drop_013.drop.qa_proof_l3_claude]
+created = 2026-05-25T04:12:07.309034Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:12:07.309034Z
+
+[drop_013.drop.qa_proof_l3_codex]
+created = 2026-05-25T04:12:07.281651Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:12:07.281651Z
+
+[drop_013.drop.qa_proof_l3_config]
+created = 2026-05-25T04:12:07.253768Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:12:07.253768Z
+
+[drop_013.drop.qa_proof_l3_dispatch]
+created = 2026-05-25T04:12:43.985225Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:12:43.985225Z
+
+[drop_013.drop.qa_proof_l3_gate]
+created = 2026-05-25T04:12:43.942264Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-25T04:12:43.942264Z
 
 [drop_013.drop.qa_proof_planner_chains_personas_l3]
 created = 2026-05-24T22:24:01.002007Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T22:24:01.002007Z
+updated = 2026-05-25T04:16:48.636347Z
 
 [drop_013.drop.qa_proof_planner_codex_hermetic_l3]
 created = 2026-05-24T22:24:00.953115Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T22:24:00.953115Z
+updated = 2026-05-25T04:16:48.575715Z
 
 [drop_013.drop.qa_proof_planner_config_schema_l3]
 created = 2026-05-24T22:24:00.925661Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T22:24:00.925661Z
+updated = 2026-05-25T04:16:48.543045Z
 
 [drop_013.drop.qa_proof_planner_dispatch_realignment_l2]
 created = 2026-05-24T22:27:38.446511Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T22:27:38.446511Z
+updated = 2026-05-25T04:16:48.665204Z
 
 [drop_013.drop.qa_proof_planner_dual_path_refusal_l3]
 created = 2026-05-24T22:24:00.977386Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-24T22:24:00.977386Z
+updated = 2026-05-25T04:16:48.606581Z
 
 [ta-closeout]
 created = 2026-05-21T04:59:59.072717Z

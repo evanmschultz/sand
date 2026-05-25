@@ -13,5 +13,18 @@
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "ta"
-  ]
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -B \"$CLAUDE_PROJECT_DIR/.claude/hooks/ta_action_gate.py\""
+          }
+        ]
+      }
+    ]
+  }
 }

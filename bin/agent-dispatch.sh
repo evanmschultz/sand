@@ -39,6 +39,7 @@ PROMPT_STRING=""
 DRY_RUN=0
 MODEL_OVERRIDE=""
 HELD_LOCK=""
+GATE_JSON=""
 
 usage() {
   cat >&2 <<'USAGE'
@@ -98,6 +99,7 @@ while [[ $# -gt 0 ]]; do
     --prompt)       PROMPT_STRING="$2";  shift 2 ;;
     --prompt-file)  PROMPT_FILE="$2";    shift 2 ;;
     --model)        MODEL_OVERRIDE="$2"; shift 2 ;;
+    --gate)         GATE_JSON="$2";      shift 2 ;;
     --dry-run)      DRY_RUN=1;           shift ;;
     -h|--help)      usage ;;
     *)              echo "Unknown arg: $1" >&2; usage ;;
@@ -159,6 +161,34 @@ elif [[ -n "${PROMPT_FILE}" ]]; then
 else
   TASK_PROMPT="$(cat)"
 fi
+
+# --- Gate contract (--gate '{"edit":[...],"writable_dirs":[...],"bash_deny":[...],"network":bool}') ---
+# ONE JSON gate spec → per-backend translation (codex: execpolicy rules + -C; claude -p:
+# --allowedTools(//abs) + --disallowedTools). Empty => ungated. The orchestrator owns the spec;
+# this is the bin/sh proof-of-concept the sand MCP will replace.
+GATE_EDIT_FILES=()
+GATE_BASH_DENY=()
+GATE_WRITABLE_DIRS=()
+if [[ -n "${GATE_JSON}" ]]; then
+  while IFS= read -r line; do [[ -n "$line" ]] && GATE_EDIT_FILES+=("$line"); done < <(printf '%s' "${GATE_JSON}" | python3 -c "import sys,json;d=json.loads(sys.stdin.read() or '{}');print(chr(10).join(x for x in d.get('edit',[]) if isinstance(x,str)))")
+  while IFS= read -r line; do [[ -n "$line" ]] && GATE_BASH_DENY+=("$line"); done < <(printf '%s' "${GATE_JSON}" | python3 -c "import sys,json;d=json.loads(sys.stdin.read() or '{}');print(chr(10).join(x for x in d.get('bash_deny',[]) if isinstance(x,str)))")
+  while IFS= read -r line; do [[ -n "$line" ]] && GATE_WRITABLE_DIRS+=("$line"); done < <(printf '%s' "${GATE_JSON}" | python3 -c "import sys,json;d=json.loads(sys.stdin.read() or '{}');print(chr(10).join(x for x in d.get('writable_dirs',[]) if isinstance(x,str)))")
+fi
+
+# --- Per-run audit capture (veracity + sand reference corpus) --------------
+# The bin/sh model must persist the FULL trace of every dispatch so (a) an
+# orchestrator can AUDIT that an agent's self-report matches what actually ran
+# (no silent off-scope action), and (b) sand has real reference data to build
+# from. Per tier we capture the backend's stdout (the response +, for codex,
+# the tool-call stream) and stderr (codex execpolicy "Rejected(...)" lines,
+# diagnostics) to .claude/agent-runs/ (gitignored — transient artifacts). The
+# `-p`/ollama JSON envelope's permission_denials + tool_use and the codex
+# stream are the ground truth the orchestrator checks claims against. (Built-in
+# Agent-tool gate decisions live separately in .claude/hooks/ta_gate_debug.log,
+# since that channel does not route through this dispatcher.)
+AUDIT_DIR="${REPO_ROOT}/.claude/agent-runs"
+mkdir -p "${AUDIT_DIR}" 2>/dev/null || true
+AUDIT_BASE="${AUDIT_DIR}/$(date +%Y%m%d-%H%M%S)-${ROLE}-$$"
 
 ANTI_RECURSION='
 
@@ -298,7 +328,27 @@ dispatch_ollama() {
   # mcp-config JSON. Ollama is currently REMOVED from the chains, so this path
   # is dormant; today it loads only the project .mcp.json (ta + hylla).
   [[ -f "${REPO_ROOT}/.mcp.json" ]] && cmd+=( --mcp-config "${REPO_ROOT}/.mcp.json" )
-  [[ -n "${TOOLS_LINE}" ]] && cmd+=( --allowedTools "${TOOLS_LINE}" )
+  # GATE (consensus 2026-05-25, hylla T2 / sand E2 / ta R1 / tillsyn C-2): `--bare` disables hooks,
+  # so the gate on this path is `--allowedTools` + `--disallowedTools`. Per-file edit-scope DOES work
+  # with the `//` DOUBLE-SLASH absolute form (single-slash denies everything). Scope the FULL edit-tool
+  # set per file (models pick Edit vs Write vs MultiEdit inconsistently), omit bare `Bash` (else an
+  # agent's `echo > forbidden` bypasses the Edit gate), keep the persona's MCP tools, and deny the
+  # gate's bash_deny patterns. `--bare` gives the clean small-model context for free.
+  if [[ "${#GATE_EDIT_FILES[@]}" -gt 0 || "${#GATE_BASH_DENY[@]}" -gt 0 ]]; then
+    local allow=( Read Glob Grep "Bash(mage *)" "Bash(go doc:*)" "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)" )
+    local ef mt
+    for ef in "${GATE_EDIT_FILES[@]:-}"; do
+      [[ -z "${ef}" ]] && continue
+      allow+=( "Edit(//${ef#/})" "Write(//${ef#/})" "MultiEdit(//${ef#/})" )
+    done
+    while IFS= read -r mt; do [[ -n "${mt}" ]] && allow+=( "${mt}" ); done < <(printf '%s' "${TOOLS_LINE}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep '^mcp__' || true)
+    cmd+=( --allowedTools "${allow[@]}" )
+    local deny=() bp
+    for bp in "${GATE_BASH_DENY[@]:-}"; do [[ -n "${bp}" ]] && deny+=( "Bash(${bp}:*)" ); done
+    [[ "${#deny[@]}" -gt 0 ]] && cmd+=( --disallowedTools "${deny[@]}" )
+  else
+    [[ -n "${TOOLS_LINE}" ]] && cmd+=( --allowedTools "${TOOLS_LINE}" )
+  fi
 
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     printf '  ANTHROPIC_BASE_URL=http://localhost:11434 ANTHROPIC_API_KEY=ollama \\\n' >&2
@@ -324,14 +374,23 @@ dispatch_codex() {
 
 ${TASK_PROMPT}"
 
+  # -C confines writes to the gate's writable dir (editing roles) else the project cwd.
+  local codex_cwd="${CWD}"
+  [[ "${#GATE_WRITABLE_DIRS[@]}" -gt 0 ]] && codex_cwd="${GATE_WRITABLE_DIRS[0]}"
+  # NOTE: --ignore-rules REMOVED (2026-05-25 4-way consensus). We WANT our hermetic
+  # CODEX_HOME/rules/default.rules execpolicy to apply — it is the RELIABLE, OS-independent
+  # git/command block (native .git-ro is geometry-/`/tmp`-dependent: sand E5, hylla T3clean vs
+  # T3v3). --ignore-user-config + the hermetic CODEX_HOME still exclude the dev's global rules.
   local cmd=( codex exec
     --ephemeral
     --ignore-user-config
-    --ignore-rules
     --skip-git-repo-check
-    -C "${CWD}"
+    -C "${codex_cwd}"
     -m "${model}"
   )
+  # workspace-write sandbox is INERT in exec without an approval policy (sand E3); `-a` is not a
+  # valid `codex exec` flag (sand E4) — the knob is `-c approval_policy="never"`.
+  cmd+=( -c "approval_policy=\"never\"" )
 
   # Codex MCP injection — HERMETIC (mirrors dispatch_claude_native's
   # "--bare + explicit MCP" pattern). --ignore-user-config (set above) means
@@ -360,6 +419,13 @@ ${TASK_PROMPT}"
   # instruction-doc budget to 0 bytes. The persona body (--append via the
   # prompt) is the agent's ONLY instruction source — fully hermetic.
   cmd+=( -c "project_doc_max_bytes=0" )
+
+  # Disable codex's BUNDLED skills (imagegen / openai-docs / plugin-creator /
+  # skill-creator / skill-installer) so the agent's world is ONLY the persona +
+  # the injected MCP — nothing ambient. (--ignore-user-config skips config.toml
+  # but NOT the runtime-bundled skills; this knob does. Verified 2026-05-25:
+  # SKILLS=NONE under this flag.)
+  cmd+=( -c "skills.bundled.enabled=false" )
 
   local ta_tools_toml="" tool
   for tool in get update list_sections search schema create delete move init; do
@@ -448,6 +514,24 @@ ${TASK_PROMPT}"
   for f in auth.json version.json installation_id models_cache.json; do
     [[ -e "${HOME}/.codex/${f}" ]] && ln -s "${HOME}/.codex/${f}" "${hermetic_home}/${f}"
   done
+  # Execpolicy git/command denylist — the RELIABLE block (CreateProcess-level, geometry/OS-
+  # independent). git mutations ALWAYS forbidden (orchestrator is sole committer); plus the gate's
+  # non-git bash_deny patterns (e.g. "mage install", "go get", "go mod"). Loaded because we do NOT
+  # pass --ignore-rules; the hermetic CODEX_HOME keeps the dev's global rules out.
+  mkdir -p "${hermetic_home}/rules"
+  {
+    local gv
+    for gv in commit push add reset rebase merge checkout branch tag stash restore cherry-pick am clean switch rm mv update-ref gc prune worktree submodule init clone; do
+      printf 'prefix_rule(pattern=["git", "%s"], decision="forbidden")\n' "${gv}"
+    done
+    local pat toks
+    for pat in "${GATE_BASH_DENY[@]:-}"; do
+      [[ -z "${pat}" ]] && continue
+      case "${pat}" in git\ *|git) continue ;; esac
+      toks="$(printf '%s' "${pat}" | python3 -c "import sys;print(', '.join('\"%s\"'%t for t in sys.stdin.read().split()))")"
+      [[ -n "${toks}" ]] && printf 'prefix_rule(pattern=[%s], decision="forbidden")\n' "${toks}"
+    done
+  } > "${hermetic_home}/rules/default.rules"
   CODEX_HOME="${hermetic_home}" "${cmd[@]}" <<<"${full_prompt}" && rc=0 || rc=$?
   rm -rf "${hermetic_home}" 2>/dev/null || true
   return "${rc}"
@@ -518,28 +602,40 @@ while IFS='|' read -r backend model opts wait_max slots; do
   # is part of a compound conditional).
   DISPATCH_OK=1
   DISPATCH_EXIT=0
+  # Capture this tier's stdout (response/stream) + stderr (tool stream, codex
+  # execpolicy rejections) to the per-run audit files, then pass both through to
+  # the dispatcher's real stdout/stderr so the orchestrator still receives them.
+  TIER_OUT="${AUDIT_BASE}.tier${TIER_NUM}.${backend}.out"
+  TIER_ERR="${AUDIT_BASE}.tier${TIER_NUM}.${backend}.err"
   case "$backend" in
     ollama-local|ollama-cloud)
-      dispatch_ollama "$model" && DISPATCH_EXIT=0 || DISPATCH_EXIT=$?
+      dispatch_ollama "$model" > "${TIER_OUT}" 2> "${TIER_ERR}" && DISPATCH_EXIT=0 || DISPATCH_EXIT=$?
       ;;
     codex-exec)
-      dispatch_codex "$model" "$opts" && DISPATCH_EXIT=0 || DISPATCH_EXIT=$?
+      dispatch_codex "$model" "$opts" > "${TIER_OUT}" 2> "${TIER_ERR}" && DISPATCH_EXIT=0 || DISPATCH_EXIT=$?
       ;;
     claude-native)
-      dispatch_claude_native "$model" && DISPATCH_EXIT=0 || DISPATCH_EXIT=$?
+      dispatch_claude_native "$model" > "${TIER_OUT}" 2> "${TIER_ERR}" && DISPATCH_EXIT=0 || DISPATCH_EXIT=$?
       ;;
   esac
+  [[ -s "${TIER_OUT}" ]] && cat "${TIER_OUT}"
+  [[ -s "${TIER_ERR}" ]] && cat "${TIER_ERR}" >&2
   [[ "${DISPATCH_EXIT}" -ne 0 ]] && DISPATCH_OK=0
 
   release_ollama_slot "${HELD_LOCK}"
   HELD_LOCK=""
 
   if [[ "${DISPATCH_OK}" -eq 1 ]]; then
+    printf '{"run":"%s","role":"%s","backend":"%s","model":"%s","tier":%d,"exit":0,"served_by":"%s:%s","cwd":"%s","gate":%s,"ts":"%s","stdout":"%s","stderr":"%s"}\n' \
+      "$(basename "${AUDIT_BASE}")" "${ROLE}" "${backend}" "${model}" "${TIER_NUM}" "${backend}" "${model}" "${CWD}" \
+      "${GATE_JSON:-null}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "$(basename "${TIER_OUT}")" "$(basename "${TIER_ERR}")" > "${AUDIT_BASE}.meta.json" 2>/dev/null || true
     if [[ "${TIER_NUM}" -eq 1 ]]; then
       echo "[disp] served_by=${backend}:${model}" >&2
     else
       echo "[disp] served_by=${backend}:${model} originally_requested=${PRIMARY_BACKEND}:${PRIMARY_MODEL} FALLBACK" >&2
     fi
+    echo "[disp] audit=${AUDIT_BASE}.*" >&2
     exit 0
   fi
 

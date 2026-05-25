@@ -1,21 +1,25 @@
 [dispatch_realignment]
 acceptance_criteria = """
-ASSURANCE STRATEGY (load-bearing -- this is HOW we know it's right):
-- ORACLE EQUIVALENCE (primary): for every codex role (ta-go-planning, ta-go-plan-qa-falsification, ta-go-build-qa-falsification, and FE equivalents), sand's rendered codex command (Preview/dry-run) MUST be byte-equivalent (modulo the ephemeral CODEX_HOME tmp path + mktemp randomness) to `bin/agent-dispatch.sh --role <role> --dry-run` output. The bin dispatcher is the executable spec; a diff is a defect. Golden tests pin the exact tokens (--ignore-user-config, web_search, project_doc_max_bytes=0, the per-role MCP -c blocks with per-tool approval_mode, hylla-skipped-for-build-qa, gopls-for-go, opts).
-- LIVE HERMETICITY SMOKE TEST (prove the negatives): a test/dispatch that confirms a codex agent under sand's hermetic config does NOT see global ~/.codex/config.toml servers, global/project AGENTS.md, or global skills; AND proves the positives (planning/plan-qa CAN reach hylla+context7+gopls; *build-qa* CANNOT reach hylla; go roles get gopls).
-- DUAL-PATH REFUSAL: sand REFUSES OAuth claude-native roles with the Agent-tool redirect signal (oracle: bin dispatch_claude_native). A test asserts the refusal + message.
-- OPTS THREADING: tier.Opts is appended to the codex argv; a test proves `--sandbox read-only -c model_reasoning_effort=high` (planning) and `--sandbox workspace-write ...` (falsification) reach the rendered command.
-- `mage check` GREEN across all packages; all existing tests stay green or are updated with rationale.
-- AGONISTIC QA: plan-QA-falsification (codex, bin-dispatched) attacks the plan BEFORE build; build-QA-falsification (codex) attacks shipped code; build-QA-proof + plan-QA-proof (claude opus via Agent tool) prove acceptance. Different backend per stance per artifact -- never the same backend for both stances.
-- UPSTREAM GROUNDING: every hermetic flag grounded in live `codex exec --help` (0.133) + Context7 codex docs + cited issues (#14316 no-skills-disable, #16501 per-tool approval, #21907 skill discovery).
-- TILLSYN CROSS-CHECK: reconcile sand's interpretation against tillsyn/main/AGENT_DISPATCH.md (the mirror) as a planning-evidence step.
-- No new external Go deps beyond stdlib.
-- BUILD BOOTSTRAP: built via bin/agent-dispatch.sh (codex roles) + Agent tool (OAuth roles), NOT mcp__sand__dispatch (cannot dogfood the codex path under repair).
+Build-from spec = AGENT_SANDBOX_SPEC.md (consensus mechanisms, all macOS-reproduced) + AGENT_DISPATCH.md. mage check GREEN; existing drop_003/006/008/011 tests stay green or updated w/ rationale.
+
+CODEX (refactor internal/backends/codex_exec.go + codex_mcp_probe.go): REMOVE --ignore-rules; ADD hermetic CODEX_HOME (mktemp + symlink auth.json/version.json/installation_id/models_cache.json) with OWN rules/default.rules (execpolicy prefix_rule(decision="forbidden") for git mutation + mage install + go get/mod) + --ignore-user-config + -c web_search="live" + -c project_doc_max_bytes=0 + -c approval_policy="never" + --sandbox (read-only non-edit / workspace-write -C <writable_dir> edit) + role-conditional MCP injection (REPLACE the uniform .mcp.json probe: ta always; hylla planning+plan-qa ONLY (skip *build-qa*); context7 always; gopls *-go-*; playwright *-fe-*; per-tool approval_mode=approve). NOTE codex .git-ro is writable-roots-dependent -> execpolicy is the PRIMARY git block.
+
+CLAUDE (refactor internal/backends/claude_native.go): dual-path: REFUSE OAuth roles (signal orchestrator to use the Agent tool); the -p path is API-key/ollama-only = --bare + --allowedTools "Edit(//abs) Write(//abs) MultiEdit(//abs)" (// double-slash, per-file) + --disallowedTools "Bash(git commit:*)" ... + scoped/NO-bare Bash.
+
+GATE (NEW, Go): a `sand gate` PreToolUse hook subcommand (internal/gate + cmd/sand) registered in settings.json exec-form; enforces per-file edit-scope + bash_deny + explicit-allow; allowlist by agent_id/agent_type (gates-file or <TA_ALLOWLIST>). The --gate '{edit,writable_dirs,bash_deny,network}' contract + per-backend translation + runtime-mismatch validation.
+
+CONFIG (NEW): agentconfig package consuming the agent-dispatch TOML ([routing],[codex.hermetic],[codex.mcp], gate spec); sand GENERATES project-local artifacts (settings.json hook reg, CODEX_HOME/rules) -- no global state. examples/ dir: go-only (sand/main, 7 roles) + go+fe (hylla/poly, 13 roles, localhost:34917, playwright).
+
+DISPATCH: thread tier.Opts into argv (currently DEAD). VERACITY: response envelope ALWAYS returns the full tool-call trace (ties to the envelope parser); personas emit ## Tools Used.
+
+Opts threading + tier opts; chains/personas reflect the role model + per-role Bash-scoping (no bare Bash). Cross-OS: Go gate binary (filepath-normalizing); execpolicy is the OS-independent floor.
+
+ASSURANCE: oracle-equivalence to bin/agent-dispatch.sh --dry-run per codex role (golden tests) + a hermeticity smoke-test droplet + cross-backend plan/build-QA. No new external Go deps.
 """
 created_at = "2026-05-24T20:45:00Z"
 created_by_actor = "agent:orchestrator"
 created_by_type = "agent"
-decision_log = ["2026-05-24T20:45:00Z: drop_013 created to realign sand dispatch to AGENT_DISPATCH.md, using bin/agent-dispatch.sh as the proven ORACLE. Assurance: oracle-equivalence golden tests (sand Preview == bin --dry-run per role) + live hermeticity smoke tests + cross-backend agonistic QA (codex falsification vs claude proof, never same backend per stance) + upstream CLI/issue grounding + tillsyn mirror cross-check. Supersedes drop_012 builders 3-5. Build bootstrap: bin dispatcher (codex) + Agent tool (OAuth), NOT mcp__sand__dispatch.", "2026-05-24T22:10:00Z: DESIGN REFINEMENT (user). Sand must be CONFIG-DRIVEN, NOT hardcode isolation in Go. Sand ENFORCES + APPLIES what an agent-dispatch TOML declares ([codex.hermetic] ignore_user_config/project_doc_max_bytes/ignore_rules/codex_home/web_search; [codex.mcp] role-conditional ta/hylla/context7/gopls/playwright scopes; [routing] role->channel+tier) per AGENT_DISPATCH.md sec8. FLEXIBILITY: hermeticity is a config CHOICE -- users CAN keep global codex AGENTS.md/skills via their TOML; sand/main config is hermetic. ALWAYS surface tool_calls+tools_used+errors. EXAMPLES DIR: two TOMLs -- go-only (sand/main: 7 agents) + go+fe (hylla/polyglot: 13 agents, live_backend_url localhost:34917, playwright for fe) per sec8a/8b. Scope = config-driven dispatch correctness + examples; config GENERATION (ta init, sec9) is a later drop.", "2026-05-24T22:30:00Z: INVARIANT (user, load-bearing): NO dispatched agent may EVER commit/push to git -- ONLY the orchestrator commits/pushes. Current state AUDITED + FAILS: all 7 personas (ta-closeout, ta-go-builder, ta-go-planning, ta-go-plan-qa-proof/falsification, ta-go-build-qa-proof/falsification) have BARE `Bash` in their tools: line (unscoped) -> permits git commit/push. No explicit git-write or Bash(git *) patterns, but bare Bash is the hole. Agent-tool roles enforce tools: as the allowlist (bare Bash = hole); codex read-only sandbox (planning) blocks writes but codex workspace-write (qa-falsification) does NOT inherently block git commit. FIX (fold into this drop -- it already touches personas): scope EVERY persona's Bash to read-only subset Bash(mage *)|Bash(git diff *)|Bash(git log *)|Bash(git status)|Bash(git show *), NEVER bare Bash; deny git commit/push/add/reset/clean -- per CLAUDE.md sec 'Persona Bash scoping' TOON table (which the recent persona rewrites regressed away from). This makes orchestrator-only-commit an ENFORCED boundary, not just a discipline. Add a persona-Bash-scoping builder droplet + golden/test that asserts no persona tools: line contains bare Bash.", "2026-05-24T23:30:00Z: PLANNING COMPLETE (agent:ta-go-planning, sonnet substitute). L2 planner updated. 4 L3 sub-planners created: planner_config_schema_l3 (new internal/agentconfig pkg + examples/), planner_codex_hermetic_l3 (codex_exec.go overhaul + dispatch.go opts threading), planner_dual_path_refusal_l3 (claude_native.go OAuth refusal), planner_chains_personas_l3 (sand-chains.toml 7-role split). 8 plan-QA twins (qa_proof + qa_falsification per planner), all state=todo. Key findings: Tier.Opts DEAD (chains.go:63 exists, but dispatch.go:buildSpawnRequest does not pass it); agent-dispatch.toml is a NEW file (separate from sand-chains.toml -- no parse strictness conflict); 7 persona files already exist under .claude/agents/; no examples/ dir. HYLLA FEEDBACK: Tier struct field lookup ('Tier Opts field') missed -- worked via direct Read. Expected: Hylla snapshot 11 covers the struct but keyword search insufficient for field-level lookup; use node_full on package id for struct fields. Otherwise Hylla clean. ## Blockers resolved: none new."]
+decision_log = ["2026-05-24T20:45:00Z: drop_013 created to realign sand dispatch to AGENT_DISPATCH.md (oracle=bin/agent-dispatch.sh). 4 L3 lanes: config-schema, codex-hermetic, dual-path-refusal, chains-personas. Assurance: oracle-equivalence + hermeticity smoke + cross-backend QA.", "2026-05-24T22:10:00Z: DESIGN REFINEMENT (config-driven, not hardcoded; flexible hermeticity; examples dir; always-surface tool_calls+errors).", "2026-05-25T00:30:00Z: SCOPE EXPANDED to the LOCKED AGENT_SANDBOX_SPEC.md (4-way consensus). The original 4 L3 lanes PREDATE the spec and are INCOMPLETE -> drop_013 needs RE-DECOMPOSITION. New/changed scope vs the original lanes: (a) codex-hermetic lane must REMOVE --ignore-rules and ADD hermetic CODEX_HOME + own execpolicy rules/default.rules + approval_policy=never + web_search + project_doc_max_bytes=0 (execpolicy is the PRIMARY git block; native .git-ro is writable-roots-dependent); (b) NEW lane: `sand gate` Go PreToolUse hook subcommand (internal/gate + cmd/sand) + settings.json artifact gen + the --gate JSON contract + edit-scope (per-file claude / per-dir codex) + bash_deny; (c) claude dual-path: -p is API-key/ollama-only (--bare + --allowedTools(//abs) + --disallowedTools + no-bare-Bash), OAuth REFUSED -> Agent tool; (d) per-role tool/disallowed matrix (sec4) enforced via role-conditional MCP (codex) + persona tools + gate (claude); (e) VERACITY: envelope always returns tool-call trace. EXISTING-CODE REFACTOR MAP: codex_exec.go (flags+CODEX_HOME+execpolicy) + codex_mcp_probe.go (uniform .mcp.json -> role-conditional); claude_native.go (OAuth-refusal + -p API-key-only); dispatch.go (thread tier.Opts; envelope trace); backend.go (gate/hermetic config fields); NEW internal/gate + internal/agentconfig + cmd/sand `gate` subcommand + examples/. Re-decomposition to run via planner against AGENT_SANDBOX_SPEC + existing code, planning refactoring atomically. Cross-repo scratch docs committed (a1f1c4a) then pruned (a9ebc11); AGENT_SANDBOX_SPEC.md + AGENT_DISPATCH.md are the kept build-from sources.", "2026-05-25T01:00:00Z: RE-DECOMPOSITION COMPLETE. L2 planner (drop_013.drop.planner_l2) created with full Section 0 reasoning. 6 L3 lanes created: l3_config_contract (sub-planner), l3_codex_hermetic (sub-planner), l3_claude_dualpath (2 atomic droplets), l3_gate (sub-planner), l3_dispatch_threading (2 atomic droplets), l3_chains_personas (2 atomic droplets). 12 plan-QA twin pairs created (proof+falsification per L3 planner). 10 terminal builder droplets created with build-QA twins (20 build-QA records). Blocker chains: L3-2/L3-3/L3-4 blocked on L3-1 plan-QA; L3-5/L3-6 blocked on L3-2+L3-3 plan-QA. Sub-planners L3-1, L3-2, L3-4 require further decomposition by sub-planner agents before builders fire. Stale L3 planners: none existed (list_sections returned empty). Total records created: 35 cascade records."]
 definition_of_complete = """
 - [ ] codex_exec.go emits the hermetic command oracle-equivalent to bin dispatch_codex (golden test per codex role)
 - [ ] role-conditional MCP injection replaces uniform .mcp.json injection (hylla skipped for build-qa; gopls for go; context7 always; playwright for fe)
@@ -32,25 +36,15 @@ definition_of_complete = """
 """
 drop_number = 13.0
 labels = ["realignment", "codex-hermetic", "dual-path", "role-conditional-mcp", "oracle-equivalence"]
-objective = """
-Bring sand's Go dispatch logic into conformance with the canonical AGENT_DISPATCH.md model, using the CORRECTED bin/sh system (bin/agent-dispatch.sh + .claude/agent-chains.sh) as the proven-working ORACLE. SCOPE = dispatch CORRECTNESS only; the agent-dispatch TOML config-generation (AGENT_DISPATCH.md sec7-9) is a SEPARATE later drop that builds on correct dispatch.
-
-THE MODEL (AGENT_DISPATCH.md + bin reference): dual-path dispatch keyed by auth model. (1) OAuth/subscription claude roles (builder haiku->sonnet, plan-qa-proof, build-qa-proof, closeout opus) MUST dispatch via the orchestrator's built-in Agent tool, NEVER `claude -p` (--bare disables OAuth). Sand is a subprocess spawner and CANNOT invoke the Agent tool, so sand MUST REFUSE OAuth claude roles with a clear signal (mirror bin's dispatch_claude_native refusal: tell caller to use Agent(subagent_type=<role>)). (2) codex roles (planning, plan-qa-falsification, build-qa-falsification) dispatch via HERMETIC codex exec. (3) non-OAuth claude (-p --bare --mcp-config --allowedTools) is the dormant ollama/API-key path (ollama removed from chains; keep working but not primary).
-
-HERMETIC CODEX REQUIREMENTS (port bin/agent-dispatch.sh dispatch_codex EXACTLY): `codex exec --ephemeral --ignore-user-config --ignore-rules --skip-git-repo-check -C <cwd> -m <model>` + `-c web_search="live"` + `-c project_doc_max_bytes=0` (AGENTS.md kill) + ephemeral CODEX_HOME = mktemp dir symlinking ONLY auth.json/version.json/installation_id/models_cache.json from ~/.codex (then rm -rf after) + tier opts appended + ROLE-CONDITIONAL inline MCP injection with per-tool approval_mode="approve": ta always (stdio `ta --project <cwd>`, tools get/update/list_sections/search/schema/create/delete/move/init); hylla planning+plan-qa ONLY, SKIP if role matches *build-qa* (stdio `/Users/evanschultz/go/bin/hylla mcp`, read-only tool set); context7 always (HTTP url=https://mcp.context7.com/mcp, env_http_headers CONTEXT7_API_KEY); gopls if role matches *-go-* (stdio `gopls mcp` cwd=<cwd>, 6 go_* tools); playwright if role matches *-fe-* (stdio playwright-mcp --headless --isolated, browser_* tools).
-
-KEY GAPS in current sand to fix: (a) codex_exec.go missing --ignore-user-config, web_search, project_doc_max_bytes=0, hermetic CODEX_HOME, role-conditional injection (currently probes .mcp.json + injects ALL servers uniformly via codex_mcp_probe.go -- must switch to the role matrix above, NOT .mcp.json-driven); (b) tier.Opts is DEAD (never threaded into argv -- only displayed by chains_list.go:121) -- must append opts tokens to the codex argv; (c) claude_native.go must REFUSE OAuth (dual-path); (d) chains + personas must reflect the 6-role model (planning, plan-qa-proof, plan-qa-falsification, builder, build-qa-proof, build-qa-falsification + closeout).
-
-Reuse from drop_012 (already built, uncommitted): TemplateData.PersonaToolNamesCSV + BackendConfig.ToolsArg/ToolsCSVTemplate (useful for the non-OAuth --tools path).
-"""
+objective = "Build sand's Go dispatch + per-dispatch agent sandboxing to conform to the LOCKED consensus in AGENT_SANDBOX_SPEC.md (and AGENT_DISPATCH.md). sand is a CONFIG-DRIVEN GO TRANSLATOR: users declare chains + limits in TOML; sand Go code translates (<project>/.claude/agents/<role>.md persona + chain/gate TOML -> per-channel invocation + sandbox/gate artifacts) and ENFORCES them. NO isolation policy hardcoded in Go. NO bin/*.sh in sand's dispatch/gate path (sand is Go-only; bin/agent-dispatch.sh is the legacy bootstrap sand replaces). Two invariants: (1) GIT IS ORCHESTRATOR-ONLY (no dispatched agent ever commits/pushes); (2) EDIT-SCOPE (agent writes ONLY granted file(s)/dir, reads broad). Per-role tool/disallowed matrix per AGENT_SANDBOX_SPEC sec4 (planning+plan-qa: hylla-read+context7+gopls+websearch, no write; build-qa: same minus hylla; builder: + scoped edit of the droplet files; closeout: orch-managed; NONE get git mutation)."
 packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
 paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/installseed/installseed.go", ".claude/sand-chains.toml"]
 priority = "high"
 role = "planner"
 state = "todo"
 structural_type = "drop"
-title = "Sand drop_013 — realign dispatch to AGENT_DISPATCH.md (hermetic codex + dual-path + role-conditional MCP), oracle-verified vs bin/sh"
-updated_at = "2026-05-24T22:30:00Z"
+title = "Sand drop_013 — realign dispatch + sandbox to AGENT_SANDBOX_SPEC + AGENT_DISPATCH (config-driven, Go-only)"
+updated_at = "2026-05-25T00:30:00Z"
 [planner_dispatch_realignment_l2]
 acceptance_criteria = "All L3 sub-planners have plan-QA twins completed+success. All builder droplets have build-QA twins completed+success. mage check GREEN. Oracle-equivalence: sand's rendered codex command for ta-go-planning driven by the sand/main go-only example TOML == bin/agent-dispatch.sh --dry-run --role ta-go-planning output (modulo ephemeral CODEX_HOME path). claude-native OAuth roles refused with redirect signal. Tier.Opts threaded into codex argv. examples/ dir contains go-only.toml and go-fe.toml per AGENT_DISPATCH.md sec8a/8b."
 created_at = "2026-05-24T23:30:00Z"
@@ -82,193 +76,923 @@ All structural claims grounded: Tier.Opts in chains.go, renderMCPInjectionFlags 
 (a) No unmitigated counterexample. (b) Evidence completeness confirmed. (c) Unknowns routed to L3 sub-planners: agent-dispatch.toml path resolution to L3-A, role-name prefix mapping to L3-B.
 """
 objective = "Decompose drop_013.drop.dispatch_realignment into atomic builder droplets and QA twins. Four L3 sub-planner domains: (A) new internal/agentconfig package parsing agent-dispatch.toml + examples/ dir with go-only and go+fe TOML examples; (B) codex-exec backend overhaul — config-driven role-conditional MCP injection replacing probe-MCP, hermetic CODEX_HOME symlink setup, opts threading from Tier.Opts through SpawnRequest into codex argv; (C) claude-native OAuth refusal dual-path; (D) sand-chains.toml + agent-chains.sh 7-role split. Oracle-equivalence golden tests in every codex-backend droplet (sand Preview output == bin/agent-dispatch.sh --dry-run). Plan-QA twins gate each L3 sub-planner before builders fire. Build-QA twins cover every builder droplet. Different backends per QA stance (codex falsification vs claude proof)."
+outcome = "failure"
 packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/agentconfig"]
 parent_id = "drop_013.drop.dispatch_realignment"
 paths = ["internal/backends/codex_exec.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/agentconfig/agentconfig.go", "internal/agentconfig/agentconfig_test.go", ".claude/sand-chains.toml", ".claude/agent-chains.sh", "examples/go-only.toml", "examples/go-fe.toml"]
 priority = "high"
 risk_notes = "L3-B (codex hermetic overhaul) is the highest-risk domain: replaces probe-based MCP injection with config-driven injection, adds ephemeral CODEX_HOME symlink management (OS-level side-effect), and threads Opts. The existing codex_exec_test.go test fixtures (testdata/fake-mcp-* pattern) must be preserved. Oracle equivalence golden test requires exact token-by-token comparison of rendered argv against bin/agent-dispatch.sh output — any whitespace or quoting divergence is a defect."
 role = "planner"
-state = "in_progress"
+state = "complete"
 title = "L2 planner — sand dispatch realignment decomposition"
+transition_notes = "2026-05-25: SUPERSEDED by re-decomposition. This planner predates AGENT_SANDBOX_SPEC.md (locked 2026-05-25). New L2 planner is drop_013.drop.planner_l2. Retained for audit trail per instruction."
 updated_at = "2026-05-24T23:30:00Z"
-
 [planner_config_schema_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
 objective = "Design and decompose the new internal/agentconfig package that parses agent-dispatch.toml (AGENT_DISPATCH.md sec8 TOML shape: [project], [routing], [codex.hermetic], [codex.mcp] sections). Plus the examples/ dir with two TOML files: go-only.toml (7 agents, sand/main shape) and go-fe.toml (13 agents, hylla/polyglot-foundation shape). Decide path resolution for agent-dispatch.toml (proposed: <project>/.claude/agent-dispatch.toml, then XDG, then ~/.config/sand). Decide role-name mapping strategy (bare keys in [routing] vs prefixed)."
+outcome = "failure"
 packages = ["github.com/evanmschultz/sand/internal/agentconfig"]
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 paths = ["internal/agentconfig/agentconfig.go", "internal/agentconfig/agentconfig_test.go", "internal/agentconfig/resolve.go", "examples/go-only.toml", "examples/go-fe.toml"]
 priority = "high"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "segment"
 title = "L3-A planner — new internal/agentconfig package + examples/ dir"
+transition_notes = "2026-05-25: SUPERSEDED by re-decomposition 2026-05-25. Predates AGENT_SANDBOX_SPEC.md. New record is drop_013.drop.l3_config_contract."
 updated_at = "2026-05-24T23:30:00Z"
-
 [planner_codex_hermetic_l3]
 blockers = ["drop_013.drop.planner_config_schema_l3"]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
 objective = "Decompose the codex-exec backend overhaul into atomic builder droplets: (1) add SpawnRequest.Opts field to SpawnRequest in backend.go and thread it from Tier.Opts through buildSpawnRequest in dispatch.go into the codex argv (appended after base flags); (2) replace renderMCPInjectionFlags (probe-based .mcp.json reader) in codex_exec.go with a config-driven buildConfigDrivenMCPArgs that reads AgentDispatchConfig (from internal/agentconfig) and emits hermetic -c flags per role matrix: ta always, hylla for non-build-qa, context7 always (HTTP), gopls for *-go-*, playwright for *-fe-*; (3) add hermetic CODEX_HOME ephemeral-symlink setup in codexExecBackend.Spawn (mktemp dir, symlink auth.json/version.json/installation_id/models_cache.json from ~/.codex, set CODEX_HOME env, rm -rf after); (4) add --ignore-user-config, --ignore-rules, -c web_search=live, -c project_doc_max_bytes=0 to the static codex argv in the backends.toml config (not hardcoded in Go, driven by config). Oracle-equivalence golden test per codex role is the acceptance gate."
+outcome = "failure"
 packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/agentconfig"]
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 paths = ["internal/backends/codex_exec.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", ".claude/sand-backends.toml"]
 priority = "high"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "segment"
 title = "L3-B planner — codex-exec hermetic overhaul + opts threading in dispatch.go"
+transition_notes = "2026-05-25: SUPERSEDED by re-decomposition 2026-05-25. New record is drop_013.drop.l3_codex_hermetic."
 updated_at = "2026-05-24T23:30:00Z"
-
 [planner_dual_path_refusal_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
 objective = "Decompose the OAuth refusal into atomic builder droplets: (1) add isOAuthRefusedRole check in claudeNativeBackend.Spawn that detects claude-native tiers whose role is NOT in the non-OAuth set, returns a typed SpawnResult with a redirect message mirroring bin/agent-dispatch.sh dispatch_claude_native lines 456-472 ('[disp] REFUSED: ... use the built-in Agent tool: Agent(subagent_type=<role>...)'); (2) update claudeNativeBackend.Preview to render the refusal message instead of the command shape for OAuth roles; (3) wire a new ErrOAuthRefusal sentinel in dispatch or backends package so callers can errors.Is distinguish refusal from other failures. One golden test proves the exact refusal message for an OAuth role. The non-OAuth claude path (ANTHROPIC_BASE_URL) remains unaffected."
+outcome = "failure"
 packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 paths = ["internal/backends/claude_native.go", "internal/dispatch/dispatch.go"]
 priority = "high"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "segment"
 title = "L3-C planner — claude-native OAuth refusal (dual-path dispatch)"
+transition_notes = "2026-05-25: SUPERSEDED by re-decomposition 2026-05-25. New record is drop_013.drop.l3_claude_dualpath."
 updated_at = "2026-05-24T23:30:00Z"
-
 [planner_chains_personas_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
 decision_log = ["2026-05-24T23:42:00Z: Orchestrator expanded L3-D scope to include the persona Bash-scoping no-commit invariant (recorded on the drop root 22:30, post-dating the L2 planner launch). L3-D now owns BOTH the sand-chains.toml 7-role split AND scoping all 7 personas' Bash to read-only (no bare Bash; no git commit/push reachable), via the ta-record persona-edit workflow. Plan-QA-falsification for L3-D must verify the no-bare-Bash assertion."]
 objective = "Decompose chain + persona config updates into atomic builder droplets: (1) update .claude/sand-chains.toml to split combined ta-go-plan-qa/ta-go-build-qa into the 7-role model matching AGENT_DISPATCH.md + agent-chains.sh: ta-go-planning (codex), ta-go-plan-qa-proof (claude-native opus), ta-go-plan-qa-falsification (codex), ta-go-builder (claude-native haiku/sonnet), ta-go-build-qa-proof (claude-native opus), ta-go-build-qa-falsification (codex), ta-closeout (claude-native opus); (2) verify .claude/agent-chains.sh uses the 7-role model (it does) + fix any drift. (3) PERSONA BASH-SCOPING INVARIANT (user 2026-05-24T22:30, load-bearing): ALL 7 persona files currently have BARE `Bash` in their tools: line -> permits git commit/push. Scope EVERY persona's Bash to the read-only subset (Bash(mage *) | Bash(git diff *) | Bash(git log *) | Bash(git status) | Bash(git show *)), NEVER bare Bash; ensure git commit/push/add/reset/clean are NOT reachable. Builder persona additionally keeps Edit/Write; QA + planning + closeout stay read-only-on-source. Per CLAUDE.md sec 'Persona Bash scoping' TOON table. Persona edits go through the ta-record workflow (mcp__ta__update on the agent record + ta template save) per CLAUDE.md sec 'Editing role personas' -- NOT direct Edit/Write on .claude/agents/*.md. Add a test/golden asserting NO persona tools: line contains bare `Bash`. This makes orchestrator-only-commit an ENFORCED boundary, not just a discipline."
+outcome = "failure"
 packages = []
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 paths = [".claude/sand-chains.toml", ".claude/agent-chains.sh"]
 priority = "high"
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "segment"
 title = "L3-D planner — sand-chains.toml 7-role split + persona Bash-scoping (no-commit invariant)"
+transition_notes = "2026-05-25: SUPERSEDED by re-decomposition 2026-05-25. New record is drop_013.drop.l3_chains_personas."
 updated_at = "2026-05-24T23:42:00Z"
 [qa_proof_planner_config_schema_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_config_schema_l3"
 title = "Plan-QA proof — L3-A config-schema planner"
+transition_notes = "2026-05-25: SUPERSEDED. Target planner_config_schema_l3 superseded. New plan-QA is drop_013.drop.qa_proof_l3_config."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_falsification_planner_config_schema_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_config_schema_l3"
 title = "Plan-QA falsification — L3-A config-schema planner"
+transition_notes = "2026-05-25: SUPERSEDED. New plan-QA is drop_013.drop.qa_falsif_l3_config."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_proof_planner_codex_hermetic_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_codex_hermetic_l3"
 title = "Plan-QA proof — L3-B codex-hermetic planner"
+transition_notes = "2026-05-25: SUPERSEDED. New plan-QA is drop_013.drop.qa_proof_l3_codex."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_falsification_planner_codex_hermetic_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_codex_hermetic_l3"
 title = "Plan-QA falsification — L3-B codex-hermetic planner"
+transition_notes = "2026-05-25: SUPERSEDED. New plan-QA is drop_013.drop.qa_falsif_l3_codex."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_proof_planner_dual_path_refusal_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_dual_path_refusal_l3"
 title = "Plan-QA proof — L3-C dual-path refusal planner"
+transition_notes = "2026-05-25: SUPERSEDED. New plan-QA is drop_013.drop.qa_proof_l3_claude."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_falsification_planner_dual_path_refusal_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_dual_path_refusal_l3"
 title = "Plan-QA falsification — L3-C dual-path refusal planner"
+transition_notes = "2026-05-25: SUPERSEDED. New plan-QA is drop_013.drop.qa_falsif_l3_claude."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_proof_planner_chains_personas_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_chains_personas_l3"
 title = "Plan-QA proof — L3-D chains/personas planner"
+transition_notes = "2026-05-25: SUPERSEDED. New plan-QA is drop_013.drop.qa_proof_l3_chains."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_falsification_planner_chains_personas_l3]
 created_at = "2026-05-24T23:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
+outcome = "failure"
 parent_id = "drop_013.drop.planner_dispatch_realignment_l2"
 priority = "high"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_chains_personas_l3"
 title = "Plan-QA falsification — L3-D chains/personas planner"
+transition_notes = "2026-05-25: SUPERSEDED. New plan-QA is drop_013.drop.qa_falsif_l3_chains."
 updated_at = "2026-05-24T23:30:00Z"
-
 [qa_proof_planner_dispatch_realignment_l2]
 created_at = "2026-05-24T23:40:00Z"
 created_by_actor = "agent:orchestrator"
 created_by_type = "agent"
 objective = "Prove the L2 realignment decomposition is evidence-backed (Tier.Opts dead, renderMCPInjectionFlags .mcp.json-driven, OAuth-refusal missing, 5-role chains -- all verified vs committed code @22cfc47), atomic-bound, oracle-equivalence gates present, and COVERS every drop acceptance concern INCLUDING the 2026-05-24T22:30 persona-Bash-scoping invariant (no bare Bash; orchestrator-only commit) and the config-driven (not hardcoded) principle."
+outcome = "failure"
 parent_id = "drop_013.drop.dispatch_realignment"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_dispatch_realignment_l2"
 title = "Plan-QA proof: planner_dispatch_realignment_l2"
+transition_notes = "2026-05-25: SUPERSEDED. New L2 plan-QA not required (planner_l2 is the new L2 in in_progress)."
 updated_at = "2026-05-24T23:40:00Z"
-
 [qa_falsification_planner_dispatch_realignment_l2]
 created_at = "2026-05-24T23:40:00Z"
 created_by_actor = "agent:orchestrator"
 created_by_type = "agent"
 objective = "Attack the L2 realignment decomposition for coverage gaps + counterexamples. KNOWN suspects to confirm/escalate: (a) persona-Bash-scoping invariant (no bare Bash; deny git commit/push) is NOT in any L3 lane -- L3-D is chains-only; (b) config-driven (not hardcoded) enforcement -- is it truly config-schema-driven in L3-A/B? (c) oracle-equivalence acceptance gates present per codex droplet? (d) hermeticity smoke-test droplet present? (e) examples dir (go-only + go+fe) covered? (f) any hallucinated symbol / fake blocker / atomicity violation / scope creep into config-generation."
+outcome = "failure"
 parent_id = "drop_013.drop.dispatch_realignment"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 target_id = "drop_013.drop.planner_dispatch_realignment_l2"
 title = "Plan-QA falsification: planner_dispatch_realignment_l2"
+transition_notes = "2026-05-25: SUPERSEDED. New L2 plan-QA not required."
 updated_at = "2026-05-24T23:40:00Z"
+[planner_l2]
+acceptance_criteria = "All 6 L3 lanes have plan-QA proof+falsification twins complete+success before builders fire. Every builder droplet is <=2 small code blocks including tests. All build-QA twins complete+success. mage check GREEN. oracle-equivalence golden tests pass for codex roles. Hermeticity smoke-test droplet passes (negatives: no global ~/.codex state; positives: per-role MCP, hylla-off-build-qa, git-forbidden). Prior drop_003/006/008/011 tests green or updated with rationale."
+comments = [{author = "agent:ta-go-planning", body = """
+RE-DECOMPOSITION PLAN REASONING
+
+Evidence Trail: Hylla snapshot 11 (commit 22cfc47, current). Confirmed: BackendConfig (12 fields incl ToolsArg, ToolsCSVTemplate), TemplateData (PersonaToolNamesCSV), Backend interface, codexExecBackend, claudeNativeBackend all present. No internal/agentconfig or internal/gate in tree.
+
+Read: codex_exec.go uses --ignore-rules (REMOVED per spec); renderMCPInjectionFlags is uniform .mcp.json-based (REPLACED with role-conditional); no hermeticCodexHome (NEW). claude_native.go has no ErrOAuthNotAllowed/isOAuthRole (NEW). dispatch.go buildSpawnRequest does not set Opts field (DEAD -- to be wired). cmd/sand/main.go is single func main() with no subcommands (gate subcommand is NEW).
+
+Oracle: bin/agent-dispatch.sh dispatch_codex confirms hermetic CODEX_HOME mktemp+symlinks pattern, role-conditional MCP injection (ta/hylla/context7/gopls/playwright), approval_policy=never needed.
+
+Decomposition Rationale: L3-1/L3-2/L3-4 are sub-planners (multi-concern, >2 blocks each). L3-3 terminal: 2 droplets (OAuth-refusal + --disallowedTools). L3-5 terminal: 2 droplets (tier.Opts threading + hermeticity smoke-test). L3-6 terminal: 2 droplets (chains TOML + persona Bash-scoping).
+
+Hylla Feedback: All backend package symbols answered. Missed: internal/chains Tier.Opts field (HC3 open). Suggestion: ingest chains package before L3-5 builders fire.
+""", id = "plan-reasoning-001", timestamp = "2026-05-25T01:00:00Z"}]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+expected_outputs = ["drop_013.drop.l3_config_contract (sub-planner: internal/agentconfig + GateSpec + examples)", "drop_013.drop.qa_proof_l3_config (plan-QA proof for L3-1)", "drop_013.drop.qa_falsif_l3_config (plan-QA falsif for L3-1)", "drop_013.drop.l3_codex_hermetic (sub-planner: codex_exec.go + codex_mcp_probe.go refactor)", "drop_013.drop.qa_proof_l3_codex (plan-QA proof for L3-2)", "drop_013.drop.qa_falsif_l3_codex (plan-QA falsif for L3-2)", "drop_013.drop.l3_claude_dualpath (planner: claude_native.go OAuth-refusal + --bare path)", "drop_013.drop.qa_proof_l3_claude (plan-QA proof for L3-3)", "drop_013.drop.qa_falsif_l3_claude (plan-QA falsif for L3-3)", "drop_013.drop.l3_gate (sub-planner: internal/gate + sand gate subcommand + settings.json)", "drop_013.drop.qa_proof_l3_gate (plan-QA proof for L3-4)", "drop_013.drop.qa_falsif_l3_gate (plan-QA falsif for L3-4)", "drop_013.drop.l3_dispatch_threading (planner: tier.Opts + hermeticity smoke-test)", "drop_013.drop.qa_proof_l3_dispatch (plan-QA proof for L3-5)", "drop_013.drop.qa_falsif_l3_dispatch (plan-QA falsif for L3-5)", "drop_013.drop.l3_chains_personas (planner: chains + persona alignment)", "drop_013.drop.qa_proof_l3_chains (plan-QA proof for L3-6)", "drop_013.drop.qa_falsif_l3_chains (plan-QA falsif for L3-6)"]
+implementation_notes_agent = """
+## Section 0 — SEMI-FORMAL REASONING
+
+### Planner
+Premises: AGENT_SANDBOX_SPEC locked (4-way consensus), sand=Go-only config-driven translator, two invariants (git=orch-only, edit-scope). 6 lanes from spec §2/§3/§4/§7. Hylla snapshot 11 at 22cfc47 current. No stale L3 planners exist.
+
+Evidence: Hylla + Read confirm BackendConfig (ToolsArg, ToolsCSVTemplate), TemplateData (PersonaToolNamesCSV) at 22cfc47. codex_exec.go uses --ignore-rules (REMOVE per spec), uniform .mcp.json injection (REPLACE with role-conditional), no hermetic CODEX_HOME (ADD). claude_native.go has no OAuth-refusal (ADD). cmd/sand/main.go = single main, no subcommands. internal/agentconfig + internal/gate are new, not yet in tree.
+
+### Builder
+L3-1 config/contract → sub-planner (TOML struct + GateSpec + validation + examples: multi-concern). L3-2 codex hermetic → sub-planner (hermeticCodexHome + execpolicy rules + role-conditional MCP: 3 concerns). L3-3 claude dual-path → 2 atomic droplets (OAuth-refusal + --bare path). L3-4 gate → sub-planner (GateSpec translator + hook cmd + settings.json). L3-5 dispatch → 2 atomic droplets (tier.Opts + smoke-test). L3-6 chains/personas → 2 atomic droplets.
+
+### QA Proof
+Evidence completeness confirmed. Shared-file conflicts: backend.go (L3-1 vs L3-2 — sequential via blockers), cmd/sand/main.go (L3-4 only), dispatch.go (L3-5 only). All new symbols marked. All atomic droplets ≤2 blocks verified.
+
+### QA Falsification
+A1: L3-1/L3-4 over-size → sub-planners (mitigated). A2: --ignore-rules removal → golden tests updated in L3-2 (mitigated). A3: role-conditional MCP needs Role param → 1-2 block internal refactor in L3-2c (mitigated). A4: sand gate subcommand → os.Args routing 1-2 block (mitigated). A5: agentconfig import cycle → owns its own types (mitigated). A6: chains.Tier.Opts → HC3 open, verified before L3-5 builders. A7: hermeticity smoke → fake-codex stub consistent with testdata pattern (mitigated).
+
+### Convergence
+(a) No unmitigated counterexample. (b) Evidence completeness confirmed. (c) HC3 (chains.Tier.Opts) explicit open item in risk_notes.
+"""
+objective = "Decompose drop_013 into atomic builder droplets aligned to the LOCKED AGENT_SANDBOX_SPEC.md (4-way consensus). Six L3 lanes: (1) config/contract — internal/agentconfig + GateSpec + examples/; (2) codex hermetic refactor — hermetic CODEX_HOME + execpolicy rules + role-conditional MCP injection; (3) claude dual-path — OAuth-refusal + --bare API-key path; (4) gate (NEW) — internal/gate + sand gate subcommand + settings.json artifact; (5) dispatch threading — tier.Opts + envelope veracity + hermeticity smoke-test; (6) chains/personas — 6+1 role model alignment. Two invariants enforced everywhere: GIT IS ORCHESTRATOR-ONLY, EDIT-SCOPE."
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/agentconfig", "github.com/evanmschultz/sand/internal/gate", "github.com/evanmschultz/sand/cmd/sand"]
+parent_id = "drop_013.drop.dispatch_realignment"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/agentconfig/", "internal/gate/", "cmd/sand/main.go", ".claude/agent-chains.sh", "examples/"]
+risk_notes = "HC1: agentconfig must NOT import backends (import cycle). HC2: role-conditional MCP requires Role passed to renderMCPInjectionFlags — internal refactor. HC3: chains.Tier.Opts field may not exist in Go chains package — verify before L3-5 builders fire. HC4: --ignore-rules REMOVAL means oracle golden tests must be updated to match new hermetic spec. Hermeticity smoke-test requires fake-codex subprocess stub (consistent with existing testdata/fake-codex-* pattern)."
+role = "planner"
+state = "in_progress"
+structural_type = "segment"
+title = "drop_013 L2 — realign dispatch + sandbox to AGENT_SANDBOX_SPEC (config-driven, Go-only)"
+updated_at = "2026-05-25T01:00:00Z"
+[l3_config_contract]
+acceptance_criteria = """
+- internal/agentconfig package compiles (mage testPkg ./internal/agentconfig passes)
+- RoutingConfig, HermeticConfig, MCPConfig, GateSpec structs parse the TOML shapes from AGENT_DISPATCH.md sec8
+- GateSpec.Validate() returns error for codex-role-given-only-edit and OAuth-role-as-subprocess mismatches
+- examples/go-only-sand-main.toml parses cleanly via agentconfig.Load()
+- examples/go-fe-hylla-poly.toml parses cleanly with playwright entry
+- No import of internal/backends (import cycle prevention)
+- mage testPkg ./internal/agentconfig GREEN
+"""
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+objective = "Create the internal/agentconfig package that consumes the agent-dispatch TOML ([routing], [codex.hermetic], [codex.mcp] sections from AGENT_DISPATCH.md sec8). Define the GateSpec struct (edit []string, writable_dirs []string, bash_deny []string, network bool) per AGENT_SANDBOX_SPEC sec3. Add per-backend mismatch validation (codex role given only edit -> error; OAuth role given as subprocess -> refuse). Generate examples/ directory: examples/go-only-sand-main.toml (7 roles) and examples/go-fe-hylla-poly.toml (13 roles, localhost:34917, playwright). NO hardcoded isolation policies in Go — all config-driven."
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/agentconfig"]
+parent_id = "drop_013.drop.planner_l2"
+paths = ["internal/agentconfig/agentconfig.go", "internal/agentconfig/agentconfig_test.go", "internal/agentconfig/gate.go", "internal/agentconfig/gate_test.go", "examples/go-only-sand-main.toml", "examples/go-fe-hylla-poly.toml"]
+priority = "high"
+risk_notes = "All symbols are NEW (not yet in tree). No import of internal/backends. GateSpec is the stable interface spec sec3 defines; per-backend translation is in lanes 2-4 that CONSUME GateSpec."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3-1: internal/agentconfig — agent-dispatch TOML consumer + GateSpec + examples"
+updated_at = "2026-05-25T01:00:00Z"
+
+[l3_codex_hermetic]
+acceptance_criteria = """
+- codex_exec.go: --ignore-rules REMOVED; hermetic CODEX_HOME wired + cleaned up (defer rm -rf); execpolicy rules/default.rules written with git+mage-install+go-get forbidden; --ignore-user-config + -c web_search=live + -c project_doc_max_bytes=0 + -c approval_policy=never present in argv
+- codex_mcp_probe.go: uniform .mcp.json probe REPLACED with role-conditional injection; hylla ABSENT for *build-qa* roles; gopls injected for *-go-* roles; playwright for *-fe-* roles; ta + context7 always
+- Oracle golden tests updated: Preview() output matches the new spec shape
+- mage testPkg ./internal/backends GREEN
+- Existing codex_exec_test.go and codex_mcp_probe_test.go tests pass (or updated with rationale)
+"""
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+objective = "Refactor internal/backends/codex_exec.go and internal/backends/codex_mcp_probe.go to match the LOCKED AGENT_SANDBOX_SPEC sec2 codex channel. Three atomic sub-concerns: (2a) hermeticCodexHome — replace --ignore-rules with hermetic CODEX_HOME via os.MkdirTemp + symlinks for auth.json/version.json/installation_id/models_cache.json + deferred cleanup; (2b) execpolicy rules file generation — write rules/default.rules into the hermetic CODEX_HOME with prefix_rule(decision=forbidden) for git mutation + mage install + go get/mod; (2c) role-conditional MCP injection — replace uniform .mcp.json probe with GateSpec-driven role-conditional injection (ta always; hylla skip *build-qa*; context7 always; gopls *-go-*; playwright *-fe-*; per-tool approval_mode=approve). Add --ignore-user-config + -c web_search=live + -c project_doc_max_bytes=0 + -c approval_policy=never + --sandbox (mode from GateSpec.writable_dirs). Update oracle golden tests to match new hermetic spec (--ignore-rules REMOVED)."
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_013.drop.planner_l2"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go"]
+priority = "high"
+risk_notes = "HC2: role-conditional MCP requires Role param threaded into renderMCPInjectionFlags — internal refactor, 1-2 block change in codex_exec.go Spawn(). HC4: --ignore-rules removal means oracle golden tests must be updated. hermeticCodexHome() is NEW (not yet in tree). execpolicy rules generation is NEW (not yet in tree). Fake-codex subprocess stubs in testdata/ are the test mechanism."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3-2: codex hermetic refactor — CODEX_HOME + execpolicy + role-conditional MCP"
+updated_at = "2026-05-25T01:00:00Z"
+
+[l3_claude_dualpath]
+acceptance_criteria = """
+- Spawn() returns ErrOAuthNotAllowed (new sentinel, not yet in tree) when called for an OAuth role
+- --allowedTools values use // double-slash absolute form for file edit entries
+- --disallowedTools carries Bash(git commit:*), Bash(git push:*), Bash(git add:*), Bash(git reset:*), Bash(git checkout:*), Bash(git branch:*), Bash(git tag:*), Bash(git stash:*), Bash(git rebase:*), Bash(git merge:*), Bash(git restore:*), Bash(mage install:*), Bash(go get:*), Bash(go mod:*) — from spec sec3 bash_deny list
+- No bare Bash in allowedTools
+- mage testPkg ./internal/backends GREEN
+- New tests cover OAuth-refusal path + //abs allowedTools + disallowedTools rendering
+"""
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+objective = "Refactor internal/backends/claude_native.go to implement the dual-path contract per AGENT_SANDBOX_SPEC sec2 (claude -p channel) and AGENT_DISPATCH.md sec3. Two atomic sub-concerns: (3a) OAuth-refusal — add isOAuthRole() check in Spawn(); when the chain tier's auth model is OAuth/subscription (not API-key/ollama), return an error signalling the orchestrator to use the built-in Agent tool instead; (3b) --bare API-key path — the existing -p path is API-key/ollama-only; add --disallowedTools \"Bash(git commit:*) Bash(git push:*) ...\" per bash_deny list from GateSpec; ensure --allowedTools uses the // double-slash absolute form for edit-scoped files (per-FILE, per spec sec2 settled fact); no bare Bash in allowedTools. Update claude_native_test.go to cover both paths."
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_013.drop.planner_l2"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+risk_notes = "ErrOAuthNotAllowed is NEW (not yet in tree). isOAuthRole() is NEW. The SpawnRequest struct may need an IsOAuth bool or AuthModel string field to carry the channel type from the chain tier — this touches dispatch.go's buildSpawnRequest, which is L3-5's domain. Coordination needed: L3-3 droplets that add IsOAuth to SpawnRequest must complete before L3-5 dispatch threading droplets that consume it."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3-3: claude_native.go — OAuth-refusal + --bare API-key path with //abs allowedTools"
+updated_at = "2026-05-25T01:00:00Z"
+
+[l3_gate]
+acceptance_criteria = """
+- internal/gate.Gate type enforces per-file edit-scope (allow/block) and bash_deny (block) from GateSpec
+- sand gate subcommand: exits 2 on denied operation, exits 0 on allowed; reads gate spec from flags or env
+- GenerateSettingsJSON() writes hook registration in exec-form to .claude/settings.json
+- mage testPkg ./internal/gate GREEN
+- mage testFunc TestGateSubcommand GREEN (integration test using fake-claude-* pattern)
+- settings.json hook JSON validates as exec-form (command key, not shell)
+- New tests cover: edit-scope allow, edit-scope deny, bash_deny match, bash_deny no-match
+"""
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+objective = "Create the internal/gate package and the sand gate PreToolUse hook subcommand per AGENT_SANDBOX_SPEC sec1 (Go binary hook) and sec3 (gate contract). Three atomic sub-concerns: (4a) internal/gate package — GateSpec-driven PreToolUse enforcement: per-file edit-scope check (allowlist by agent_id/agent_type from GateSpec.edit), bash_deny check (GateSpec.bash_deny prefix match), network=false enforcement; (4b) sand gate subcommand in cmd/sand/main.go — register as a subcommand that reads the gate contract from stdin or a flags file and exits 0 (allow) / 2 (block); (4c) settings.json artifact generation — GenerateSettingsJSON() func in internal/gate that renders the hook registration in exec-form {type:command, command:<binpath>, args:[gate]} into the project's .claude/settings.json file. Acceptance: registered in exec-form so Claude Code invokes the binary directly (Go = zero runtime dep, filepath-normalizing)."
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/gate", "github.com/evanmschultz/sand/cmd/sand"]
+parent_id = "drop_013.drop.planner_l2"
+paths = ["internal/gate/gate.go", "internal/gate/gate_test.go", "internal/gate/settings.go", "internal/gate/settings_test.go", "cmd/sand/main.go"]
+priority = "high"
+risk_notes = "All internal/gate symbols are NEW (not yet in tree). sand gate subcommand requires os.Args[1] routing in cmd/sand/main.go BEFORE the MCP server starts. cmd/sand/main.go is shared with no other L3 lane — no file-lock conflict. settings.json generation must NOT overwrite user's existing Claude settings — must merge/patch the hooks array."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3-4: internal/gate + sand gate subcommand + settings.json artifact generation"
+updated_at = "2026-05-25T01:00:00Z"
+
+[l3_dispatch_threading]
+acceptance_criteria = """
+- SpawnRequest has an Opts field (or equivalent) and codexExecBackend.renderArgs appends the opts tokens to argv
+- chain_planning() opts (--sandbox read-only -c model_reasoning_effort=high) appear in the codex argv Preview
+- chain_qa_falsification() opts (--sandbox workspace-write) appear in the codex argv Preview
+- mage testPkg ./internal/backends GREEN; mage testPkg ./internal/dispatch GREEN
+- Hermeticity smoke-test passes: fake-codex stub sees hermetic CODEX_HOME (no global config files), sees ta + context7 always, sees hylla absent for build-qa role, sees gopls for go role, sees git forbidden in rules/default.rules
+- mage check GREEN (all packages)
+"""
+blockers = ["drop_013.drop.qa_proof_l3_codex", "drop_013.drop.qa_falsif_l3_codex", "drop_013.drop.qa_proof_l3_claude", "drop_013.drop.qa_falsif_l3_claude"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+objective = "Wire tier.Opts into the codex argv (currently DEAD: agent-chains.sh has the opts field but dispatch.go does not thread it into SpawnRequest/codex argv). Add the hermeticity smoke-test droplet. Two atomic sub-concerns: (5a) tier.Opts threading — verify chains.Tier has Opts field; if not, add it (trivial chains package update); thread Opts into SpawnRequest and into codexExecBackend.renderArgs so --sandbox and -c model_reasoning_effort=high from the chain config reach the codex argv; (5b) hermeticity smoke-test — add integration test using a fake-codex stub that logs its argv+env to a tmpfile; prove negatives (no ~/.codex/config.toml read, no ~/.codex/AGENTS.md read, no skills); prove positives (ta MCP present, hylla absent for build-qa roles, gopls present for go roles, git-forbidden via execpolicy rules)."
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_013.drop.planner_l2"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/dispatch/dispatch.go", "internal/chains/chains.go"]
+priority = "high"
+risk_notes = "HC3: chains.Tier.Opts field must be verified before builders fire. internal/chains/chains.go not yet read — verify via Hylla or Read before builder droplets execute. SpawnRequest Opts field addition touches backend.go (shared with L3-1/L3-2); must use explicit blocker ordering (L3-1 and L3-2 plan-QA gates must complete first). codex_exec.go is shared with L3-2 — L3-2 plan-QA gate is a blocker here."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3-5: dispatch threading — tier.Opts into codex argv + hermeticity smoke-test"
+updated_at = "2026-05-25T01:00:00Z"
+
+[l3_chains_personas]
+acceptance_criteria = """
+- .claude/agent-chains.sh emit_chain_for_role() covers all 7 sand/main roles
+- .claude/sand-chains.toml [routing] covers all 7 roles with correct channel/model/sandbox
+- All persona files have tools: lines matching sec4 matrix (no bare Bash)
+- mage testFunc TestChainsPersonasAlignment GREEN (new test verifying persona tool lists against sec4)
+- mage check GREEN
+"""
+blockers = ["drop_013.drop.qa_proof_l3_codex", "drop_013.drop.qa_falsif_l3_codex", "drop_013.drop.qa_proof_l3_claude", "drop_013.drop.qa_falsif_l3_claude"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+objective = "Align .claude/agent-chains.sh and .claude/sand-chains.toml to the 6+1 role model (closeout + 6 go-* roles for sand/main) per AGENT_DISPATCH.md sec1 and per-role tool/disallowed matrix per AGENT_SANDBOX_SPEC sec4. Align persona files (.claude/agents/ta-*.md) to correct Bash-scoping (no bare Bash in tools: line). Two atomic sub-concerns: (6a) chains update — verify .claude/agent-chains.sh and .claude/sand-chains.toml cover all 7 roles (ta-closeout + ta-go-planning + ta-go-plan-qa-proof + ta-go-plan-qa-falsification + ta-go-builder + ta-go-build-qa-proof + ta-go-build-qa-falsification); add any missing role entries; (6b) persona Bash-scoping — verify each persona's tools: line matches sec4 matrix (no bare Bash, correct scoped patterns); update any that include bare Bash."
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_013.drop.planner_l2"
+paths = [".claude/agent-chains.sh", ".claude/sand-chains.toml", ".claude/agents/ta-go-builder.md", ".claude/agents/ta-go-planning.md", ".claude/agents/ta-go-plan-qa-proof.md", ".claude/agents/ta-go-plan-qa-falsification.md", ".claude/agents/ta-go-build-qa-proof.md", ".claude/agents/ta-go-build-qa-falsification.md", ".claude/agents/ta-closeout.md"]
+priority = "medium"
+risk_notes = "Persona files are ta records under claude_agents.agent schema — they must be updated via mcp__ta__update NOT direct file edit. Builder must use mcp__ta__update on agent record ids then verify both project + HOME copies match. .claude/sand-chains.toml may already cover all 7 roles — verify before writing."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "L3-6: chains + personas — align to 6+1 role model + per-role tool/disallowed matrix"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_proof_l3_config]
+acceptance_criteria = "Verify: (1) every droplet under L3-1 is <=2 small code blocks including tests; (2) all new symbols marked as new-not-yet-in-tree; (3) no import of internal/backends; (4) GateSpec fields match spec sec3 exactly (edit, writable_dirs, bash_deny, network); (5) examples/ TOML shapes match AGENT_DISPATCH.md sec8 exactly; (6) mage testPkg ./internal/agentconfig command listed in droplet descriptions."
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_config_contract"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.l3_config_contract"
+title = "Plan-QA proof: L3-1 config/contract (agentconfig + GateSpec + examples)"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_falsif_l3_config]
+acceptance_criteria = "Attack: (1) can agentconfig.Load() silently ignore unknown TOML keys that are spec-required? (2) does GateSpec.Validate() miss the writable_dirs-vs-edit mismatch for codex roles? (3) can examples/ TOML use role names that don't match the Go channel enum, causing silent load failure? (4) does agentconfig import any package that could create a cycle (esp. internal/dispatch or internal/backends)? Each attack must be mitigated or explicitly accepted."
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_config_contract"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.l3_config_contract"
+title = "Plan-QA falsif: L3-1 config/contract (agentconfig + GateSpec + examples)"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_proof_l3_codex]
+acceptance_criteria = "Verify: (1) --ignore-rules removal documented in every affected test; (2) hermeticCodexHome() does mktemp + 4 symlinks + defer cleanup = <=2 blocks; (3) role-conditional MCP injection covers all 5 server cases (ta/hylla/context7/gopls/playwright) each <=1 block; (4) oracle golden test shapes updated to match new spec argv; (5) all droplets <=2 blocks with tests."
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_codex_hermetic"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.l3_codex_hermetic"
+title = "Plan-QA proof: L3-2 codex hermetic refactor"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_falsif_l3_codex]
+acceptance_criteria = "Attack: (1) if os.MkdirTemp fails (e.g. /tmp full), does Spawn() return a clear error or silently use the non-hermetic home? (2) if a symlink target (~/.codex/auth.json) does not exist, does the hermetic home setup fail loudly or silently? (3) does the execpolicy rules file handle the case where rules/ dir already exists in CODEX_HOME? (4) does role-conditional MCP injection correctly skip hylla for ta-go-build-qa-proof (non-obvious: 'build-qa-proof' must match the *build-qa* glob)? Each attack mitigated or accepted."
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_codex_hermetic"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.l3_codex_hermetic"
+title = "Plan-QA falsif: L3-2 codex hermetic refactor"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_proof_l3_claude]
+acceptance_criteria = "Verify: (1) OAuth-refusal logic is in Spawn() not in the constructor; (2) ErrOAuthNotAllowed is a new sentinel (not a reuse of existing errors); (3) isOAuthRole() function is <=10 lines; (4) --disallowedTools list matches spec sec3 bash_deny exactly (13 entries); (5) //abs double-slash is used for all edit-scoped file entries in allowedTools; (6) droplets <=2 blocks with tests."
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_claude_dualpath"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.l3_claude_dualpath"
+title = "Plan-QA proof: L3-3 claude dual-path refactor"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_falsif_l3_claude]
+acceptance_criteria = "Attack: (1) how does isOAuthRole() determine a role is OAuth? If it's pattern-matching on role name, that is fragile — the chain tier should carry an auth_model field. Does L3-3 plan address this? (2) the //abs double-slash form requires absolute file paths in GateSpec.edit — what if paths are relative? (3) is there a risk of --disallowedTools and --allowedTools interacting in unexpected ways (deny wins per spec, but test coverage needed)? (4) SpawnRequest.IsOAuth addition is shared with L3-5 dispatch threading — does L3-3 correctly declare this cross-lane dependency?"
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_claude_dualpath"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.l3_claude_dualpath"
+title = "Plan-QA falsif: L3-3 claude dual-path refactor"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_proof_l3_gate]
+acceptance_criteria = "Verify: (1) Gate type is <=20 lines; (2) sand gate subcommand routing (os.Args[1] == 'gate') is <=5 lines added to cmd/sand/main.go; (3) settings.json generation uses exec-form hook (command key, not shell); (4) settings.json patching merges rather than overwrites; (5) all internal/gate droplets <=2 blocks with tests."
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_gate"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.l3_gate"
+title = "Plan-QA proof: L3-4 gate (internal/gate + sand gate subcommand + settings.json)"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_falsif_l3_gate]
+acceptance_criteria = "Attack: (1) the sand gate subcommand reads the GateSpec from stdin/flags — is the JSON contract shape documented? what happens on malformed JSON? (2) settings.json merge: if .claude/settings.json already has a 'hooks' key with a PreToolUse array, does GenerateSettingsJSON() duplicate the entry? (3) the gate hook is registered with 'type:command' — does it fire on EVERY agent operation or only when agent_id/agent_type matches? The allowlist-by-agent logic must be in the gate binary, not in the registration. (4) if mage install hasn't run (no sand binary on PATH), does settings.json registration fail loudly?"
+blockers = ["drop_013.drop.qa_proof_l3_config", "drop_013.drop.qa_falsif_l3_config"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_gate"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.l3_gate"
+title = "Plan-QA falsif: L3-4 gate (internal/gate + sand gate subcommand + settings.json)"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_proof_l3_dispatch]
+acceptance_criteria = "Verify: (1) chains.Tier.Opts field existence is verified before builders fire (HC3); (2) Opts threading is <=2 blocks (SpawnRequest + renderArgs); (3) hermeticity smoke-test uses fake-codex stub from testdata/ (consistent with existing pattern); (4) smoke-test negatives and positives are explicit test cases; (5) mage testPkg ./internal/backends + ./internal/dispatch both cited."
+blockers = ["drop_013.drop.qa_proof_l3_codex", "drop_013.drop.qa_falsif_l3_codex", "drop_013.drop.qa_proof_l3_claude", "drop_013.drop.qa_falsif_l3_claude"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_dispatch_threading"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.l3_dispatch_threading"
+title = "Plan-QA proof: L3-5 dispatch threading + hermeticity smoke-test"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_falsif_l3_dispatch]
+acceptance_criteria = "Attack: (1) tier.Opts is a space-delimited string (--sandbox workspace-write -c model_reasoning_effort=high) — how does renderArgs split it? strconv.Fields? If the opts contain quoted strings with spaces, naive split breaks. (2) the hermeticity smoke-test fake-codex stub must capture what CODEX_HOME was set to at invocation — verify the test reads the env var the stub received, not the env var the test set. (3) if chains.Tier.Opts field doesn't exist, adding it to internal/chains changes the TOML round-trip for existing chains configs — backward compat?"
+blockers = ["drop_013.drop.qa_proof_l3_codex", "drop_013.drop.qa_falsif_l3_codex", "drop_013.drop.qa_proof_l3_claude", "drop_013.drop.qa_falsif_l3_claude"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_dispatch_threading"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.l3_dispatch_threading"
+title = "Plan-QA falsif: L3-5 dispatch threading + hermeticity smoke-test"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_proof_l3_chains]
+acceptance_criteria = "Verify: (1) .claude/agent-chains.sh covers all 7 sand/main roles exactly; (2) .claude/sand-chains.toml [routing] covers all 7 roles with channel matching AGENT_DISPATCH.md sec3 (codex-exec for planning+falsif; agent-tool for builder+proof+closeout); (3) each persona tools: line is verified against sec4 matrix; (4) persona updates use mcp__ta__update (not direct file edit) per CLAUDE.md; (5) builder droplets <=2 blocks."
+blockers = ["drop_013.drop.qa_proof_l3_codex", "drop_013.drop.qa_falsif_l3_codex", "drop_013.drop.qa_proof_l3_claude", "drop_013.drop.qa_falsif_l3_claude"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_chains_personas"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.l3_chains_personas"
+title = "Plan-QA proof: L3-6 chains + personas alignment"
+updated_at = "2026-05-25T01:00:00Z"
+
+[qa_falsif_l3_chains]
+acceptance_criteria = "Attack: (1) .claude/agent-chains.sh is NOT a ta-managed file — it can be edited directly; but .claude/agents/*.md ARE ta-managed; does L3-6 plan correctly distinguish which files use mcp__ta__update vs direct Edit? (2) the test TestChainsPersonasAlignment — what does it actually test? If it just parses TOML, it won't catch a persona tools: line that has the wrong scoped Bash pattern. (3) are there persona files that don't yet exist for all 7 roles (e.g. ta-go-build-qa-proof.md, ta-go-build-qa-falsification.md)? Missing personas are a build-time error not caught by TOML parsing."
+blockers = ["drop_013.drop.qa_proof_l3_codex", "drop_013.drop.qa_falsif_l3_codex", "drop_013.drop.qa_proof_l3_claude", "drop_013.drop.qa_falsif_l3_claude"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.l3_chains_personas"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.l3_chains_personas"
+title = "Plan-QA falsif: L3-6 chains + personas alignment"
+updated_at = "2026-05-25T01:00:00Z"
+
+[droplet_claude_oauth_refusal]
+blockers = ["drop_013.drop.qa_proof_l3_claude", "drop_013.drop.qa_falsif_l3_claude"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+irreducible = false
+objective = """
+Add OAuth-refusal to claudeNativeBackend.Spawn(). 
+
+Objective: When the chain tier identifies the role as OAuth/subscription (claude built-in Agent tool channel), Spawn() must return ErrOAuthNotAllowed wrapping an informative message so the dispatcher signals the orchestrator to use the native Agent tool instead. claude -p is API-key/ollama-only per AGENT_SANDBOX_SPEC sec2 + AGENT_DISPATCH.md sec3.
+
+AcceptanceCriteria:
+- New sentinel `var ErrOAuthNotAllowed = errors.New("backends: claude-native OAuth roles must use the built-in Agent tool, not claude -p")` declared in claude_native.go (new, not yet in tree).
+- isOAuthRole(role string) bool helper: matches roles whose channel in the chain is agent-tool (builder, *-proof, closeout). Pattern: contains 'builder' OR ends in '-proof' OR is 'closeout'. <=10 lines.
+- Spawn() checks isOAuthRole(req.Role) as the first step; returns ErrOAuthNotAllowed immediately.
+- New test TestClaudeNativeOAuthRefusal: verifies Spawn returns ErrOAuthNotAllowed for 'ta-go-builder', 'ta-go-build-qa-proof', 'ta-closeout'; does NOT refuse 'ta-go-planning', 'ta-go-plan-qa-falsification'.
+
+Verification: mage testFunc TestClaudeNativeOAuthRefusal (pass TA_TEST_PKG=./internal/backends)
+"""
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_013.drop.l3_claude_dualpath"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "claude_native.go: OAuth-refusal guard (ErrOAuthNotAllowed + isOAuthRole)"
+updated_at = "2026-05-25T01:00:00Z"
+
+[droplet_claude_bare_disallowed]
+blockers = ["drop_013.drop.droplet_claude_oauth_refusal"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+irreducible = false
+objective = """
+Add --disallowedTools and //abs double-slash allowedTools to the -p (non-OAuth) path in claudeNativeBackend.renderArgs().
+
+Objective: The API-key/ollama path (after OAuth-refusal check passes) must append --disallowedTools with all 13 git+mage-install+go-get bash deny patterns from AGENT_SANDBOX_SPEC sec3 bash_deny, and ensure --allowedTools file-edit entries use the // double-slash absolute form.
+
+AcceptanceCriteria:
+- renderArgs() appends --disallowedTools flag when BackendConfig.DisallowedToolsArg is non-empty (new BackendConfig field, new not yet in tree: `DisallowedToolsArg string`); value = the 13 bash_deny entries joined by comma.
+- A new renderDisallowedToolsCSV() helper returns the hardcoded bash_deny list joined as a disallowed-tools CSV string: 'Bash(git commit:*),Bash(git push:*),Bash(git add:*),Bash(git reset:*),Bash(git checkout:*),Bash(git branch:*),Bash(git tag:*),Bash(git stash:*),Bash(git rebase:*),Bash(git merge:*),Bash(git restore:*),Bash(mage install:*),Bash(go get:*),Bash(go mod:*)'
+- allowedTools edit-scope entries that are file paths are normalized to // double-slash form via a normalizeToDoubleSlash() helper (new, not yet in tree).
+- New test TestClaudeNativeDisallowedTools: verifies --disallowedTools appears in renderArgs output with all 13 entries; verifies allowedTools file path entry uses // form.
+
+Verification: mage testFunc TestClaudeNativeDisallowedTools
+"""
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_013.drop.l3_claude_dualpath"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go", "internal/backends/backend.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "claude_native.go: --bare path --disallowedTools + //abs --allowedTools"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_proof_claude_oauth]
+acceptance_criteria = "Read claude_native.go + claude_native_test.go. Verify: ErrOAuthNotAllowed declared; isOAuthRole() matches builder+proof+closeout; Spawn() returns error before any exec.LookPath; test passes mage testFunc TestClaudeNativeOAuthRefusal. Verify no regression in existing claude_native tests (mage testPkg ./internal/backends)."
+blockers = ["drop_013.drop.droplet_claude_oauth_refusal"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_claude_oauth_refusal"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.droplet_claude_oauth_refusal"
+title = "Build-QA proof: droplet_claude_oauth_refusal"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_falsif_claude_oauth]
+acceptance_criteria = "Attack: (1) isOAuthRole() matches 'ta-go-builder' correctly but does it match a hypothetical 'ta-fe-builder'? Pattern must cover fe roles too. (2) does the error message carry enough context for the orchestrator to act (role name, suggested action)? (3) does the Spawn() early-return preserve the SpawnResult.ExitCode convention (-1 for never-started)?"
+blockers = ["drop_013.drop.droplet_claude_oauth_refusal"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_claude_oauth_refusal"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.droplet_claude_oauth_refusal"
+title = "Build-QA falsif: droplet_claude_oauth_refusal"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_proof_claude_bare]
+acceptance_criteria = "Read claude_native.go + backend.go. Verify: DisallowedToolsArg field added to BackendConfig; renderDisallowedToolsCSV() returns all 13 bash_deny entries; normalizeToDoubleSlash() converts single-slash to double-slash; --disallowedTools appears in renderArgs output; test TestClaudeNativeDisallowedTools passes."
+blockers = ["drop_013.drop.droplet_claude_bare_disallowed"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_claude_bare_disallowed"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.droplet_claude_bare_disallowed"
+title = "Build-QA proof: droplet_claude_bare_disallowed"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_falsif_claude_bare]
+acceptance_criteria = "Attack: (1) the 13 disallowed tool patterns — does the spec say 'Bash(git commit:*)' or 'Bash(git commit *)' (colon vs space)? Verify against spec sec3 exactly. (2) normalizeToDoubleSlash() — what if the path is already double-slash? idempotent? (3) DisallowedToolsArg field added to BackendConfig — does this break existing backends.toml TOML round-trip (BurntSushi/toml unknown fields)?"
+blockers = ["drop_013.drop.droplet_claude_bare_disallowed"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_claude_bare_disallowed"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.droplet_claude_bare_disallowed"
+title = "Build-QA falsif: droplet_claude_bare_disallowed"
+updated_at = "2026-05-25T01:00:00Z"
+
+[droplet_opts_threading]
+blockers = ["drop_013.drop.qa_proof_l3_dispatch", "drop_013.drop.qa_falsif_l3_dispatch"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+irreducible = false
+objective = """
+Thread the chain tier's Opts string from dispatch.go into SpawnRequest and through codexExecBackend.renderArgs() so --sandbox + -c flags from agent-chains.sh actually reach the codex argv.
+
+Objective: The Opts field in agent-chains.sh (e.g. '--sandbox read-only -c model_reasoning_effort=high') is currently parsed in the bash dispatcher but dead in the Go dispatch path. Wire it end-to-end.
+
+AcceptanceCriteria:
+- Verify internal/chains.Tier has an Opts string field (read chains.go first). If absent, add `Opts string` with `toml:"opts"` tag (1 line change).
+- Add `Opts string` field to backends.SpawnRequest (new field, not yet in tree). Field is the raw opts string from the chain tier.
+- In dispatch.go buildSpawnRequest(), populate req.Opts = tier.Opts.
+- In codexExecBackend.renderArgs(), after template substitution, append strings.Fields(req.Opts) tokens to the argv slice so opts like '--sandbox read-only' become separate argv tokens.
+- New test TestOptsThreading: verify Preview() output for a chain with opts='--sandbox workspace-write' includes '--sandbox workspace-write' as adjacent argv tokens.
+
+Verification: mage testFunc TestOptsThreading (TA_TEST_PKG=./internal/backends)
+"""
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_013.drop.l3_dispatch_threading"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/chains/chains.go"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "dispatch: thread tier.Opts into SpawnRequest + codex argv"
+updated_at = "2026-05-25T01:00:00Z"
+
+[droplet_hermeticity_smoke]
+blockers = ["drop_013.drop.qa_proof_l3_dispatch", "drop_013.drop.qa_falsif_l3_dispatch", "drop_013.drop.droplet_opts_threading"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+irreducible = false
+objective = """
+Add integration test using a fake-codex subprocess stub that proves the hermetic CODEX_HOME invariants.
+
+Objective: Prove the hermetic codex dispatch negatives (no global ~/.codex state leaks) and positives (correct per-role MCP injection) using the existing testdata/fake-codex-* stub pattern.
+
+AcceptanceCriteria:
+- testdata/fake-codex-probe/server.sh (or similar) captures CODEX_HOME env var + full argv to a tmpfile.
+- TestHermeticitySmokeTest: spawns fake-codex binary with: (a) a ta-go-planning role -> verifies CODEX_HOME != ~/.codex; verifies rules/default.rules exists in CODEX_HOME; verifies 'git commit' is in rules/default.rules as forbidden; verifies hylla -c flag IS present; verifies gopls -c flag IS present; (b) a ta-go-build-qa-falsification role -> verifies hylla -c flag ABSENT; gopls IS present.
+- Test uses t.TempDir() for CODEX_HOME isolation. Fake-codex stub is a shell script under internal/backends/testdata/.
+- mage testFunc TestHermeticitySmokeTest GREEN
+
+Verification: TA_TEST_PKG=./internal/backends mage testFunc TestHermeticitySmokeTest
+"""
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_013.drop.l3_dispatch_threading"
+paths = ["internal/backends/codex_exec_test.go", "internal/backends/testdata/fake-codex-hermetic/server.sh"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "dispatch: hermeticity smoke-test (fake-codex stub: negatives + positives)"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_proof_opts_threading]
+acceptance_criteria = "Read chains.go, backend.go, codex_exec.go, dispatch.go. Verify: chains.Tier.Opts exists; SpawnRequest.Opts exists; buildSpawnRequest sets it; renderArgs appends strings.Fields(opts); TestOptsThreading passes. No regression in prior chain tests."
+blockers = ["drop_013.drop.droplet_opts_threading"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_opts_threading"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.droplet_opts_threading"
+title = "Build-QA proof: droplet_opts_threading"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_falsif_opts_threading]
+acceptance_criteria = "Attack: (1) strings.Fields splits on whitespace but agent-chains.sh opts contains '-c model_reasoning_effort=high' which is safe; however if a future opts value had a quoted string with spaces, Fields would split incorrectly. Is this acceptable for now? (2) opts from claudeNativeBackend — should Opts be ignored by claude backends? Or would the TOML accidentally wire it through both backends?"
+blockers = ["drop_013.drop.droplet_opts_threading"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_opts_threading"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.droplet_opts_threading"
+title = "Build-QA falsif: droplet_opts_threading"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_proof_hermeticity]
+acceptance_criteria = "Read codex_exec_test.go + testdata/fake-codex-hermetic/. Verify: fake stub captures env+argv; test checks CODEX_HOME != ~/.codex; rules/default.rules content verified; hylla absent for build-qa; gopls present for go roles; TestHermeticitySmokeTest passes."
+blockers = ["drop_013.drop.droplet_hermeticity_smoke"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_hermeticity_smoke"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.droplet_hermeticity_smoke"
+title = "Build-QA proof: droplet_hermeticity_smoke"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_falsif_hermeticity]
+acceptance_criteria = "Attack: (1) fake-codex stub is a shell script — on CI without bash, the test would skip or fail. Is there a guard? (2) the test verifies rules/default.rules content but what if hermeticCodexHome() wrote the file with wrong path (rules/ vs rules/default.rules)? Does the test check the full path? (3) test isolation: if CODEX_HOME is set in the test environment before the test runs, does the test correctly override it for the subprocess?"
+blockers = ["drop_013.drop.droplet_hermeticity_smoke"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_hermeticity_smoke"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.droplet_hermeticity_smoke"
+title = "Build-QA falsif: droplet_hermeticity_smoke"
+updated_at = "2026-05-25T01:00:00Z"
+
+[droplet_chains_update]
+blockers = ["drop_013.drop.qa_proof_l3_chains", "drop_013.drop.qa_falsif_l3_chains"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+irreducible = false
+objective = """
+Verify and align .claude/agent-chains.sh and .claude/sand-chains.toml to cover all 7 sand/main roles.
+
+Objective: AGENT_DISPATCH.md sec1 defines 7 roles for a Go-only repo: closeout + go-planning + go-plan-qa-proof + go-plan-qa-falsification + go-builder + go-build-qa-proof + go-build-qa-falsification. Verify current files cover all 7. Add any missing entries.
+
+AcceptanceCriteria:
+- .claude/agent-chains.sh emit_chain_for_role() has explicit cases for all 7 ta-prefixed role names; no gaps.
+- .claude/sand-chains.toml [routing] table has entries for all 7 roles with: planning/falsification -> codex-exec, proof/builder/closeout -> agent-tool.
+- .claude/sand-chains.toml [codex.hermetic] section matches AGENT_DISPATCH.md sec4 (ignore_user_config=true, project_doc_max_bytes=0, ignore_rules=true, codex_home=ephemeral-symlink-auth-only, web_search=live).
+- mage testPkg ./internal/chains GREEN (no new chain parse failures).
+
+Verification: mage testPkg ./internal/chains
+"""
+outcome = ""
+packages = ["github.com/evanmschultz/sand/internal/chains"]
+parent_id = "drop_013.drop.l3_chains_personas"
+paths = [".claude/agent-chains.sh", ".claude/sand-chains.toml"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "chains + sand-chains.toml: verify/add all 7 roles for sand/main"
+updated_at = "2026-05-25T01:00:00Z"
+
+[droplet_personas_bash_scope]
+blockers = ["drop_013.drop.droplet_chains_update"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+irreducible = false
+objective = """
+Verify each persona file's tools: line matches the AGENT_SANDBOX_SPEC sec4 per-role matrix. Update any with bare Bash.
+
+Objective: No persona may have bare 'Bash' in its tools: line (only scoped Bash patterns like 'Bash(mage testFunc *)' are allowed per CLAUDE.md). Builder gets scoped Bash; planner/QA get no Bash; closeout gets read-only Bash.
+
+AcceptanceCriteria:
+- Read all 7 persona files (or mcp__ta__get on agent record ids) and verify tools: lines.
+- Any persona with bare 'Bash' in its tools: line is updated via mcp__ta__update (NOT direct file Edit).
+- After updates, both project .claude/agents/<file>.md and ~/.ta/agents/ta/<file>.md must match (builder runs `ta template save` command).
+- mage check GREEN.
+
+Verification: mage check
+"""
+outcome = ""
+packages = []
+parent_id = "drop_013.drop.l3_chains_personas"
+paths = [".claude/agents/ta-go-builder.md", ".claude/agents/ta-go-planning.md", ".claude/agents/ta-go-plan-qa-proof.md", ".claude/agents/ta-go-plan-qa-falsification.md", ".claude/agents/ta-go-build-qa-proof.md", ".claude/agents/ta-go-build-qa-falsification.md", ".claude/agents/ta-closeout.md"]
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "personas: verify Bash-scoping + update any bare-Bash tools: lines via mcp__ta__update"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_proof_chains_update]
+acceptance_criteria = "Read .claude/agent-chains.sh + .claude/sand-chains.toml. Verify: all 7 role cases present; routing matches AGENT_DISPATCH.md sec3; sand-chains.toml codex.hermetic section complete; mage testPkg ./internal/chains passes."
+blockers = ["drop_013.drop.droplet_chains_update"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_chains_update"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.droplet_chains_update"
+title = "Build-QA proof: droplet_chains_update"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_falsif_chains_update]
+acceptance_criteria = "Attack: (1) sand-chains.toml codex.hermetic has ignore_rules=true but L3-2 removes --ignore-rules — is this a contradiction? (The TOML key captures the config intent; Go code renders it as hermetic CODEX_HOME instead. But the TOML field name should match what Go actually does.) (2) are there any role names in agent-chains.sh that use a different prefix than 'ta-' (e.g. old 'go-' prefix)? This would silently fail dispatch."
+blockers = ["drop_013.drop.droplet_chains_update"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_chains_update"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.droplet_chains_update"
+title = "Build-QA falsif: droplet_chains_update"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_proof_personas_bash]
+acceptance_criteria = "Read all 7 persona files post-update. Verify: no bare Bash in any tools: line; ta-go-builder has scoped Bash(mage testFunc *)|Bash(mage testPkg *)|Bash(git diff *)|Bash(git log *)|Bash(git status); planners/QA have no Bash; ta-closeout has read-only Bash. Verify project + HOME files match. mage check GREEN."
+blockers = ["drop_013.drop.droplet_personas_bash_scope"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_personas_bash_scope"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_013.drop.droplet_personas_bash_scope"
+title = "Build-QA proof: droplet_personas_bash_scope"
+updated_at = "2026-05-25T01:00:00Z"
+
+[bqa_falsif_personas_bash]
+acceptance_criteria = "Attack: (1) mcp__ta__update on agent records — does it actually regenerate the .md file? Or does ta require an explicit template save? If the builder skips `ta template save`, the project .md file is stale. (2) are there persona files that exist in .claude/agents/ but are NOT ta-managed (no record in the substrate)? Direct-file edits would be needed for those, which contradicts CLAUDE.md."
+blockers = ["drop_013.drop.droplet_personas_bash_scope"]
+created_at = "2026-05-25T01:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+outcome = ""
+parent_id = "drop_013.drop.droplet_personas_bash_scope"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_013.drop.droplet_personas_bash_scope"
+title = "Build-QA falsif: droplet_personas_bash_scope"
+updated_at = "2026-05-25T01:00:00Z"

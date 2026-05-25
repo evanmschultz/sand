@@ -102,11 +102,28 @@ as a subprocess → refuse "use the Agent tool". Translation:
 - **Configurable knobs** (sand/tillsyn own, not hardcoded): system-prompt mode (replace|append), the
   context strip-set, the sandbox mode per role, the gate spec.
 
-## 6. Routing (from AGENT_DISPATCH.md, confirmed by the auth finding)
-- OAuth/subscription roles (builder=haiku, *-proof=opus, closeout=opus) → **built-in Agent tool + Go gate hook**.
-- planning + *-falsification → **hermetic `codex exec`** (§2).
-- API-key / ollama tier → `claude -p --bare` (§2) — dormant; ollama needs a ≥~20b tool-capable model
-  (7b text-emits tool calls, unusable).
+## 6. Routing + project-owner chain spec (2026-05-25)
+
+Per-role backend / model / effort (FE + Go identical; the canonical chains are
+`hylla|ta|valv .claude/agent-chains.sh` and `sand/tillsyn .claude/sand-chains.toml`):
+
+| Role | backend | model | effort / sandbox | channel |
+|---|---|---|---|---|
+| planning | codex-exec | gpt-5.5 | low, read-only | hermetic codex exec |
+| plan-qa-proof | claude-native | opus | — | built-in Agent tool + gate hook |
+| plan-qa-falsification | codex-exec | gpt-5.5 | high, read-only | hermetic codex exec |
+| builder | claude-native | haiku (sonnet fallback) | — | built-in Agent tool + gate hook |
+| build-qa-proof | claude-native | **sonnet** | — | built-in Agent tool + gate hook |
+| build-qa-falsification | codex-exec | gpt-5.5 | low, read-only | hermetic codex exec |
+| closeout | claude-native | opus | — | built-in Agent tool + gate hook |
+
+- **Proof QA splits by axis: plan = opus, build = sonnet** (build-axis proof is the lower-stakes,
+  cost-aware floor). **Falsification splits by effort: plan = high, build = low.** Codex model is
+  **`gpt-5.5`**; the dispatcher adds `-c approval_policy="never"` so chain `opts` carry only
+  `--sandbox <mode>` + `model_reasoning_effort`.
+- **Builders are claude built-in haiku, NOT ollama.** The API-key / `claude -p --bare` ollama tier
+  (§2) stays a config-driven flexibility option (needs a ≥~20b tool-capable model; 7b text-emits tool
+  calls, unusable), but the owner's chains use claude-native haiku.
 
 ## 7. sand/tillsyn architecture (the build target)
 sand (Go MCP) consumes: the chain TOML + the `[codex.hermetic]`/`[codex.mcp]` config + the per-role

@@ -29,3 +29,10 @@ mage_output_file.go
 
 # Sand per-dispatch logs (when sand is running and writing here, optional ignore)
 .sand/log/
+
+# Gate hook transients — compiled python cache + gate debug log; never commit.
+.claude/hooks/__pycache__/
+.claude/hooks/*.log
+
+# Per-dispatch audit trace capture (bin/agent-dispatch.sh writes here; transient).
+.claude/agent-runs/

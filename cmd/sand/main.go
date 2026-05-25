@@ -11,6 +11,7 @@ import (
 
 	"github.com/evanmschultz/sand/internal/debugtools"
 	"github.com/evanmschultz/sand/internal/dispatch"
+	"github.com/evanmschultz/sand/internal/gate"
 	"github.com/evanmschultz/sand/internal/preflight"
 )
 
@@ -20,6 +21,15 @@ const (
 )
 
 func main() {
+	// `sand gate` is the PreToolUse hook subcommand: Claude Code invokes it on
+	// every PreToolUse event, piping the event JSON on stdin; it emits the
+	// permissionDecision envelope on stdout and exits. It is NOT the MCP server.
+	// This is the Go, cross-OS end-state of the bin/sh reference hook
+	// (.claude/hooks/ta_action_gate.py; HYLLA_BIN.md §5.1).
+	if len(os.Args) > 1 && os.Args[1] == "gate" {
+		os.Exit(gate.Run(os.Stdin, os.Stdout, os.Getenv))
+	}
+
 	s := server.NewMCPServer(serverName, serverVersion)
 
 	// projectDir source for tool wiring. Currently derives from cwd; the

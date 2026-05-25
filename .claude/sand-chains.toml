@@ -1,46 +1,78 @@
-# sand-chains.toml — per-role fallback chains for sand's dispatch.
+# sand-chains.toml — per-role fallback chains for sand's OWN agents.
 #
-# Chain rationale per project owner:
-#   builder       = ollama-local (qwen3-coder:30b, slots=1 SYSTEM-WIDE) → claude haiku fallback
-#   planning      = codex gpt-5.4 high read-only (matches the old bin-sh chain)
-#   plan-qa       = claude opus (combined proof+falsification, read-only plan review)
-#   build-qa      = claude sonnet (combined proof+falsification, runs mage gates)
-#   closeout      = claude opus (matches old bin-sh)
+# sand is a GO-ONLY project: its own agents are the ta-go-* family + ta-closeout.
+# It has NO ta-fe-* agents (FE is for consuming projects like hylla / ta — see
+# SAND_FE_AGENT_GUIDE.md, which is the KNOWLEDGE sand uses to BUILD FE support
+# into the MCP it ships, NOT a set of agents sand runs itself).
 #
-# Slot enforcement is cross-process via syscall.Flock on
-# /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock. ollama-local slots=1
-# means at most ONE qwen3-coder:30b spawn at a time across every sand binary
-# on the machine — VRAM/thermal budget protection.
+# THE PROJECT OWNER'S CANONICAL CHAIN SPEC (2026-05-25). The bin/sh reference
+# (.claude/agent-chains.sh) mirrors it tier-for-tier.
+#
+# Per-role backend / model / effort:
+#   planning              = codex-exec  gpt-5.5  effort=low   (read-only)
+#   plan-qa-proof         = claude-native opus
+#   plan-qa-falsification = codex-exec  gpt-5.5  effort=high  (read-only)
+#   builder               = claude-native haiku  (sonnet fallback)
+#   build-qa-proof        = claude-native sonnet
+#   build-qa-falsification= codex-exec  gpt-5.5  effort=low   (read-only)
+#   closeout              = claude-native opus
+#
+# Notes:
+#   - Builders are CLAUDE BUILT-IN haiku, NOT ollama. sand is flexible enough to
+#     support an ollama-local tier (commented example on ta-go-builder), but the
+#     owner's chains use claude-native. The Agent tool (subscription) dispatches
+#     claude-native roles; bin/sh refuses them.
+#   - codex roles are ALWAYS --sandbox read-only (planning + every QA-
+#     falsification role is NON-EDITING; QA never edits source). The dispatcher
+#     adds `-c approval_policy="never"` (codex --sandbox is inert in exec without
+#     it), so opts carry only --sandbox + model_reasoning_effort.
+#   - QA proof splits by axis: plan-qa-proof = opus, build-qa-proof = sonnet.
+#     QA falsification splits by effort: plan = high, build = low.
+#   - Tool grants are role-name-driven (dispatch_codex / the Go MCP injection):
+#     hylla read-only for planning + plan-qa (NOT build-qa); gopls for *-go-*;
+#     context7 + ta always; no role gets git mutation (orchestrator is the sole
+#     committer). For consuming projects with FE, *-fe-* roles also get
+#     Playwright — see SAND_FE_AGENT_GUIDE.md.
+#
+# Slot enforcement (ollama tiers only) is cross-process via syscall.Flock on
+# /tmp/sand-slots/<backend>/<model-slug>/slot.<N>.lock.
 
 [chains]
 
-# Builder — atomic 1-2 small blocks per cascade methodology.
-# Tier 1 ollama-local (free, GPU-bound, slots=1).
-# Tier 2 claude-native haiku (3x cheaper than sonnet per Anthropic pricing).
+# ---- Builder (claude built-in haiku, sonnet fallback) --------------------
+# To use a local model for flexibility, prepend an ollama tier, e.g.:
+#   { backend = "ollama-local", model = "qwen3-coder:30b", slots = 1, wait_max = 30, opts = "" },
 "ta-go-builder" = [
-  { backend = "ollama-local",  model = "qwen3-coder:30b", slots = 1, wait_max = 30, opts = "" },
-  { backend = "claude-native", model = "haiku",           slots = 0, wait_max = 0,  opts = "" },
-]
-
-# Planning — codex gpt-5.4 high reasoning, read-only sandbox.
-# Single tier — matches the legacy bin-sh chain exactly.
-"ta-go-planning" = [
-  { backend = "codex-exec", model = "gpt-5.4", slots = 0, wait_max = 0, opts = "--sandbox read-only -c model_reasoning_effort=high" },
-]
-
-# Plan-QA — combined proof+falsification on a planner's decomposition
-# (post-d0ea915 axis split). Read-only plan review; claude opus quality floor.
-"ta-go-plan-qa" = [
-  { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
-]
-
-# Build-QA — combined proof+falsification on shipped code, runs mage gates
-# (post-d0ea915 axis split). claude sonnet per the persona model hint.
-"ta-go-build-qa" = [
+  { backend = "claude-native", model = "haiku",  slots = 0, wait_max = 0, opts = "" },
   { backend = "claude-native", model = "sonnet", slots = 0, wait_max = 0, opts = "" },
 ]
 
-# Closeout — claude opus quality floor. Matches legacy bin-sh.
+# ---- Planning (codex gpt-5.5, effort=low, read-only) ---------------------
+"ta-go-planning" = [
+  { backend = "codex-exec", model = "gpt-5.5", slots = 0, wait_max = 0, opts = "--sandbox read-only -c model_reasoning_effort=low" },
+]
+
+# ---- Plan-QA proof (claude opus) -----------------------------------------
+"ta-go-plan-qa-proof" = [
+  { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
+]
+
+# ---- Plan-QA falsification (codex gpt-5.5, effort=high, read-only) --------
+"ta-go-plan-qa-falsification" = [
+  { backend = "codex-exec", model = "gpt-5.5", slots = 0, wait_max = 0, opts = "--sandbox read-only -c model_reasoning_effort=high" },
+]
+
+# ---- Build-QA proof (claude sonnet) --------------------------------------
+"ta-go-build-qa-proof" = [
+  { backend = "claude-native", model = "sonnet", slots = 0, wait_max = 0, opts = "" },
+]
+
+# ---- Build-QA falsification (codex gpt-5.5, effort=low, read-only) --------
+"ta-go-build-qa-falsification" = [
+  { backend = "codex-exec", model = "gpt-5.5", slots = 0, wait_max = 0, opts = "--sandbox read-only -c model_reasoning_effort=low" },
+]
+
+# ---- Closeout (claude opus) ----------------------------------------------
 "ta-closeout" = [
   { backend = "claude-native", model = "opus", slots = 0, wait_max = 0, opts = "" },
 ]
