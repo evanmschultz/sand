@@ -1,0 +1,1231 @@
+[sand_go_parity]
+acceptance_criteria = """
+Build-from spec = HYLLA_BIN.md (canonical) + AGENT_SANDBOX_SPEC.md. Oracle = bin/agent-dispatch.sh --dry-run per codex role (golden equivalence). mage check GREEN; prior tests stay green or updated with rationale. No new external Go deps.
+
+AREA 3 HERMETIC CODEX (internal/backends/codex_exec.go + new helper): REMOVE --ignore-rules from config/argv; ADD hermetic CODEX_HOME (mktemp + symlink auth.json/version.json/installation_id/models_cache.json) with OWN rules/default.rules (execpolicy prefix_rule(decision="forbidden") for git mutation verbs + gate bash_deny like mage install/go get/go mod); ADD --ignore-user-config + -c approval_policy="never" + -c project_doc_max_bytes=0 + -c skills.bundled.enabled=false + -c web_search="live". Hermetic CODEX_HOME cleaned up after dispatch. NOTE codex .git-ro is writable-roots-dependent -> execpolicy is the PRIMARY git block.
+
+AREA 4 ROLE-CONDITIONAL MCP (codex_mcp_probe.go / renderMCPInjectionFlags): REPLACE the uniform .mcp.json probe with role-conditional injection: ta always; hylla planning+plan-qa ONLY (skip *build-qa*); context7 always; gopls *-go-*; playwright *-fe-*; per-tool approval_mode=approve.
+
+AREA 5 --gate CONTRACT THREADING (dispatch.go + backend.go + sand.dispatch MCP tool): accept the gate spec {edit,writable_dirs,bash_deny,network}; translate per backend (codex: execpolicy rules + -C writable_dir; claude -p: --allowedTools "Edit(//abs) Write(//abs) MultiEdit(//abs)" (// double-slash, per-file) + --disallowedTools "Bash(<deny>:*)"). The shipped internal/gate is the built-in-Agent-tool + claude-p enforcement target; the gate spec is the single source.
+
+AREA 6 CLAUDE -p TIER (claude_native.go): -p --bare is the API-key/ollama path (NOT OAuth subscription); wire the gate-flag translation + scoped/no-bare Bash. OAuth roles are the orchestrator's built-in-Agent-tool responsibility, not a sand subprocess.
+
+AREA 7 AUDIT CAPTURE + VERACITY (dispatch.go): persist per-run .claude/agent-runs/<run>.{out,err,meta.json} (gitignored); response envelope ALWAYS surfaces the real tool-call trace (tools_used) parsed from the transcript, NOT self-report (closes the long-standing parser gap).
+
+AREA 8 SAND-SPEC RECONCILE (SAND-SPEC.md §8.3/§13.6): rewrite the codex section that currently mandates --ignore-rules + 'do NOT add --ignore-user-config' to the consensus (no --ignore-rules; hermetic CODEX_HOME + own execpolicy + --ignore-user-config + the new -c flags). Orchestrator-direct doc edit, NOT a builder droplet.
+
+ASSURANCE: oracle-equivalence golden tests vs bin/agent-dispatch.sh --dry-run per codex role + a hermeticity smoke test (AGENTS.md/HOME/skills absent; git mutation rejected) + cross-backend plan/build-QA.
+"""
+comments = [{author = "agent:ta-go-planning", body = """
+## Planning Evidence
+
+Read the authoritative root record first, then the cascade schema for exact type names and required fields. Existing children under `drop_014.drop.sand_go_parity` were empty before creation, so no duplicates were present.
+
+Primary build-from evidence used:
+- `HYLLA_BIN.md` §1-§5: sand is a Go-only config-driven translator; codex exec requires hermetic `CODEX_HOME`, own execpolicy, `--ignore-user-config`, `approval_policy="never"`, `project_doc_max_bytes=0`, `skills.bundled.enabled=false`, `web_search="live"`; role-conditional MCP injection; veracity/audit capture.
+- `AGENT_SANDBOX_SPEC.md` §1-§7: Go dispatch/gate only, per-channel gate translations, `--gate` shape, per-role tool matrix, no hylla for build-QA, project-local audit capture.
+- `bin/agent-dispatch.sh` dispatch oracle: `dispatch_codex` lines 369-538, `dispatch_ollama` lines 298-367, `dispatch_claude_native` lines 540-556.
+- Current Go code anchors: `internal/backends/codex_exec.go:Spawn`, `internal/backends/codex_exec.go:Preview`, `internal/backends/codex_mcp_probe.go:ProbeMCPServer`, `internal/backends/backend.go:SpawnRequest`, `internal/backends/claude_native.go:Spawn`, `internal/backends/claude_native.go:renderArgs`, `internal/dispatch/dispatch.go:Dispatch`, `internal/dispatch/dispatch.go:Params`, `internal/dispatch/tool_dispatch.go:NewDispatchTool`, `internal/dispatch/tool_dispatch.go:responseToTOON`.
+
+## Decomposition Rationale
+
+Created root plan-QA twins, then five segment planners for areas 3, 4, 5, 6, and 7. Each segment is larger than a safe 1-2 code-block builder droplet because each includes implementation plus tests and cross-file command-shape assertions. The immediate plan therefore bottoms at sub-planner records, not oversized builder leaves. Each sub-planner has its own plan-QA proof and falsification records. Builder droplets and build-QA twins must be created by those sub-planners after their plan-QA gates pass.
+
+Sequencing:
+- Area 3 and area 4 are independent after root plan-QA.
+- Area 5 blocks on areas 3 and 4 because gate threading consumes final codex hermetic and MCP injection shapes.
+- Area 6 is independent after root plan-QA.
+- Area 7 blocks on area 5 because audit metadata must capture final gate inputs and dispatch/backend request shape.
+
+Area 8 is explicitly not a builder droplet. Orchestrator must perform the `SAND-SPEC.md` §8.3/§13.6 documentation reconcile directly after implementation consensus lands.
+
+## Hylla Feedback
+
+Hylla MCP tools were not exposed in this dispatched tool context, so committed-code evidence could not be queried through `mcp__hylla__*` despite the role instruction.
+
+- Query: Hylla keyword/vector/refs for `codexExecBackend`, `renderMCPInjectionFlags`, `SpawnRequest`, `Dispatch`, `NewDispatchTool`, and `ParseCodexEnvelope`.
+- Missed because: no `mcp__hylla__*` tools were available after tool discovery; only ta, gopls, context7, GitHub, and shell-read tools were exposed.
+- Worked via: read-only local code inspection with `sed`/`rg`, plus ta root/schema reads and the local spec/oracle files.
+- Suggestion: expose the pinned Hylla MCP tools for planning dispatches when `hylla artifact_ref = github.com/evanmschultz/sand@main` is present, or have the dispatcher fail fast before planning if Hylla is unavailable.
+
+## Open Questions Routed
+
+Attention needed: Area 8 remains orchestrator-direct doc work, not a cascade builder droplet. No builder record was created for it. No other open planning blocker was found at this level.
+""", id = "drop_014_planning_evidence_20260525T093500Z", role = "planner", timestamp = "2026-05-25T09:35:00Z"}]
+created_at = "2026-05-25T09:30:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+decision_log = ["2026-05-25T09:30:00Z: drop_014 created as a FRESH slate per dev fork decision (vs repairing drop_013). SUPERSEDES drop_013 (stale 53-record tree: a failed pre-spec L2 subtree + an unexecuted planner_l2 subtree whose l3_gate lane is now OBSOLETE - the gate shipped this session at internal/gate, proven 0 holes - and whose l3_chains_personas lane is DONE - personas+chains synced from the canonical hylla/polyglot-foundation reference this session). Scope = parity areas 3-8 only. Build-from: HYLLA_BIN.md (canonical) + AGENT_SANDBOX_SPEC.md + bin/agent-dispatch.sh (oracle, --dry-run equivalence) + ta_action_gate.py (gate semantics, already ported to internal/gate Go). Re-decomposition to run via the ta-go-planning bin agent against HYLLA_BIN + current committed code (snapshot @ 2566b52). drop_013 to be marked superseded/archived."]
+definition_of_complete = """
+- [ ] codex_exec.go emits the hermetic command oracle-equivalent to bin dispatch_codex (golden test per codex role); --ignore-rules GONE
+- [ ] hermetic CODEX_HOME symlink + execpolicy rules generated, used, and cleaned up
+- [ ] role-conditional MCP injection replaces uniform .mcp.json (hylla skipped for build-qa; gopls for go; playwright for fe; context7+ta always)
+- [ ] --gate {edit,writable_dirs,bash_deny,network} threaded into dispatch + translated per backend; sand.dispatch MCP tool exposes it
+- [ ] claude_native -p is API-key/ollama-only with gate-flag translation; OAuth not run as subprocess
+- [ ] per-run audit capture to .claude/agent-runs/ + tools_used surfaced in the envelope from the real trace
+- [ ] SAND-SPEC.md §8.3/§13.6 reconciled to the consensus
+- [ ] all planner + plan-QA twins complete+success BEFORE builders
+- [ ] all builder + build-QA twins complete+success (cross-backend QA stance honored)
+- [ ] mage check GREEN; commit + push + hylla ingest @main BEFORE closeout
+"""
+drop_number = 14.0
+labels = ["parity", "codex-hermetic", "role-conditional-mcp", "gate-threading", "audit-capture", "oracle-equivalence"]
+objective = "Bring sand's Go MCP dispatch to parity with the PROVEN bin/sh reference (bin/agent-dispatch.sh) and the python gate (.claude/hooks/ta_action_gate.py), per HYLLA_BIN.md (canonical, lives in hylla/polyglot-foundation) + AGENT_SANDBOX_SPEC.md. sand is a CONFIG-DRIVEN GO TRANSLATOR: users declare chains + per-role gate limits in TOML; Go code translates (<project>/.claude/agents/<role>.md persona + chain/gate TOML -> per-channel invocation + sandbox/gate artifacts) and ENFORCES them. NO isolation policy hardcoded in Go. NO bin/*.sh in sand's dispatch/gate path. Two invariants: (1) GIT IS ORCHESTRATOR-ONLY; (2) EDIT-SCOPE. ALREADY SHIPPED this session, DO NOT re-plan: the `sand gate` Go PreToolUse hook (internal/gate, proven 0 holes across the head-to-head + falsification corpus), the per-role chains (.claude/sand-chains.toml), and the 7 Go personas (.claude/agents, git-discipline synced from canonical). REMAINING SCOPE (this drop) = parity areas 3-8."
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "SAND-SPEC.md"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "Sand drop_014 — Go MCP dispatch parity with bin/sh reference (areas 3-8; gate+chains+personas already shipped)"
+updated_at = "2026-05-25T09:30:00Z"
+[plan_qa_proof]
+acceptance_criteria = """
+- Confirms areas 3-7 are represented by plan nodes.
+- Confirms area 8 is routed as orchestrator-direct documentation work, not a builder droplet.
+- Confirms shipped gate/persona/chain work is not re-planned.
+- Confirms blockers enforce area-5 after areas 3 and 4, and area-7 after area-5.
+"""
+context_blocks = [{importance = "primary", kind = "doc", label = "root scope", ref = "drop_014.drop.sand_go_parity"}, {importance = "primary", kind = "file", label = "canonical dispatch reference", ref = "HYLLA_BIN.md"}, {importance = "primary", kind = "file", label = "sandbox consensus", ref = "AGENT_SANDBOX_SPEC.md"}, {importance = "primary", kind = "code", label = "oracle dispatch functions", ref = "bin/agent-dispatch.sh:298-556"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Review drop_014 root objective, acceptance criteria, definition_of_complete.
+- Review created child records under drop_014.drop.sand_go_parity.
+- Mark complete only if every remaining scoped area has a gated planner path and no terminal droplet exceeds 1-2 small code blocks.
+"""
+objective = "Verify the drop_014 plan tree is complete against the authoritative drop scope before any area segment descends."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_014.drop.sand_go_parity"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go"]
+priority = "high"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_014.drop.sand_go_parity"
+title = "Plan QA proof - drop_014 top-level decomposition"
+transition_notes = """
+PLAN-QA-PROOF VERDICT: PASS-WITH-NITS (outcome=success). drop_014 top-level decomposition (root + 5 area sub-planners) is COMPLETE and EVIDENCE-GROUNDED. Cleared to descend per-area after each sub-planner's own plan-QA twins gate.
+
+## 1. Coverage completeness — CONFIRMED
+All 5 in-scope parity areas present as segment planners under drop_014.drop.sand_go_parity: area3_codex_hermetic, area4_role_conditional_mcp, area5_gate_threading, area6_claude_p_tier, area7_audit_capture. Each carries a clear objective + testable acceptance_criteria + definition_of_complete. Area 8 (SAND-SPEC reconcile) is correctly NOT a segment: root acceptance text + planner comment + drop decision_log all route it as orchestrator-direct doc work; no area-8 builder/segment record exists (grep of children confirms 5 segments + 2 QA twins only). Already-shipped work (internal/gate, .claude/sand-chains.toml, 7 personas) is explicitly excluded by the root objective and NOT re-planned in any segment — area5 DOC notes 'does not alter shipped internal/gate enforcement except to target its existing contract.'
+
+## 2. Scope traceability — CONFIRMED
+Each segment maps to a concrete slice of the drop acceptance_criteria with no orphans and no out-of-drop scope:
+- area3 -> AREA 3 HERMETIC CODEX (remove --ignore-rules, hermetic CODEX_HOME, execpolicy rules, new -c flags, cleanup).
+- area4 -> AREA 4 ROLE-CONDITIONAL MCP (ta/context7 always; hylla planning+plan-qa only, never build-qa; gopls go; playwright fe).
+- area5 -> AREA 5 --gate THREADING (gate spec into dispatch.Params + SpawnRequest + per-backend translation).
+- area6 -> AREA 6 CLAUDE -p TIER (API-key/ollama only, OAuth refused, gate-flag translation, no bare Bash).
+- area7 -> AREA 7 AUDIT CAPTURE (.claude/agent-runs/ persistence + real tools_used envelope, LogPath move off /tmp).
+No segment scope exceeds the drop; oracle-equivalence + hermeticity smoke assurance from the root is distributed into area3/area4/area6 acceptance criteria.
+
+## 3. Symbol grounding — CONFIRMED (verified via gopls documentSymbol + Read)
+Every cited symbol exists in the current tree (snapshot 2566b52):
+- codex_exec.go: Spawn, Preview, renderArgs, renderMCPInjectionFlags (the uniform .mcp.json probe area4 replaces — confirmed present at func level, with Spawn-path live probe at the McpConfigPath!=\\"\\" branch).
+- codex_mcp_probe.go: ProbeMCPServer, RenderMCPInlineTOML, MCPServerEntry.
+- claude_native.go: Spawn, renderArgs, renderAllowedToolsCSV.
+- backend.go: SpawnRequest (NO gate field yet -> area5 adds it; confirmed), Backend, BackendConfig.
+- dispatch.go: Params (NO gate field yet -> area5 adds it; confirmed), Response with LogPath/ToolsUsed/ToolCalls, buildSuccessResponse.
+- tool_dispatch.go: NewDispatchTool, responseToTOON, DispatchHandler.
+- gate.go: Allowlist{Edit,EditPresent,BashDeny,WritableDirs,Network} — the SHIPPED gate contract area5 threads INTO (single source). Confirmed present.
+- envelope_codex.go: ParseCodexEnvelope.
+NEW file internal/backends/codex_hermetic.go correctly does NOT yet exist (confirmed File-does-not-exist) and is clearly marked NEW in area3 paths[]. .gitignore already ignores .claude/agent-runs/ (line 38) so area7's gitignore criterion is partially pre-satisfied — acceptance phrasing 'if not already ignored' handles this correctly.
+
+## 4. Blocker-graph soundness — CONFIRMED (acyclic, complete)
+root plan-QA (proof + falsification) blocks ALL five areas: every segment lists both plan_qa_proof + plan_qa_falsification in blockers. area5 ADDITIONALLY blocks on area3 + area4 (gate threading consumes final codex hermetic argv + MCP injection shapes — justified). area7 ADDITIONALLY blocks on area5 (audit metadata must capture final gate inputs — justified). area6 is independent after root plan-QA (claude_native.go is a disjoint file from area3/4/5/7's primary paths — correct: no spurious blocker). Edge set: {qa->all5, area3->area5, area4->area5, area5->area7}. No cycles. Parallelism preserved: area3 || area4 || area6 after root gate; area5 after 3+4; area7 after 5.
+
+## 5. Atomicity feasibility — CONFIRMED
+Emitting sub-planners (not fat droplets) here was justified. Each area spans implementation + tests + cross-file command-shape assertions exceeding a single 1-2-block builder leaf, so the immediate tree correctly bottoms at sub-planner records, each carrying its own plan-QA twins per the planner comment + each segment's definition_of_complete ('Sub-planner creates plan-QA twins before its builder leaves run'). Each area is demonstrably decomposable into 1-2-block leaves: e.g. area3 splits into argv-flags / CODEX_HOME-lifecycle / execpolicy-rules-gen / cleanup / golden-test; area4 into renderMCPInjectionFlags-role-conditional / dry-run-no-probe / golden-test. Recursive-decomposition discipline honored.
+
+## NITs (non-blocking — for the descending sub-planners, NOT gating)
+NIT-1 (line-number drift in context_blocks): several context_block refs cite stale line numbers vs current code — area3 Spawn ref=codex_exec.go:69 (actual :117), Preview :185 (actual :202); area5 codex Spawn :69 (actual :117), claude renderArgs claude_native.go:246 (actual :254), Params dispatch.go:535 (actual :557); area6 Spawn claude_native.go:69 (actual :110); area7 buildSuccessResponse :404 (actual :402), LogPath :604 (actual :613). Symbol NAMES all resolve correctly; only the :line anchors drifted (likely snapshot vs HEAD). Sub-planners should re-anchor to symbol, not line. Non-blocking — grounding is by name, all names exist.
+NIT-2 (area4 dry-run probe): area4 acceptance 'avoids live MCP probing in preview/dry-run paths' is correct and load-bearing — the current Preview path (codex_exec.go:202) and the Spawn-path probe (codex_exec.go:132-135 McpConfigPath branch) differ; the sub-planner must ensure role-conditional injection does not trigger live ProbeMCPServer in Preview/DryRun. Flagged as a real design constraint to carry down, not a plan gap.
+NIT-3 (Hylla not queried at planning time): planner comment records mcp__hylla__* tools were unavailable in the dispatched context; grounding fell back to local Read/rg. This proof review independently re-grounded all symbols via gopls documentSymbol + Read, so no evidence gap remains at this level. Orchestrator should consider exposing pinned Hylla to descending sub-planners.
+
+TOOLS USED: mcp__ta__get (8 records: root + 5 areas + 2 QA twins), Read (HYLLA_BIN.md, AGENT_SANDBOX_SPEC.md, .gitignore, codex_exec.go x2, dispatch.go, codex_hermetic.go [absent-confirm]), LSP documentSymbol (codex_exec.go, codex_mcp_probe.go, claude_native.go, backend.go, dispatch.go, tool_dispatch.go, gate.go, envelope_codex.go), mcp__ta__update (this verdict).
+"""
+updated_at = "2026-05-25T09:40:00Z"
+[plan_qa_falsification]
+acceptance_criteria = """
+- Attempts to find any remaining scope from areas 3-7 that is not represented.
+- Attempts to find any record that re-plans shipped gate/persona/chain work.
+- Attempts to find sibling path/package conflicts without blockers.
+- Attempts to find an area-8 builder droplet, which would violate the orchestrator-direct instruction.
+"""
+context_blocks = [{importance = "primary", kind = "doc", label = "root scope", ref = "drop_014.drop.sand_go_parity"}, {importance = "primary", kind = "file", label = "gate contract", ref = "AGENT_SANDBOX_SPEC.md"}, {importance = "primary", kind = "file", label = "sand guidance", ref = "HYLLA_BIN.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Complete only if no unmitigated counterexample remains.
+- Any open question or blocker must be recorded on the drop root with attention_needed=true or as a cascade.failure blocker record.
+"""
+objective = "Attack the drop_014 plan for missing scope, stale oracle assumptions, overlarge builder leaves, and missing blockers."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_014.drop.sand_go_parity"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go"]
+priority = "high"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_014.drop.sand_go_parity"
+title = "Plan QA falsification - drop_014 top-level decomposition"
+transition_notes = """
+PLAN-QA-FALSIFICATION VERDICT: PASS-WITH-FINDINGS (outcome=success — no unmitigated counterexample that FAILS the decomposition; findings are correctable without re-planning).
+
+## Critical Finding CF-1 — Missing blocker: area5 → area6 (WRONG independence declaration)
+
+Area6 acceptance criterion includes: 'Applies gate-derived --allowedTools and --disallowedTools on claude -p, including double-slash absolute file scopes and no bare Bash.' This gate-flag translation requires SpawnRequest.Gate — a field that does NOT yet exist and is added by area5. Area6 literally cannot satisfy its acceptance without area5's output.
+
+Additionally, both area5 (paths[]) and area6 (paths[]) include internal/backends/claude_native.go. The plan declares area6 INDEPENDENT of area5 after root plan-QA. This is incorrect: a concurrent area5+area6 execution would produce conflicting edits to claude_native.go:renderArgs.
+
+The proof twin's section 4 blocker analysis stated 'claude_native.go is a disjoint file from area3/4/5/7's primary paths' — this is wrong; area5 primary paths explicitly include claude_native.go.
+
+Required fix: add drop_014.drop.area5_gate_threading to area6's blockers[] list. This matches the existing area5->area7 pattern.
+
+## Minor Finding — area3+area4 both touch codex_exec.go
+
+No direct blocker between area3 and area4. Partially mitigated by area5 blocking on both (both must complete before area5 proceeds), but concurrent sub-planner execution could generate conflicting codex_exec.go builder droplets. Accepted-risk for the top level — sub-planner discipline and their own plan-QA twins are the expected mitigation.
+
+## All other attack vectors mitigated
+
+- Coverage: all 5 areas present and correctly scoped; area8 correctly excluded as orchestrator-direct
+- Symbol grounding: renderMCPInjectionFlags (codex_exec.go:324), Spawn (:117), Preview (:202), SpawnRequest (backend.go:88 — no Gate field confirmed, correctly marked NEW by area5), Params (dispatch.go:557 — no Gate field), Allowlist (gate.go:87), Response.LogPath (/tmp path confirmed stale, correctly targeted by area7), codex_hermetic.go absent (correctly marked NEW by area3)
+- Methodology: mage-only, read-only git, no new deps, sub-planner QA twins before builders — all confirmed in all 5 areas
+- Blocker acyclicity: no cycles; edge set {qa->all5, area3->area5, area4->area5, area5->area7} sound (plus the missing area5->area6 edge)
+- Shipped gate not re-planned: area5 explicitly scoped to 'target the existing contract from dispatch' — confirmed
+- .gitignore pre-satisfies area7's gitignore criterion (line 38-39)
+
+## Tools Used
+
+mcp__ta__get (3 batches), mcp__ta__search (1), mcp__ta__list_sections (1), Read (HYLLA_BIN.md, AGENT_SANDBOX_SPEC.md, codex_exec.go, backend.go, dispatch.go, gate.go, claude_native.go, codex_mcp_probe.go, .gitignore), Bash (ls internal/backends/, ls internal/gate/), mcp__ta__update (this verdict)
+"""
+updated_at = "2026-05-25T09:45:00Z"
+[area3_codex_hermetic]
+acceptance_criteria = """
+- Produces atomic builder droplets only; each leaf is 1-2 small code blocks including tests.
+- Removes `--ignore-rules` from the codex command contract and adds `--ignore-user-config`, `approval_policy="never"`, `project_doc_max_bytes=0`, `skills.bundled.enabled=false`, and `web_search="live"` where codex argv is rendered.
+- Adds hermetic CODEX_HOME creation with symlinked `auth.json`, `version.json`, `installation_id`, `models_cache.json`, generated `rules/default.rules`, and cleanup after dispatch.
+- Adds oracle-equivalence golden tests against `bin/agent-dispatch.sh --dry-run` command shape and a hermeticity smoke assertion.
+- Verification uses mage-only commands (`mage testFunc`, `mage testPkg`, `mage check`), no raw go tooling, no new external Go deps, read-only git.
+"""
+blockers = ["drop_014.drop.plan_qa_proof", "drop_014.drop.plan_qa_falsification"]
+comments = [{author = "agent:ta-go-planning", body = """
+## Planning Evidence
+
+Read parent `drop_014.drop.area3_codex_hermetic`, root acceptance `drop_014.drop.sand_go_parity`, and `mcp__ta__schema(scope=cascade)` before creating children. Pre-create child check for scope `drop_014.drop.area3_codex_hermetic` returned no existing children.
+
+Primary oracle evidence:
+- `bin/agent-dispatch.sh:369-538` is the Area 3 oracle. Base argv is at `bin/agent-dispatch.sh:384-391`; required `-c` flags are at `bin/agent-dispatch.sh:393-425`; dry-run CODEX_HOME marker is at `bin/agent-dispatch.sh:496-500`; hermetic CODEX_HOME setup is at `bin/agent-dispatch.sh:502-537`.
+- Current Go anchors from local/LSP inspection: `codexExecBackend.Spawn` at `internal/backends/codex_exec.go:117`, `codexExecBackend.Preview` at `internal/backends/codex_exec.go:202`, `codexExecBackend.renderArgs` at `internal/backends/codex_exec.go:272`, `codexExecBackend.renderEnv` at `internal/backends/codex_exec.go:297`, and Area-4-owned `renderMCPInjectionFlags` at `internal/backends/codex_exec.go:324`.
+- Current tests/config anchors: `fullArgsCodexExecTOML` at `internal/backends/codex_exec_test.go:51`, `TestCodexExecBackend_HappyPath` at `internal/backends/codex_exec_test.go:175`, `TestCodexExecBackend_EnvFilteredAndPassedThrough` at `internal/backends/codex_exec_test.go:594`, `TestCodexExecBackend_PreviewShape` at `internal/backends/codex_exec_test.go:635`, and install seed codex example at `internal/installseed/installseed.go:73`.
+- `mage -l` confirmed canonical targets: `mage testFunc`, `mage testPkg`, and `mage check`.
+
+## Decomposition Rationale
+
+Created four sequential atomic build droplets because all Area 3 implementation shares the `github.com/evanmschultz/sand/internal/backends` package and/or `codex_exec.go` file-lock surface. Each builder droplet has proof and falsification QA twins.
+
+Sequence:
+1. `config_argv_contract` updates the existing argv contract surfaces and install seed first.
+2. `codex_home_helper` adds the new hermetic helper in `codex_hermetic.go` without Spawn wiring.
+3. `spawn_wiring` consumes the helper in `codexExecBackend.Spawn` and verifies env/cleanup semantics.
+4. `oracle_smoke_tests` lands final oracle-equivalence and hermeticity smoke assertions after the behavior exists.
+
+Area 4 owns `renderMCPInjectionFlags`; every Area 3 droplet explicitly keeps that function out of scope.
+
+## Schema Notes
+
+The dispatch asked for `drop_number=14` on every record, but the resolved cascade schema exposes `drop_number` only on `cascade.drop`, not `cascade.droplet`, `cascade.qa_proof`, or `cascade.qa_falsification`. The first create attempt with `drop_number` on a droplet failed validation, so child records were created schema-valid without that field. The parent/root records retain drop number identity.
+
+## Hylla Feedback
+
+- Query: `codexExecBackend renderArgs Spawn Preview --ignore-rules BackendConfig Args` via `hylla_search_keyword` against `github.com/evanmschultz/sand@main`.
+- Missed because: Hylla returned only `enrichment skipped for github.com/evanmschultz/sand@main`, with no symbol/content results.
+- Worked via: local read-only `nl`/`rg`, `mage -l`, and LSP `go_search` for live symbol confirmation.
+- Suggestion: make the pinned artifact enrichment available to planning dispatches, or have the dispatcher surface a clear artifact-not-enriched blocker before role execution.
+
+- Query: `TestCodexExecBackend_PreviewShape codex exec preview shape` via `hylla_search_keyword`.
+- Missed because: Hylla returned only `enrichment skipped for github.com/evanmschultz/sand@main`.
+- Worked via: local read-only inspection of `internal/backends/codex_exec_test.go:630-672` and LSP symbol search.
+- Suggestion: same artifact enrichment fix as above.
+
+- Query: `BackendConfig Args internal installseed sand-chains ignore-rules codex` via `hylla_search_keyword`.
+- Missed because: Hylla returned only `enrichment skipped for github.com/evanmschultz/sand@main`.
+- Worked via: local `rg` over `internal/installseed`, `.claude/sand-chains.toml`, and `internal/backends`.
+- Suggestion: same artifact enrichment fix as above.
+
+- Query: vector search for codex exec backend argv/hermetic CODEX_HOME summary.
+- Missed because: Hylla returned only `enrichment skipped for github.com/evanmschultz/sand@main`.
+- Worked via: local read-only oracle and Go file inspection.
+- Suggestion: same artifact enrichment fix as above.
+
+## Open Questions Routed
+
+None. The only carried ambiguity, OQ-2 panic-safe cleanup, is handled by the `spawn_wiring` droplet acceptance requiring immediate `defer` cleanup after helper creation.
+""", id = "drop_014_area3_planning_evidence_20260525T100000Z", role = "planner", timestamp = "2026-05-25T10:00:00Z"}]
+context_blocks = [{importance = "primary", kind = "code", label = "Spawn", ref = "internal/backends/codex_exec.go:69"}, {importance = "supporting", kind = "code", label = "Preview", ref = "internal/backends/codex_exec.go:185"}, {importance = "supporting", kind = "code", label = "TestCodexExecBackend_PreviewShape", ref = "internal/backends/codex_exec_test.go:635"}, {importance = "primary", kind = "code", label = "dispatch_codex oracle", ref = "bin/agent-dispatch.sh:369-538"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Sub-planner creates plan-QA twins before its builder leaves run.
+- Builder droplets cover code and tests without exceeding atomicity.
+- Area accepts only if codex exec matches the bin oracle and no shipped gate code is rebuilt.
+"""
+objective = "Decompose hermetic codex exec work into atomic droplets covering argv parity, CODEX_HOME lifecycle, generated execpolicy rules, cleanup, and oracle-equivalence tests."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.sand_go_parity"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/codex_hermetic.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "Area 3 planner - hermetic codex exec parity"
+updated_at = "2026-05-25T09:35:00Z"
+[area4_role_conditional_mcp]
+acceptance_criteria = """
+- Produces atomic builder droplets for renderMCPInjectionFlags and focused tests.
+- Ensures ta and context7 are always injected, hylla only for planning and plan-qa roles and never build-qa, gopls for `*-go-*`, playwright for `*-fe-*`, with per-tool `approval_mode="approve"`.
+- Avoids live MCP probing in preview/dry-run paths.
+- Includes oracle-equivalence golden coverage for codex role dry-run output.
+- Verification uses mage-only commands (`mage testFunc`, `mage testPkg`, `mage check`), no raw go tooling, no new external Go deps, read-only git.
+"""
+blockers = ["drop_014.drop.plan_qa_proof", "drop_014.drop.plan_qa_falsification"]
+comments = [{author = "agent:ta-go-planning", body = """
+## Planning Evidence
+
+Read the Area 4 parent and root drop acceptance first, then the cascade schema. Pre-create check under the Area 4 scope returned no existing children before creation, so no duplicate QA twins were present.
+
+Primary evidence:
+- `drop_014.drop.area4_role_conditional_mcp`: requires ta and context7 always, hylla only for planning/plan-QA and never build-QA, gopls for `*-go-*`, playwright for `*-fe-*`, `approval_mode="approve"`, no live MCP probing in Preview/dry-run.
+- `drop_014.drop.sand_go_parity`: Area 4 must replace uniform `.mcp.json` probing with role-conditional injection and avoid Area 3 argv/CODEX_HOME ownership.
+- `bin/agent-dispatch.sh:430-486`: oracle MCP block for ta, hylla, context7, gopls, playwright.
+- `internal/backends/codex_exec.go:133`: current `Spawn` MCP injection call site.
+- `internal/backends/codex_exec.go:202`: `Preview` dry-run path.
+- `internal/backends/codex_exec.go:324`: current `renderMCPInjectionFlags` loads `.mcp.json` and probes every server.
+- `internal/backends/codex_mcp_probe.go:67`: current `MCPServerEntry` shape.
+- `internal/backends/codex_mcp_probe.go:448`: current `RenderMCPInlineTOML` renderer.
+- `internal/backends/codex_exec_test.go:343`: old uniform probe-driven MCP injection coverage.
+- `internal/backends/codex_exec_test.go:635`: existing Preview shape coverage.
+- `CLAUDE.md:74`: agents must verify with mage targets only.
+
+## Decomposition Rationale
+
+Created two ordered builder droplets plus build-QA twins. The first droplet owns the static oracle renderer in `codex_mcp_probe.go` and focused renderer tests. The second droplet owns the `Spawn`/`renderMCPInjectionFlags` wiring in `codex_exec.go` and focused spawn/preview tests. They share package `github.com/evanmschultz/sand/internal/backends`, so the second droplet explicitly blocks on the first droplet and both of its QA twins.
+
+This split keeps each builder leaf to 1-2 small code blocks including tests and keeps Area 4 away from Area 3's argv flag and CODEX_HOME lifecycle work.
+
+## Hylla Feedback
+
+- Query: `hylla_search_keyword` for `renderMCPInjectionFlags` in artifact `github.com/evanmschultz/sand@main`.
+- Missed because: Hylla returned `enrichment skipped for github.com/evanmschultz/sand@main` and no code block evidence.
+- Worked via: read-only local inspection of `internal/backends/codex_exec.go`, `internal/backends/codex_mcp_probe.go`, tests, `bin/agent-dispatch.sh`, `CLAUDE.md`, and ta cascade records.
+- Suggestion: expose an enriched/current Hylla artifact for `github.com/evanmschultz/sand@main` before dispatching Go planners when Hylla is mandatory.
+
+- Query: `hylla_search_keyword` for `codex_mcp_probe` in artifact `github.com/evanmschultz/sand@main`.
+- Missed because: Hylla returned `enrichment skipped for github.com/evanmschultz/sand@main` and no symbol evidence.
+- Worked via: read-only local inspection of `internal/backends/codex_mcp_probe.go` and `internal/backends/codex_mcp_probe_test.go`.
+- Suggestion: same as above.
+
+## Open Questions Routed
+
+None. No attention-needed question was required; the only caveat is a schema constraint: `cascade.droplet` does not accept a `drop_number` field, so the created droplet records omit it while inheriting Area 4/drop_014 context from their ids and parent.
+""", id = "area4_planning_evidence_20260525T100000Z", role = "planner", timestamp = "2026-05-25T10:00:00Z"}]
+context_blocks = [{importance = "primary", kind = "code", label = "renderMCPInjectionFlags call site", ref = "internal/backends/codex_exec.go:129"}, {importance = "supporting", kind = "code", label = "ProbeMCPServer", ref = "internal/backends/codex_mcp_probe.go:103"}, {importance = "supporting", kind = "code", label = "TestRenderMCPInlineTOML_RoundTrip", ref = "internal/backends/codex_mcp_probe_test.go:353"}, {importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:400-497"}, {importance = "primary", kind = "file", label = "per-role tool matrix", ref = "AGENT_SANDBOX_SPEC.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Sub-planner creates plan-QA twins before builder leaves run.
+- Existing `ProbeMCPServer` behavior is preserved only where still needed or deliberately retired with tests updated.
+- No build-qa role receives hylla injection.
+"""
+objective = "Decompose replacement of uniform `.mcp.json` probing with role-conditional codex MCP injection flags."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.sand_go_parity"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "Area 4 planner - role-conditional MCP injection"
+updated_at = "2026-05-25T09:35:00Z"
+[area5_gate_threading]
+acceptance_criteria = """
+- Accepts gate spec `{edit,writable_dirs,bash_deny,network}` through `sand.dispatch` and `dispatch.Params`.
+- Threads the gate spec into `backends.SpawnRequest` without hardcoding policy outside the gate contract.
+- Translates codex gate fields to execpolicy rules plus `-C`/`--add-dir` and network config.
+- Translates claude `-p` gate fields to `--allowedTools` scoped `Edit(//abs) Write(//abs) MultiEdit(//abs)` and `--disallowedTools Bash(<deny>:*)`, with no bare Bash.
+- Verification uses mage-only commands (`mage testFunc`, `mage testPkg`, `mage check`), no raw go tooling, no new external Go deps, read-only git.
+"""
+blockers = ["drop_014.drop.plan_qa_proof", "drop_014.drop.plan_qa_falsification", "drop_014.drop.area3_codex_hermetic", "drop_014.drop.area4_role_conditional_mcp"]
+context_blocks = [{importance = "primary", kind = "code", label = "Params", ref = "internal/dispatch/dispatch.go:535"}, {importance = "primary", kind = "code", label = "NewDispatchTool", ref = "internal/dispatch/tool_dispatch.go:60"}, {importance = "primary", kind = "code", label = "SpawnRequest", ref = "internal/backends/backend.go:53"}, {importance = "primary", kind = "code", label = "codex Spawn", ref = "internal/backends/codex_exec.go:69"}, {importance = "primary", kind = "code", label = "claude renderArgs", ref = "internal/backends/claude_native.go:246"}, {importance = "supporting", kind = "code", label = "Allowlist enforcement target", ref = "internal/gate/gate.go:81"}, {importance = "primary", kind = "file", label = "gate contract", ref = "AGENT_SANDBOX_SPEC.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Sub-planner creates plan-QA twins before builder leaves run.
+- Builder leaves are sequenced because dispatch/backend/package paths overlap.
+- Area does not alter shipped `internal/gate` enforcement except to target its existing contract from dispatch.
+"""
+objective = "Decompose the `--gate` contract threading across dispatch params, backend spawn request, codex translation, claude `-p` translation, and the sand.dispatch MCP schema."
+packages = ["github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.sand_go_parity"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch_test.go", "internal/backends/backend.go", "internal/backends/codex_exec.go", "internal/backends/claude_native.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "Area 5 planner - gate contract threading"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area6_claude_p_tier]
+acceptance_criteria = """
+- Preserves built-in Agent-tool responsibility for OAuth claude-native roles.
+- Implements or repairs the non-OAuth claude `-p --bare` path with API-key/ollama assumptions explicit in code/tests.
+- Applies gate-derived `--allowedTools` and `--disallowedTools` on `claude -p`, including double-slash absolute file scopes and no bare Bash.
+- Includes tests for refusal/misroute behavior and allowed/disallowed tool argv shape.
+- Verification uses mage-only commands (`mage testFunc`, `mage testPkg`, `mage check`), no raw go tooling, no new external Go deps, read-only git.
+"""
+blockers = ["drop_014.drop.plan_qa_proof", "drop_014.drop.plan_qa_falsification", "drop_014.drop.area5_gate_threading"]
+context_blocks = [{importance = "primary", kind = "code", label = "Spawn", ref = "internal/backends/claude_native.go:69"}, {importance = "primary", kind = "code", label = "renderArgs", ref = "internal/backends/claude_native.go:246"}, {importance = "supporting", kind = "code", label = "TestClaudeNativeBackend_PreviewShape", ref = "internal/backends/claude_native_test.go:442"}, {importance = "primary", kind = "code", label = "dispatch_ollama oracle", ref = "bin/agent-dispatch.sh:298-367"}, {importance = "primary", kind = "code", label = "dispatch_claude_native refusal oracle", ref = "bin/agent-dispatch.sh:540-556"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Sub-planner creates plan-QA twins before builder leaves run.
+- Does not add OAuth subprocess dispatch.
+- Does not duplicate the shipped Go PreToolUse gate implementation.
+"""
+objective = "Decompose claude `-p --bare` support so it is API-key/ollama only, refuses OAuth subprocess routing, and applies gate flag translation without bare Bash."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.sand_go_parity"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "Area 6 planner - claude `-p --bare` API-key tier"
+transition_notes = "CF-1 (plan-QA-falsification): added area5_gate_threading to blockers. area6 gate-flag translation consumes SpawnRequest.Gate (added by area5) and shares claude_native.go with area5; was wrongly declared independent. Sub-planner must scope area6's claude_native.go edits to --allowedTools/--disallowedTools generation; area5 owns the Gate field plumbing (OQ-1)."
+updated_at = "2026-05-25T09:47:00Z"
+[area7_audit_capture]
+acceptance_criteria = """
+- Persists each wet-run dispatch to `.claude/agent-runs/<run>.out`, `.err`, and `.meta.json` with enough metadata to audit backend, role, model, tier, command/argv shape, timestamps, exit code, and parser results.
+- Ensures the response envelope surfaces tools_used and tool_calls from parsed transcript events, not from agent self-report.
+- Updates LogPath semantics away from `/tmp/sand-dispatch/log/<uuid>.json` to the project-local audit location.
+- Ensures `.claude/agent-runs/` is gitignored if not already ignored.
+- Verification uses mage-only commands (`mage testFunc`, `mage testPkg`, `mage check`), no raw go tooling, no new external Go deps, read-only git.
+"""
+blockers = ["drop_014.drop.plan_qa_proof", "drop_014.drop.plan_qa_falsification", "drop_014.drop.area5_gate_threading"]
+context_blocks = [{importance = "primary", kind = "code", label = "buildSuccessResponse", ref = "internal/dispatch/dispatch.go:404"}, {importance = "primary", kind = "code", label = "Response LogPath/tools fields", ref = "internal/dispatch/dispatch.go:604"}, {importance = "primary", kind = "code", label = "responseToTOON", ref = "internal/dispatch/tool_dispatch.go:158"}, {importance = "supporting", kind = "code", label = "ParseCodexEnvelope", ref = "internal/dispatch/envelope_codex.go:92"}, {importance = "primary", kind = "file", label = "veracity requirement", ref = "HYLLA_BIN.md"}, {importance = "primary", kind = "file", label = "audit capture requirement", ref = "AGENT_SANDBOX_SPEC.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Sub-planner creates plan-QA twins before builder leaves run.
+- Area blocks on gate/dispatch threading so the audit metadata includes final gate inputs.
+- Tests cover success and failure audit capture plus TOON response path.
+"""
+objective = "Decompose per-run audit persistence and veracity envelope work for sand.dispatch responses."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_014.drop.sand_go_parity"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go", ".gitignore"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "Area 7 planner - per-run audit capture and real tools_used envelope"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area3_plan_qa_proof]
+acceptance_criteria = """
+- Confirms leaves cover argv changes, hermetic CODEX_HOME helper, execpolicy generation, cleanup, and tests.
+- Confirms no leaf exceeds 1-2 small code blocks.
+- Confirms no `--ignore-rules` remains in the target contract.
+- Confirms mage-only verification is specified.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic"]
+context_blocks = [{importance = "primary", kind = "code", label = "Spawn", ref = "internal/backends/codex_exec.go:69"}, {importance = "primary", kind = "code", label = "dispatch_codex oracle", ref = "bin/agent-dispatch.sh:369-538"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only after the area 3 sub-plan has atomic children and no missing hermetic codex requirement remains."
+objective = "Verify the area 3 sub-plan decomposes hermetic codex work into atomic, oracle-grounded builder droplets."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/codex_hermetic.go"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic"
+title = "Plan QA proof - area 3 hermetic codex"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area3_plan_qa_falsification]
+acceptance_criteria = """
+- Attempts to find any path where CODEX_HOME is not cleaned.
+- Attempts to find any git mutation verb or gate bash_deny missing from execpolicy.
+- Attempts to find any oracle-equivalence gap against dispatch_codex.
+- Attempts to find raw go verification commands.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic"]
+context_blocks = [{importance = "primary", kind = "file", label = "codex enforcement consensus", ref = "AGENT_SANDBOX_SPEC.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only when no unmitigated area 3 counterexample remains."
+objective = "Attack the area 3 sub-plan for stale codex flags, missing cleanup, missing execpolicy deny coverage, and oversized leaves."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/codex_hermetic.go"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic"
+title = "Plan QA falsification - area 3 hermetic codex"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area4_plan_qa_proof]
+acceptance_criteria = """
+- Confirms ta/context7/hylla/gopls/playwright rules match the spec.
+- Confirms build-qa roles skip hylla.
+- Confirms per-tool approval mode is represented.
+- Confirms tests cover Go and FE role names plus plan/build QA differences.
+"""
+blockers = ["drop_014.drop.area4_role_conditional_mcp"]
+context_blocks = [{importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:400-497"}, {importance = "primary", kind = "file", label = "tool matrix", ref = "AGENT_SANDBOX_SPEC.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only after the area 4 sub-plan has atomic children and complete role-matrix coverage."
+objective = "Verify the area 4 sub-plan fully replaces uniform MCP probing with role-conditional codex injection."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area4_role_conditional_mcp"
+title = "Plan QA proof - area 4 role-conditional MCP"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area4_plan_qa_falsification]
+acceptance_criteria = """
+- Attempts to find hylla injected for build-qa.
+- Attempts to find gopls omitted for Go roles or playwright omitted for FE roles.
+- Attempts to find `.mcp.json` probing still used as the primary codex injection source.
+- Attempts to find missing approval_mode on tools.
+"""
+blockers = ["drop_014.drop.area4_role_conditional_mcp"]
+context_blocks = [{importance = "primary", kind = "code", label = "current probe implementation", ref = "internal/backends/codex_mcp_probe.go:103"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only when no unmitigated area 4 counterexample remains."
+objective = "Attack the area 4 sub-plan for role-classification holes and accidental ambient MCP loading."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go", "internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area4_role_conditional_mcp"
+title = "Plan QA falsification - area 4 role-conditional MCP"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area5_plan_qa_proof]
+acceptance_criteria = """
+- Confirms dispatch.Params and sand.dispatch schema accept the full gate shape.
+- Confirms backend.SpawnRequest carries the gate to both codex and claude implementations.
+- Confirms codex and claude translations match AGENT_SANDBOX_SPEC §3.
+- Confirms area depends on areas 3 and 4.
+"""
+blockers = ["drop_014.drop.area5_gate_threading"]
+context_blocks = [{importance = "primary", kind = "file", label = "gate translation table", ref = "AGENT_SANDBOX_SPEC.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only after the area 5 sub-plan has atomic, sequenced children for dispatch and backend changes."
+objective = "Verify the area 5 sub-plan threads the gate contract through dispatch and backend boundaries without hardcoded policy drift."
+packages = ["github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area5_gate_threading"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/backends/backend.go", "internal/backends/codex_exec.go", "internal/backends/claude_native.go"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area5_gate_threading"
+title = "Plan QA proof - area 5 gate threading"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area5_plan_qa_falsification]
+acceptance_criteria = """
+- Attempts to find codex edit files accepted without writable_dirs.
+- Attempts to find claude `-p` allowing bare Bash.
+- Attempts to find single-slash file scopes instead of double-slash scopes.
+- Attempts to find network=false not translated for codex workspace-write.
+"""
+blockers = ["drop_014.drop.area5_gate_threading"]
+context_blocks = [{importance = "supporting", kind = "code", label = "shipped gate Allowlist", ref = "internal/gate/gate.go:81"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only when no unmitigated area 5 counterexample remains."
+objective = "Attack the area 5 sub-plan for contract mismatches, missing backend validation, and unsafe bash permissions."
+packages = ["github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area5_gate_threading"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/backends/backend.go", "internal/backends/codex_exec.go", "internal/backends/claude_native.go"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area5_gate_threading"
+title = "Plan QA falsification - area 5 gate threading"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area6_plan_qa_proof]
+acceptance_criteria = """
+- Confirms OAuth claude-native roles are refused or left for built-in Agent dispatch.
+- Confirms `claude -p --bare` path is API-key/ollama only.
+- Confirms allowed/disallowed tool translation is gate-derived.
+- Confirms no bare Bash is granted.
+"""
+blockers = ["drop_014.drop.area6_claude_p_tier"]
+context_blocks = [{importance = "primary", kind = "code", label = "dispatch_ollama oracle", ref = "bin/agent-dispatch.sh:298-367"}, {importance = "primary", kind = "code", label = "OAuth refusal oracle", ref = "bin/agent-dispatch.sh:540-556"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only after the area 6 sub-plan has atomic children and tests for route refusal plus argv translation."
+objective = "Verify the area 6 sub-plan keeps OAuth out of subprocess claude and gates the API-key/ollama path."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area6_claude_p_tier"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area6_claude_p_tier"
+title = "Plan QA proof - area 6 claude p tier"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area6_plan_qa_falsification]
+acceptance_criteria = """
+- Attempts to find a path that runs OAuth claude-native via subprocess.
+- Attempts to find `--bare` missing on the API-key path.
+- Attempts to find bare Bash or unscoped edit tools.
+- Attempts to find missing double-slash absolute file scopes.
+"""
+blockers = ["drop_014.drop.area6_claude_p_tier"]
+context_blocks = [{importance = "primary", kind = "file", label = "claude p consensus", ref = "AGENT_SANDBOX_SPEC.md"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only when no unmitigated area 6 counterexample remains."
+objective = "Attack the area 6 sub-plan for OAuth leakage, ambient context leakage, and unsafe tool grants."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area6_claude_p_tier"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area6_claude_p_tier"
+title = "Plan QA falsification - area 6 claude p tier"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area7_plan_qa_proof]
+acceptance_criteria = """
+- Confirms `.claude/agent-runs/<run>.out`, `.err`, `.meta.json` are covered.
+- Confirms LogPath semantics and TOON output are updated.
+- Confirms tools_used and tool_calls remain parser-derived.
+- Confirms `.claude/agent-runs/` ignore coverage is planned if absent.
+"""
+blockers = ["drop_014.drop.area7_audit_capture"]
+context_blocks = [{importance = "primary", kind = "file", label = "veracity requirement", ref = "HYLLA_BIN.md"}, {importance = "primary", kind = "code", label = "buildSuccessResponse", ref = "internal/dispatch/dispatch.go:404"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only after the area 7 sub-plan has atomic children and tests for success/failure audit capture."
+objective = "Verify the area 7 sub-plan covers project-local audit persistence and real trace-derived response fields."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_014.drop.area7_audit_capture"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go", ".gitignore"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area7_audit_capture"
+title = "Plan QA proof - area 7 audit capture"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area7_plan_qa_falsification]
+acceptance_criteria = """
+- Attempts to find tools_used populated from final prose instead of parsed events.
+- Attempts to find failed attempts without persisted stdout/stderr/meta.
+- Attempts to find LogPath still pointing to `/tmp/sand-dispatch/log/<uuid>.json`.
+- Attempts to find missing gitignore for `.claude/agent-runs/`.
+"""
+blockers = ["drop_014.drop.area7_audit_capture"]
+context_blocks = [{importance = "supporting", kind = "code", label = "ParseCodexEnvelope", ref = "internal/dispatch/envelope_codex.go:92"}, {importance = "primary", kind = "code", label = "responseToTOON", ref = "internal/dispatch/tool_dispatch.go:158"}]
+created_at = "2026-05-25T09:35:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "Complete only when no unmitigated area 7 counterexample remains."
+objective = "Attack the area 7 sub-plan for self-report leakage, missing failure logs, and stale tmp log semantics."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_014.drop.area7_audit_capture"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/tool_dispatch_test.go", ".gitignore"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area7_audit_capture"
+title = "Plan QA falsification - area 7 audit capture"
+updated_at = "2026-05-25T09:35:00Z"
+
+[area3_codex_hermetic.config_argv_contract.qa_proof]
+acceptance_criteria = """
+- Confirms `--ignore-rules` is absent from `internal/backends/codex_exec.go`, `internal/backends/codex_exec_test.go`, and `internal/installseed/installseed.go` codex-exec contract text.
+- Confirms the five required oracle flags are present in fixture/install seed and validated by the specified mage commands.
+- Confirms no `renderMCPInjectionFlags` behavior was changed in this droplet.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.config_argv_contract"]
+context_blocks = [{importance = "primary", kind = "code", label = "dispatch_codex oracle flags", ref = "bin/agent-dispatch.sh:384"}, {importance = "primary", kind = "code", label = "fullArgsCodexExecTOML", ref = "internal/backends/codex_exec_test.go:51"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Evidence cites git diff and mage output.
+- Any residual `--ignore-rules` hit is classified as either a failure or an unrelated historical oracle comment with rationale.
+"""
+objective = "Verify the Area 3A builder changed every planned argv-contract surface and preserved the oracle-required flag shape."
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/installseed"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/installseed/installseed.go"]
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.config_argv_contract"
+title = "QA proof - Area 3A argv contract flags"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.config_argv_contract.qa_falsification]
+acceptance_criteria = """
+- Searches for stale `--ignore-rules` in codex contract paths and explains every hit.
+- Attempts to falsify quoting/order assumptions for `-c approval_policy="never"`, `project_doc_max_bytes=0`, `skills.bundled.enabled=false`, and `web_search="live"`.
+- Checks the droplet did not consume Area 4's `renderMCPInjectionFlags` scope.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.config_argv_contract"]
+context_blocks = [{importance = "primary", kind = "code", label = "renderMCPInjectionFlags out of scope", ref = "internal/backends/codex_exec.go:324"}, {importance = "primary", kind = "code", label = "dispatch_codex oracle flags", ref = "bin/agent-dispatch.sh:384"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Counterexamples are either absent or filed as a cascade failure/blocker.
+- Uses mage-only verification; no raw go commands.
+"""
+objective = "Attack Area 3A for hidden `--ignore-rules` retention, flag quoting drift, or accidental MCP-injection edits."
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/installseed"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/installseed/installseed.go"]
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.config_argv_contract"
+title = "QA falsification - Area 3A argv contract flags"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.config_argv_contract]
+acceptance_criteria = """
+Objective:
+- Remove `--ignore-rules` from the codex-exec command contract and add the oracle-required hermetic flags to BackendConfig.Args surfaces.
+
+AcceptanceCriteria:
+- `internal/backends/codex_exec_test.go` fixture `fullArgsCodexExecTOML` no longer includes `--ignore-rules` and includes `--ignore-user-config`, `-c approval_policy="never"`, `-c project_doc_max_bytes=0`, `-c skills.bundled.enabled=false`, and `-c web_search="live"` in the same argv family as `bin/agent-dispatch.sh:384-425`.
+- `internal/installseed/installseed.go` commented `[backends.codex-exec]` example reflects the same removal/addition.
+- Existing comments in `internal/backends/codex_exec.go` that describe the base argv no longer claim `--ignore-rules` is used.
+- This droplet does not edit `renderMCPInjectionFlags`; Area 4 owns MCP injection.
+
+Verification:
+- `TA_TEST_PKG=./internal/backends mage testFunc TestCodexExecBackend_HappyPath`.
+- `TA_TEST_PKG=./internal/backends mage testFunc TestCodexExecBackend_PreviewShape`.
+- `mage testPkg internal/installseed`.
+"""
+blockers = ["drop_014.drop.plan_qa_proof", "drop_014.drop.plan_qa_falsification"]
+context_blocks = [{importance = "primary", kind = "code", label = "codexExecBackend.renderArgs", ref = "internal/backends/codex_exec.go:272"}, {importance = "primary", kind = "code", label = "fullArgsCodexExecTOML", ref = "internal/backends/codex_exec_test.go:51"}, {importance = "supporting", kind = "code", label = "TestCodexExecBackend_HappyPath", ref = "internal/backends/codex_exec_test.go:175"}, {importance = "supporting", kind = "code", label = "TestCodexExecBackend_PreviewShape", ref = "internal/backends/codex_exec_test.go:635"}, {importance = "supporting", kind = "code", label = "installseed codex-exec example", ref = "internal/installseed/installseed.go:73"}, {importance = "primary", kind = "code", label = "dispatch_codex oracle flags", ref = "bin/agent-dispatch.sh:384"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Arg contract has no `--ignore-rules` claim in the touched codex-exec contract surfaces.
+- Required oracle flags are present in the backend test fixture and install seed.
+- Function-scoped and installseed mage checks pass or failures are recorded for builder handoff.
+"""
+irreducible = true
+objective = "Update the codex-exec argv contract so the Go backend fixture and install seed match the dispatch_codex oracle flag set without `--ignore-rules`."
+packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanmschultz/sand/internal/installseed"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/installseed/installseed.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Area 3A - codex argv contract flags"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area4_role_conditional_mcp.static_oracle_renderer.qa_proof]
+acceptance_criteria = """
+- Confirms every concrete tool list in the droplet matches the shell oracle.
+- Confirms no live probe path is used by the new static renderer.
+- Confirms all verification commands are mage targets.
+- Confirms no new external Go dependency was introduced.
+"""
+blockers = ["drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer"]
+context_blocks = [{importance = "primary", kind = "code", label = "target droplet", ref = "drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer"}, {importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:430-486"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "QA record is updated with proof verdict, evidence, and any residual risk after inspecting diff and test output."
+description = "Confirm the droplet stayed within `internal/backends/codex_mcp_probe.go` and its focused tests, reused existing rendering where sensible, and proves the exact role matrix from `bin/agent-dispatch.sh:430-486`."
+objective = "Verify the renderer droplet is evidence-complete, atomic, and oracle-equivalent for the role matrix it owns."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer"
+title = "QA proof: static codex MCP oracle renderer"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area4_role_conditional_mcp.static_oracle_renderer.qa_falsification]
+acceptance_criteria = """
+- Exercises negative role cases and reports any unmitigated counterexample.
+- Checks HTTP context7 and cwd-bearing gopls payloads round-trip or are otherwise structurally asserted.
+- Verifies no probe subprocess fixture is needed for the role matrix tests.
+- Uses mage-only verification commands.
+"""
+blockers = ["drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer"]
+context_blocks = [{importance = "primary", kind = "code", label = "target droplet", ref = "drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer"}, {importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:430-486"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "QA record is updated with falsification verdict, counterexamples attempted, and pass/fail outcome."
+description = "Try counterexamples across planning, plan-QA, build-QA, Go, FE, and combined Go/FE role names. Check negative cases: build-QA must not receive hylla, non-Go roles must not receive gopls, non-FE roles must not receive playwright."
+objective = "Attack the renderer droplet for role-matching mistakes, missing approval modes, TOML shape drift, and accidental probing side effects."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer"
+title = "QA falsification: static codex MCP oracle renderer"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area4_role_conditional_mcp.spawn_wiring.qa_proof]
+acceptance_criteria = """
+- Confirms tests cover planning/plan-QA/build-QA, Go role, FE role, and no-hylla build-QA cases.
+- Confirms `loadMCPServersFromConfig`/`ProbeMCPServer` are not called from `renderMCPInjectionFlags` or Preview.
+- Confirms Area 3 argv and CODEX_HOME lifecycle sections were not modified by this droplet.
+- Confirms mage-only verification evidence is present.
+"""
+blockers = ["drop_014.drop.area4_role_conditional_mcp.spawn_wiring"]
+context_blocks = [{importance = "primary", kind = "code", label = "target droplet", ref = "drop_014.drop.area4_role_conditional_mcp.spawn_wiring"}, {importance = "primary", kind = "code", label = "renderMCPInjectionFlags current uniform implementation", ref = "internal/backends/codex_exec.go:324"}, {importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:430-486"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "QA record is updated with proof verdict, evidence, and residual risk after inspecting diff and test output."
+description = "Confirm `Spawn` uses role-conditional MCP flags, `Preview` stays side-effect-free, and the diff is confined to the stated `renderMCPInjectionFlags`/test scope."
+objective = "Verify the spawn wiring droplet is scoped, complete, and passes oracle-equivalence assertions without touching Area 3 work."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area4_role_conditional_mcp.spawn_wiring"
+title = "QA proof: codex Spawn role-conditional MCP wiring"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area4_role_conditional_mcp.spawn_wiring.qa_falsification]
+acceptance_criteria = """
+- Attempts at least one stale `.mcp.json` arbitrary-server counterexample.
+- Attempts build-QA, Go, FE, and combined role-name counterexamples.
+- Checks no live MCP probing occurs in Preview/dry-run path.
+- Flags any edits outside `renderMCPInjectionFlags`/call-site/test scope as a blocker.
+"""
+blockers = ["drop_014.drop.area4_role_conditional_mcp.spawn_wiring"]
+context_blocks = [{importance = "primary", kind = "code", label = "target droplet", ref = "drop_014.drop.area4_role_conditional_mcp.spawn_wiring"}, {importance = "primary", kind = "code", label = "Preview dry-run path", ref = "internal/backends/codex_exec.go:202"}, {importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:430-486"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = "QA record is updated with falsification verdict, counterexamples attempted, and pass/fail outcome."
+description = "Probe negative cases around role matching and stale behavior: build-QA with Go suffix must still omit hylla; FE build-QA gets playwright but not hylla; `.mcp.json` entries should not cause arbitrary extra MCP servers to be injected; Preview should not call probe fixtures."
+objective = "Attack the spawn wiring for preview side effects, role glob mistakes, stale `.mcp.json` probing, and area-boundary drift."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area4_role_conditional_mcp.spawn_wiring"
+title = "QA falsification: codex Spawn role-conditional MCP wiring"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.codex_home_helper]
+acceptance_criteria = """
+Objective:
+- Implement a small helper in new file `internal/backends/codex_hermetic.go` that mirrors the CODEX_HOME setup in `dispatch_codex` without wiring it into Spawn yet.
+
+AcceptanceCriteria:
+- New helper creates a temp directory equivalent to the oracle `mktemp -d .../codex-hermetic.XXXXXX` behavior.
+- Helper symlinks existing `$HOME/.codex/auth.json`, `version.json`, `installation_id`, and `models_cache.json` into the temp CODEX_HOME; missing files are skipped.
+- Helper creates `rules/default.rules` containing `prefix_rule(... decision="forbidden")` lines for git mutation verbs from the oracle and non-git gate deny patterns supplied by the caller.
+- Helper returns a cleanup function that removes the temp directory and is safe to call from `defer`, including during panic unwinding.
+- No new external Go dependencies.
+
+Verification:
+- `TA_TEST_PKG=./internal/backends mage testFunc TestCodexHermeticHome` for the new test name `TestCodexHermeticHome` (new — not yet in tree).
+- `mage testPkg internal/backends`.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.config_argv_contract.qa_proof", "drop_014.drop.area3_codex_hermetic.config_argv_contract.qa_falsification"]
+context_blocks = [{importance = "primary", kind = "code", label = "dispatch_codex hermetic CODEX_HOME oracle", ref = "bin/agent-dispatch.sh:502"}, {importance = "primary", kind = "code", label = "dispatch_codex symlink loop", ref = "bin/agent-dispatch.sh:514"}, {importance = "primary", kind = "code", label = "dispatch_codex execpolicy generation", ref = "bin/agent-dispatch.sh:521"}, {importance = "supporting", kind = "code", label = "installFakeCodex test seam", ref = "internal/backends/codex_exec_test.go:78"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- New helper is isolated in `codex_hermetic.go` and does not change Spawn behavior yet.
+- Unit coverage verifies symlink creation, absent ambient files/directories, default.rules content, and cleanup.
+- Uses standard library only.
+"""
+irreducible = true
+objective = "Add the new `internal/backends/codex_hermetic.go` helper that creates and cleans a hermetic CODEX_HOME with symlinked auth state and generated execpolicy rules."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_hermetic.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Area 3B - hermetic CODEX_HOME helper"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.codex_home_helper.qa_proof]
+acceptance_criteria = """
+- Confirms helper creates only the expected auth/identity symlinks plus `rules/default.rules`.
+- Confirms generated rules include git mutation verbs and caller-provided non-git deny patterns.
+- Confirms cleanup removes the temp directory and is safe when invoked more than once if the implementation promises idempotency, or documents single-call semantics if not.
+- Confirms no Spawn wiring happened in this droplet beyond helper/test support.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.codex_home_helper"]
+context_blocks = [{importance = "primary", kind = "code", label = "dispatch_codex hermetic CODEX_HOME oracle", ref = "bin/agent-dispatch.sh:502"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Evidence cites git diff and mage output.
+- Any helper/oracle mismatch is filed as a cascade failure.
+"""
+objective = "Verify the new helper is complete, standard-library-only, and faithful to the oracle CODEX_HOME setup."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_hermetic.go", "internal/backends/codex_exec_test.go"]
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.codex_home_helper"
+title = "QA proof - Area 3B hermetic CODEX_HOME helper"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.codex_home_helper.qa_falsification]
+acceptance_criteria = """
+- Looks for copied ambient CODEX_HOME contents beyond allowed symlinks.
+- Challenges missing git verbs: commit, push, add, reset, rebase, merge, checkout, branch, tag, stash, restore, cherry-pick, am, clean, switch, rm, mv, update-ref, gc, prune, worktree, submodule, init, clone.
+- Challenges gate bash_deny tokenization using examples `mage install`, `go get`, and `go mod`.
+- Confirms helper errors are surfaced rather than silently running without execpolicy rules.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.codex_home_helper"]
+context_blocks = [{importance = "primary", kind = "code", label = "dispatch_codex execpolicy generation", ref = "bin/agent-dispatch.sh:521"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Counterexamples are absent or filed as failures/blockers with concrete reproduction.
+- Uses mage-only checks.
+"""
+objective = "Attack the helper for ambient HOME leakage, incomplete deny rules, path cleanup leaks, and quoting/tokenization drift in execpolicy generation."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_hermetic.go", "internal/backends/codex_exec_test.go"]
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.codex_home_helper"
+title = "QA falsification - Area 3B hermetic CODEX_HOME helper"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area4_role_conditional_mcp.static_oracle_renderer]
+acceptance_criteria = """
+- Static helper renders ta/context7 for every tested role.
+- Hylla is present for planning and plan-QA role cases and absent for build-QA cases.
+- gopls appears only for `*-go-*`; playwright appears only for `*-fe-*`.
+- Every emitted tool entry has `approval_mode="approve"`.
+- Existing `ProbeMCPServer` tests remain behaviorally valid unless deliberately retired with a narrow rationale.
+"""
+blockers = []
+context_blocks = [{importance = "primary", kind = "code", label = "RenderMCPInlineTOML existing renderer", ref = "internal/backends/codex_mcp_probe.go:448"}, {importance = "primary", kind = "code", label = "MCPServerEntry existing schema", ref = "internal/backends/codex_mcp_probe.go:67"}, {importance = "supporting", kind = "code", label = "TestRenderMCPInlineTOML_RoundTrip existing renderer coverage", ref = "internal/backends/codex_mcp_probe_test.go:353"}, {importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:430-486"}, {importance = "supporting", kind = "doc", label = "mage-only agent verification", ref = "CLAUDE.md:74"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- `internal/backends/codex_mcp_probe.go` contains the new role-conditional render helper and any minimal renderer extension needed for HTTP/cwd entries.
+- Focused tests in `internal/backends/codex_mcp_probe_test.go` prove the role matrix against the shell oracle symbols.
+- No new external Go dependencies are added.
+- Verification commands listed above have been run by the builder and reported.
+"""
+description = """
+Objective:
+Add a small helper surface in `internal/backends/codex_mcp_probe.go` that renders codex `-c mcp_servers.<name>=...` payloads for the role matrix from the dispatch oracle. The helper is new -- not yet in tree -- and should reuse `RenderMCPInlineTOML` where possible rather than adding a new TOML string format.
+
+AcceptanceCriteria:
+- `ta` payload is always rendered with command `ta`, args `["--project", cwd]`, and tools `get`, `update`, `list_sections`, `search`, `schema`, `create`, `delete`, `move`, `init`, each with `approval_mode="approve"`.
+- `hylla` payload is rendered for planning and plan-QA roles, omitted for roles matching `*build-qa*`, and includes the read-only oracle tools from `bin/agent-dispatch.sh` lines 438-444 with quoted dotted keys.
+- `context7` payload is always rendered as HTTP config with url `https://mcp.context7.com/mcp` and `env_http_headers={CONTEXT7_API_KEY="CONTEXT7_API_KEY"}`. If `RenderMCPInlineTOML` cannot represent HTTP entries yet, extend `MCPServerEntry`/renderer in this droplet only as the smallest compatible change.
+- `gopls` payload is rendered only for roles matching `*-go-*`, with command `gopls`, args `["mcp"]`, cwd pinned to the dispatch cwd, and the 6 oracle tools.
+- `playwright` payload is rendered only for roles matching `*-fe-*`, with command `/opt/homebrew/bin/playwright-mcp`, args `["--headless","--isolated"]`, and the oracle `browser_*` tool list.
+- No live probing function is called by the new role matrix renderer.
+
+Verification:
+- Builder runs `mage testFunc TestRenderMCPInlineTOML_RoundTrip ./internal/backends` after preserving existing renderer behavior.
+- Builder runs a new focused mage test for the new helper, e.g. `mage testFunc TestRenderCodexMCPRoleInjectionMatrix ./internal/backends` (new -- not yet in tree).
+- Builder runs `mage testPkg ./internal/backends` before handing off.
+"""
+irreducible = true
+objective = "Replace probe-discovered MCP inline rendering support with a static role-conditional renderer that can emit the bin/agent-dispatch.sh codex MCP matrix without spawning MCP servers."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_mcp_probe.go", "internal/backends/codex_mcp_probe_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Area 4: static codex MCP oracle renderer"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area4_role_conditional_mcp.spawn_wiring]
+acceptance_criteria = """
+- `renderMCPInjectionFlags` is keyed on role/cwd, not `.mcp.json` probing.
+- Spawn output is oracle-equivalent for the required role classes.
+- Preview does not probe or inject live MCP side effects.
+- Area 3-owned argv/CODEX_HOME work is untouched.
+"""
+blockers = ["drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer", "drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer.qa_proof", "drop_014.drop.area4_role_conditional_mcp.static_oracle_renderer.qa_falsification"]
+context_blocks = [{importance = "primary", kind = "code", label = "Spawn MCP injection call site", ref = "internal/backends/codex_exec.go:133"}, {importance = "primary", kind = "code", label = "renderMCPInjectionFlags current uniform implementation", ref = "internal/backends/codex_exec.go:324"}, {importance = "primary", kind = "code", label = "Preview dry-run path", ref = "internal/backends/codex_exec.go:202"}, {importance = "supporting", kind = "code", label = "TestCodexExecBackend_MCPInjectionIncludesProbedServer old uniform coverage", ref = "internal/backends/codex_exec_test.go:343"}, {importance = "supporting", kind = "code", label = "TestCodexExecBackend_PreviewShape existing dry-run coverage", ref = "internal/backends/codex_exec_test.go:635"}, {importance = "primary", kind = "code", label = "role-conditional MCP oracle", ref = "bin/agent-dispatch.sh:430-486"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- `internal/backends/codex_exec.go` has only the MCP injection call/body changes in the scoped function area.
+- `internal/backends/codex_exec_test.go` contains focused spawn/preview coverage for the role matrix.
+- No raw Go verification commands or new external dependencies are used.
+- Verification commands listed above have been run by the builder and reported.
+"""
+description = """
+Objective:
+Change only the `Spawn` MCP injection call site and `renderMCPInjectionFlags` body/signature in `internal/backends/codex_exec.go` so codex injection is role-conditional and oracle-equivalent. Area 3 owns argv flags and CODEX_HOME lifecycle; do not edit those sections.
+
+AcceptanceCriteria:
+- `Spawn` appends role-conditional `-c` pairs using `req.Role` and `req.CWD`; it no longer requires `.mcp.json` contents to decide which MCP servers to inject.
+- `renderMCPInjectionFlags` no longer calls `loadMCPServersFromConfig` or `ProbeMCPServer`; any retained probe loader functions are unused only if still covered by existing tests and not called by Spawn/Preview.
+- `Preview` remains side-effect-free and does not invoke live MCP probing or role injection side effects.
+- Codex spawn tests assert a Go planning role receives `ta`, `hylla`, `context7`, and `gopls`; a Go build-QA role receives `ta`, `context7`, and `gopls` but not `hylla`; an FE role receives `playwright`; non-FE roles do not.
+- The old uniform `.mcp.json` behavior tests are updated or retired narrowly so they no longer expect arbitrary caller-declared MCP servers to be probed.
+
+Verification:
+- Builder runs a focused new mage test for spawn matrix wiring, e.g. `mage testFunc TestCodexExecBackend_RoleConditionalMCPInjection ./internal/backends` (new -- not yet in tree).
+- Builder runs `mage testFunc TestCodexExecBackend_PreviewShape ./internal/backends` to guard the dry-run path.
+- Builder runs `mage testPkg ./internal/backends` before handoff.
+"""
+irreducible = true
+objective = "Replace `renderMCPInjectionFlags` uniform `.mcp.json` probing with role-conditional codex MCP injection keyed by `SpawnRequest.Role`, while preserving Preview as a no-probe dry-run path."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area4_role_conditional_mcp"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Area 4: wire role-conditional MCP flags into codex Spawn"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.spawn_wiring]
+acceptance_criteria = """
+Objective:
+- Use the Area 3B helper in `codexExecBackend.Spawn` for wet runs while keeping Preview side-effect free.
+
+AcceptanceCriteria:
+- `codexExecBackend.Spawn` creates hermetic CODEX_HOME before `cmd.Run`, appends/replaces `CODEX_HOME=<temp>` in `cmd.Env`, and defers cleanup immediately after successful helper creation.
+- Cleanup is panic-safe by virtue of `defer`; helper/setup errors return a Go error before spawning codex.
+- Existing env filtering for `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` remains intact.
+- Preview does not create temp dirs, symlinks, or rules files.
+- This droplet does not edit `renderMCPInjectionFlags`; Area 4 owns MCP injection.
+
+Verification:
+- `TA_TEST_PKG=./internal/backends mage testFunc TestCodexExecBackend_EnvFilteredAndPassedThrough`.
+- `TA_TEST_PKG=./internal/backends mage testFunc TestCodexExecBackend_HermeticCodeXHomeInEnv` for new test name `TestCodexExecBackend_HermeticCodeXHomeInEnv` (new — not yet in tree).
+- `mage testPkg internal/backends`.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.codex_home_helper.qa_proof", "drop_014.drop.area3_codex_hermetic.codex_home_helper.qa_falsification"]
+context_blocks = [{importance = "primary", kind = "code", label = "codexExecBackend.Spawn", ref = "internal/backends/codex_exec.go:117"}, {importance = "primary", kind = "code", label = "codexExecBackend.renderEnv", ref = "internal/backends/codex_exec.go:297"}, {importance = "supporting", kind = "code", label = "TestCodexExecBackend_EnvFilteredAndPassedThrough", ref = "internal/backends/codex_exec_test.go:594"}, {importance = "primary", kind = "code", label = "dispatch_codex CODEX_HOME child env and cleanup", ref = "bin/agent-dispatch.sh:535"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Spawn passes CODEX_HOME to the child and removes the temp dir after the child exits.
+- Tests prove env replacement/presence and cleanup.
+- No MCP injection behavior is changed.
+"""
+irreducible = true
+objective = "Wire the hermetic CODEX_HOME helper into `codexExecBackend.Spawn` so the child process receives the temp CODEX_HOME and cleanup runs via defer."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Area 3C - wire CODEX_HOME into Spawn"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.spawn_wiring.qa_proof]
+acceptance_criteria = """
+- Confirms helper is called only in Spawn, not Preview.
+- Confirms child env includes `CODEX_HOME=<hermetic temp>` and excludes filtered ANTHROPIC vars.
+- Confirms cleanup runs after success and non-zero child exit.
+- Confirms no Area 4 MCP function changed.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.spawn_wiring"]
+context_blocks = [{importance = "primary", kind = "code", label = "codexExecBackend.Spawn", ref = "internal/backends/codex_exec.go:117"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Evidence cites git diff and mage outputs.
+- Cleanup evidence covers at least one child execution path.
+"""
+objective = "Verify Spawn uses the hermetic CODEX_HOME lifecycle exactly once per wet dispatch and preserves existing env semantics."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.spawn_wiring"
+title = "QA proof - Area 3C Spawn CODEX_HOME wiring"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.spawn_wiring.qa_falsification]
+acceptance_criteria = """
+- Attempts to falsify cleanup on non-zero codex exit and setup error paths.
+- Checks `cmd.Env` does not contain multiple conflicting CODEX_HOME entries.
+- Checks Preview remains a pure render path.
+- Checks `renderMCPInjectionFlags` was not modified.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.spawn_wiring"]
+context_blocks = [{importance = "primary", kind = "code", label = "codexExecBackend.Preview", ref = "internal/backends/codex_exec.go:202"}, {importance = "primary", kind = "code", label = "renderMCPInjectionFlags out of scope", ref = "internal/backends/codex_exec.go:324"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Any unmitigated cleanup/env counterexample is filed as a cascade failure.
+- Uses mage-only verification.
+"""
+objective = "Attack Spawn wiring for cleanup holes, env duplication, Preview side effects, and helper error masking."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.spawn_wiring"
+title = "QA falsification - Area 3C Spawn CODEX_HOME wiring"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.oracle_smoke_tests]
+acceptance_criteria = """
+Objective:
+- Close Area 3 with golden/smoke assertions after the contract, helper, and Spawn wiring are in place.
+
+AcceptanceCriteria:
+- Add/update tests in `internal/backends/codex_exec_test.go` that assert Preview/argv shape is oracle-equivalent for the Area 3 base flags from `bin/agent-dispatch.sh:384-425`: no `--ignore-rules`; includes `--ignore-user-config`, `--skip-git-repo-check`, `-C`, `-m`, and required `-c` pairs.
+- Add hermeticity smoke assertion that the generated CODEX_HOME does not contain `AGENTS.md`, `skills`, or copied HOME-only ambient directories, and that `rules/default.rules` contains a forbidden `git commit` prefix rule.
+- If the test invokes `bin/agent-dispatch.sh --dry-run`, it must be hermetic and read-only; otherwise it may encode the oracle command-shape constants with an explicit source citation in the test comment.
+- This droplet does not edit `renderMCPInjectionFlags`; Area 4 owns MCP injection.
+
+Verification:
+- `TA_TEST_PKG=./internal/backends mage testFunc TestCodexExecBackend_PreviewShape`.
+- `TA_TEST_PKG=./internal/backends mage testFunc TestCodexExecBackend_HermeticitySmoke` for new test name `TestCodexExecBackend_HermeticitySmoke` (new — not yet in tree).
+- `mage testPkg internal/backends`.
+- `mage check`.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.spawn_wiring.qa_proof", "drop_014.drop.area3_codex_hermetic.spawn_wiring.qa_falsification"]
+context_blocks = [{importance = "primary", kind = "code", label = "TestCodexExecBackend_PreviewShape", ref = "internal/backends/codex_exec_test.go:635"}, {importance = "primary", kind = "code", label = "dispatch_codex dry-run CODEX_HOME marker", ref = "bin/agent-dispatch.sh:496"}, {importance = "primary", kind = "code", label = "dispatch_codex oracle flags", ref = "bin/agent-dispatch.sh:384"}, {importance = "primary", kind = "code", label = "dispatch_codex hermetic CODEX_HOME oracle", ref = "bin/agent-dispatch.sh:502"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Tests pin the oracle-equivalent Area 3 codex base command shape and hermetic CODEX_HOME smoke behavior.
+- Full project gate is green or any failure is recorded with exact command output for the next planner/builder loop.
+"""
+irreducible = true
+objective = "Add focused tests proving Go codex argv shape matches `dispatch_codex --dry-run` for Area 3 flags and the hermetic CODEX_HOME blocks ambient instruction/skill state while generating git-deny rules."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Area 3D - oracle equivalence and hermetic smoke tests"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.oracle_smoke_tests.qa_proof]
+acceptance_criteria = """
+- Confirms tests fail on `--ignore-rules` retention and pass with required oracle flags.
+- Confirms smoke coverage proves `AGENTS.md` and `skills` absent and `git commit` forbidden in generated rules.
+- Confirms all specified mage commands, including `mage check`, were run or a blocker/failure was filed.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.oracle_smoke_tests"]
+context_blocks = [{importance = "primary", kind = "code", label = "dispatch_codex oracle flags", ref = "bin/agent-dispatch.sh:384"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Evidence cites test names, git diff, and mage output.
+- Residual risk is documented if dry-run oracle invocation is not used directly.
+"""
+objective = "Verify the final Area 3 test layer proves oracle command-shape parity and hermetic CODEX_HOME behavior without overreaching into Area 4."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec_test.go"]
+role = "qa-proof"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.oracle_smoke_tests"
+title = "QA proof - Area 3D oracle and hermetic smoke tests"
+updated_at = "2026-05-25T10:00:00Z"
+
+[area3_codex_hermetic.oracle_smoke_tests.qa_falsification]
+acceptance_criteria = """
+- Attempts to remove each required flag mentally/from diff and checks tests would catch it.
+- Challenges whether `AGENTS.md`, HOME global rules, and bundled skills are actually absent or merely not asserted.
+- Checks git mutation rejection is represented by execpolicy content, not by sandbox assumptions.
+- Confirms no Area 4 MCP-injection assertions were folded into Area 3.
+"""
+blockers = ["drop_014.drop.area3_codex_hermetic.oracle_smoke_tests"]
+context_blocks = [{importance = "primary", kind = "code", label = "renderMCPInjectionFlags out of scope", ref = "internal/backends/codex_exec.go:324"}, {importance = "primary", kind = "code", label = "dispatch_codex execpolicy generation", ref = "bin/agent-dispatch.sh:521"}]
+created_at = "2026-05-25T10:00:00Z"
+created_by_actor = "agent:ta-go-planning"
+created_by_type = "agent"
+definition_of_complete = """
+- Files a failure if tests can pass with `--ignore-rules`, missing `--ignore-user-config`, missing `approval_policy="never"`, or absent `git commit` deny rule.
+- Uses mage-only verification.
+"""
+objective = "Attack the final tests for weak assertions, oracle drift, and false hermeticity confidence."
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area3_codex_hermetic"
+paths = ["internal/backends/codex_exec_test.go"]
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_014.drop.area3_codex_hermetic.oracle_smoke_tests"
+title = "QA falsification - Area 3D oracle and hermetic smoke tests"
+updated_at = "2026-05-25T10:00:00Z"

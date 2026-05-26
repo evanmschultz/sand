@@ -432,7 +432,7 @@ ${TASK_PROMPT}"
     [[ -n "${ta_tools_toml}" ]] && ta_tools_toml+=","
     ta_tools_toml+="${tool}={approval_mode=\"approve\"}"
   done
-  cmd+=( -c "mcp_servers.ta={command=\"ta\",args=[\"--project\",\"${CWD}\"],tools={${ta_tools_toml}}}" )
+  cmd+=( -c "mcp_servers.ta={command=\"ta\",args=[\"--project\",\"${CWD}\"],startup_timeout_sec=15,tools={${ta_tools_toml}}}" )
 
   # Hylla MCP injection (stdio). READ-ONLY tool set (excludes hylla.ingest /
   # hylla.config.refresh). Tool names are the canonical names the hylla MCP
@@ -445,24 +445,33 @@ ${TASK_PROMPT}"
       [[ -n "${hylla_tools_toml}" ]] && hylla_tools_toml+=","
       hylla_tools_toml+="\"${hylla_tool}\"={approval_mode=\"approve\"}"
     done
-    cmd+=( -c "mcp_servers.hylla={command=\"/Users/evanschultz/go/bin/hylla\",args=[\"mcp\"],tools={${hylla_tools_toml}}}" )
+    cmd+=( -c "mcp_servers.hylla={command=\"/Users/evanschultz/go/bin/hylla\",args=[\"mcp\"],startup_timeout_sec=15,tools={${hylla_tools_toml}}}" )
   fi
 
   # Context7 MCP injection (HTTP remote — mirrors the user's HOME
   # context7-mcp def). env_http_headers maps the CONTEXT7_API_KEY header to
   # the same-named env var, which must be exported where this dispatcher
-  # runs. Always injected — every codex role can consult library docs.
-  cmd+=( -c "mcp_servers.context7={url=\"https://mcp.context7.com/mcp\",env_http_headers={CONTEXT7_API_KEY=\"CONTEXT7_API_KEY\"}}" )
+  # runs. Injected for every codex role EXCEPT build-qa: build-qa is a
+  # reading-based axis (it inspects shipped code + reads library source
+  # directly), and the HTTP context7 server is a startup network call that
+  # intermittently hangs codex MCP-init (SAND_E2E_PROOF §4 flagged MCP
+  # injection as never-asserted-green) — so the leanest reliable MCP set
+  # for build-qa codex is ta only.
+  if [[ "${ROLE}" != *build-qa* ]]; then
+    cmd+=( -c "mcp_servers.context7={url=\"https://mcp.context7.com/mcp\",env_http_headers={CONTEXT7_API_KEY=\"CONTEXT7_API_KEY\"},startup_timeout_sec=15}" )
+  fi
 
-  # gopls MCP injection (Go roles only). Mirrors the user's HOME gopls def:
-  # `gopls mcp`, cwd-pinned to the dispatch project, 6 tools approve-moded.
-  if [[ "${ROLE}" == *-go-* ]]; then
+  # gopls MCP injection (Go roles only, EXCEPT build-qa). gopls `mcp` indexes
+  # the module at startup — a heavy MCP-init that intermittently hangs codex
+  # for build-qa, which only needs to READ (not resolve live symbols). Keep
+  # gopls for go planning/plan-qa; strip it from build-qa for reliable startup.
+  if [[ "${ROLE}" == *-go-* && "${ROLE}" != *build-qa* ]]; then
     local gopls_tools_toml="" gopls_tool
     for gopls_tool in go_diagnostics go_file_context go_package_api go_search go_symbol_references go_workspace; do
       [[ -n "${gopls_tools_toml}" ]] && gopls_tools_toml+=","
       gopls_tools_toml+="${gopls_tool}={approval_mode=\"approve\"}"
     done
-    cmd+=( -c "mcp_servers.gopls={command=\"gopls\",args=[\"mcp\"],cwd=\"${CWD}\",tools={${gopls_tools_toml}}}" )
+    cmd+=( -c "mcp_servers.gopls={command=\"gopls\",args=[\"mcp\"],cwd=\"${CWD}\",startup_timeout_sec=15,tools={${gopls_tools_toml}}}" )
   fi
 
   # Playwright MCP injection (FE roles only). @playwright/mcp is npx-cached
@@ -482,7 +491,7 @@ ${TASK_PROMPT}"
       [[ -n "${pw_tools_toml}" ]] && pw_tools_toml+=","
       pw_tools_toml+="${pw_tool}={approval_mode=\"approve\"}"
     done
-    cmd+=( -c "mcp_servers.playwright={command=\"/opt/homebrew/bin/playwright-mcp\",args=[\"--headless\",\"--isolated\"],tools={${pw_tools_toml}}}" )
+    cmd+=( -c "mcp_servers.playwright={command=\"/opt/homebrew/bin/playwright-mcp\",args=[\"--headless\",\"--isolated\"],startup_timeout_sec=15,tools={${pw_tools_toml}}}" )
   fi
 
   if [[ -n "${opts}" ]]; then
@@ -521,7 +530,7 @@ ${TASK_PROMPT}"
   mkdir -p "${hermetic_home}/rules"
   {
     local gv
-    for gv in commit push add reset rebase merge checkout branch tag stash restore cherry-pick am clean switch rm mv update-ref gc prune worktree submodule init clone; do
+    for gv in commit push add reset rebase merge checkout branch tag stash restore cherry-pick am clean switch rm mv update-ref gc prune worktree submodule init clone fetch pull remote apply; do
       printf 'prefix_rule(pattern=["git", "%s"], decision="forbidden")\n' "${gv}"
     done
     local pat toks

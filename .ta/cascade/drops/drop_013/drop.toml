@@ -16,6 +16,7 @@ Opts threading + tier opts; chains/personas reflect the role model + per-role Ba
 
 ASSURANCE: oracle-equivalence to bin/agent-dispatch.sh --dry-run per codex role (golden tests) + a hermeticity smoke-test droplet + cross-backend plan/build-QA. No new external Go deps.
 """
+archived_at = "2026-05-25T09:31:00Z"
 created_at = "2026-05-24T20:45:00Z"
 created_by_actor = "agent:orchestrator"
 created_by_type = "agent"
@@ -41,10 +42,11 @@ packages = ["github.com/evanmschultz/sand/internal/backends", "github.com/evanms
 paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/installseed/installseed.go", ".claude/sand-chains.toml"]
 priority = "high"
 role = "planner"
-state = "todo"
+state = "archived"
 structural_type = "drop"
 title = "Sand drop_013 — realign dispatch + sandbox to AGENT_SANDBOX_SPEC + AGENT_DISPATCH (config-driven, Go-only)"
-updated_at = "2026-05-25T00:30:00Z"
+transition_notes = "SUPERSEDED by drop_014.drop.sand_go_parity (dev fork decision 2026-05-25: fresh slate). The gate lane shipped this session (internal/gate, proven 0 holes); chains+personas synced from canonical. drop_014 carries the remaining parity scope (areas 3-8). This tree retained for audit trail."
+updated_at = "2026-05-25T09:31:00Z"
 [planner_dispatch_realignment_l2]
 acceptance_criteria = "All L3 sub-planners have plan-QA twins completed+success. All builder droplets have build-QA twins completed+success. mage check GREEN. Oracle-equivalence: sand's rendered codex command for ta-go-planning driven by the sand/main go-only example TOML == bin/agent-dispatch.sh --dry-run --role ta-go-planning output (modulo ephemeral CODEX_HOME path). claude-native OAuth roles refused with redirect signal. Tier.Opts threaded into codex argv. examples/ dir contains go-only.toml and go-fe.toml per AGENT_DISPATCH.md sec8a/8b."
 created_at = "2026-05-24T23:30:00Z"

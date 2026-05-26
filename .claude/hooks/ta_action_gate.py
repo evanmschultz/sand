@@ -35,7 +35,11 @@ Enforcement
       - Edit/Write/MultiEdit/NotebookEdit: target file MUST be in `edit`,
         else DENY (+ reason so the agent reports the prompt-vs-allowlist
         contradiction).
-      - Bash: command MUST NOT match any `bash_deny` pattern, else DENY.
+      - Bash: git-mutation verbs (commit/push/add/fetch/pull/…) are DENIED for
+        EVERY scoped agent as a hardcoded baseline (orchestrator is sole
+        committer), independent of bash_deny; additionally the command MUST NOT
+        match any orch-supplied `bash_deny` pattern (mage install / go get / …),
+        else DENY. Read-only git + go doc + mage stay allowed.
 
 Concurrency: same-role scoped dispatches MUST be serialized (the resolver keys
 on agent_type and takes the most-recent matching dispatch). Different-role
@@ -201,6 +205,31 @@ def _git_subcommand(seg_tokens):
     return None
 
 
+_GIT_MUTATION_VERBS = frozenset({
+    "commit", "push", "add", "reset", "rebase", "merge", "checkout", "branch",
+    "tag", "stash", "restore", "cherry-pick", "am", "clean", "switch", "rm",
+    "mv", "update-ref", "gc", "prune", "worktree", "submodule", "init", "clone",
+    "fetch", "pull", "remote", "apply",
+})
+
+
+def _git_mutation(command):
+    """HARDCODED BASELINE (orch-independent): return the git-mutation verb if any
+    shell segment invokes one, else None. A scoped agent may NEVER mutate git —
+    committing/pushing/staging/syncing is ORCHESTRATOR-ONLY — and this fires for
+    EVERY scoped agent regardless of the passed bash_deny (so an orchestrator that
+    forgets to list git in bash_deny still cannot let an agent commit). Pairs with
+    the codex execpolicy git-block on the codex channel. Read-only git
+    (diff/status/log/show/blame/rev-parse/...) is NOT in _GIT_MUTATION_VERBS and
+    stays allowed; so do go doc / mage / other non-git read-only commands."""
+    cmd = command or ""
+    for seg in re.split(r"[;&|\n]+", cmd):
+        sub = _git_subcommand(seg.split())
+        if sub is not None and sub in _GIT_MUTATION_VERBS:
+            return "git " + sub
+    return None
+
+
 def _bash_forbidden(command, deny_patterns):
     cmd = command or ""
     # Derive the git verbs the gate forbids (e.g. "git commit" -> "commit") so we
@@ -320,7 +349,9 @@ def main():
         deny = allowlist.get("bash_deny", [])
         if not isinstance(deny, list):
             deny = []
-        hit = _bash_forbidden(cmd, deny)
+        # Baseline first: git mutation is ORCHESTRATOR-ONLY for every scoped
+        # agent, independent of bash_deny. Then the orch-supplied bash_deny.
+        hit = _git_mutation(cmd) or _bash_forbidden(cmd, deny)
         if hit:
             decision = "deny"
             reason = (
