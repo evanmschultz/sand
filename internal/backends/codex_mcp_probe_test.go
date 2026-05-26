@@ -439,6 +439,215 @@ func TestRenderMCPInlineTOML_EmptyArgs(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// TestRenderRoleConditionalMCPFlags — role-conditional static MCP injection.
+// ---------------------------------------------------------------------------
+
+// TestRenderRoleConditionalMCPFlags_GoPlanning verifies that a Go planning
+// role receives ta + hylla + context7 + gopls (with cwd) and no playwright.
+func TestRenderRoleConditionalMCPFlags_GoPlanning(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-go-planning", "/project/root")
+	assertFlagsContainServer(t, flags, "ta")
+	assertFlagsContainServer(t, flags, "hylla")
+	assertFlagsContainServer(t, flags, "context7")
+	assertFlagsContainServer(t, flags, "gopls")
+	assertFlagsNotContainServer(t, flags, "playwright")
+
+	// context7 must use url= form, not command=
+	ctx7val := findServerValue(t, flags, "context7")
+	if !strings.Contains(ctx7val, `url="https://mcp.context7.com/mcp"`) {
+		t.Errorf("context7 missing url form: %q", ctx7val)
+	}
+	if strings.Contains(ctx7val, "command=") {
+		t.Errorf("context7 must not use command= form: %q", ctx7val)
+	}
+	if !strings.Contains(ctx7val, `env_http_headers={CONTEXT7_API_KEY="CONTEXT7_API_KEY"}`) {
+		t.Errorf("context7 missing env_http_headers: %q", ctx7val)
+	}
+
+	// gopls must include cwd= unconditionally
+	goplsval := findServerValue(t, flags, "gopls")
+	if !strings.Contains(goplsval, `cwd="/project/root"`) {
+		t.Errorf("gopls missing cwd field: %q", goplsval)
+	}
+
+	// gopls must use command=gopls
+	if !strings.Contains(goplsval, `command="gopls"`) {
+		t.Errorf("gopls missing command field: %q", goplsval)
+	}
+
+	// flags must be pairs of -c / value
+	assertFlagPairs(t, flags)
+}
+
+// TestRenderRoleConditionalMCPFlags_GoBuildQA verifies that a build-qa role
+// receives ONLY ta — no hylla, no context7, no gopls.
+func TestRenderRoleConditionalMCPFlags_GoBuildQA(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-go-build-qa-falsification", "/project/root")
+	assertFlagsContainServer(t, flags, "ta")
+	assertFlagsNotContainServer(t, flags, "hylla")
+	assertFlagsNotContainServer(t, flags, "context7")
+	assertFlagsNotContainServer(t, flags, "gopls")
+	assertFlagsNotContainServer(t, flags, "playwright")
+	assertFlagPairs(t, flags)
+}
+
+// TestRenderRoleConditionalMCPFlags_FEPlanning verifies that a FE planning
+// role receives ta + hylla + context7 + playwright and no gopls.
+func TestRenderRoleConditionalMCPFlags_FEPlanning(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-fe-planning", "/some/path")
+	assertFlagsContainServer(t, flags, "ta")
+	assertFlagsContainServer(t, flags, "hylla")
+	assertFlagsContainServer(t, flags, "context7")
+	assertFlagsContainServer(t, flags, "playwright")
+	assertFlagsNotContainServer(t, flags, "gopls")
+	assertFlagPairs(t, flags)
+}
+
+// TestRenderRoleConditionalMCPFlags_GoBuilder verifies that a Go builder role
+// (non-build-qa) receives ta + hylla + context7 + gopls and no playwright.
+func TestRenderRoleConditionalMCPFlags_GoBuilder(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-go-builder", "/workspace")
+	assertFlagsContainServer(t, flags, "ta")
+	assertFlagsContainServer(t, flags, "hylla")
+	assertFlagsContainServer(t, flags, "context7")
+	assertFlagsContainServer(t, flags, "gopls")
+	assertFlagsNotContainServer(t, flags, "playwright")
+	assertFlagPairs(t, flags)
+}
+
+// TestRenderRoleConditionalMCPFlags_GoplsCwdEmpty verifies that gopls emits
+// cwd="" even when cwd is the empty string (oracle always emits cwd=).
+func TestRenderRoleConditionalMCPFlags_GoplsCwdEmpty(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-go-builder", "")
+	goplsval := findServerValue(t, flags, "gopls")
+	if !strings.Contains(goplsval, `cwd=""`) {
+		t.Errorf("gopls must emit cwd= even when empty: %q", goplsval)
+	}
+}
+
+// TestRenderRoleConditionalMCPFlags_TaToolList verifies that ta's injected
+// value contains all 9 expected tool names with approval_mode=approve.
+func TestRenderRoleConditionalMCPFlags_TaToolList(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-go-planning", "/p")
+	taval := findServerValue(t, flags, "ta")
+	for _, tool := range []string{"get", "update", "list_sections", "search", "schema", "create", "delete", "move", "init"} {
+		want := `"` + tool + `"={approval_mode="approve"}`
+		if !strings.Contains(taval, want) {
+			t.Errorf("ta tools missing %q\nfull: %s", tool, taval)
+		}
+	}
+}
+
+// TestRenderRoleConditionalMCPFlags_HyllaToolList verifies that hylla's
+// injected value contains all 14 expected (dotted) tool names.
+func TestRenderRoleConditionalMCPFlags_HyllaToolList(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-go-planning", "/p")
+	hyval := findServerValue(t, flags, "hylla")
+	for _, tool := range []string{
+		"hylla.artifact.list", "hylla.artifact.metadata", "hylla.artifact.overview",
+		"hylla.dql.query", "hylla.graph.list", "hylla.graph.nav", "hylla.node.full",
+		"hylla.refs.find", "hylla.run.get", "hylla.run.list",
+		"hylla.search", "hylla.search.keyword", "hylla.search.vector", "hylla.task.get",
+	} {
+		want := `"` + tool + `"={approval_mode="approve"}`
+		if !strings.Contains(hyval, want) {
+			t.Errorf("hylla tools missing %q\nfull: %s", tool, hyval)
+		}
+	}
+}
+
+// TestRenderRoleConditionalMCPFlags_TOMLParseable verifies that all rendered
+// -c values for a planning role are parseable by BurntSushi/toml.
+func TestRenderRoleConditionalMCPFlags_TOMLParseable(t *testing.T) {
+	flags := RenderRoleConditionalMCPFlags("ta-go-planning", "/project")
+	for i := 0; i+1 < len(flags); i += 2 {
+		if flags[i] != "-c" {
+			t.Fatalf("flags[%d] expected -c, got %q", i, flags[i])
+		}
+		val := flags[i+1]
+		// Wrap as top-level statement — each value is already a
+		// `mcp_servers.<name>={...}` expression, valid as standalone TOML.
+		// However context7 uses url= and env_http_headers= which are string
+		// and inline-table fields — all valid TOML.
+		var decoded interface{}
+		if _, err := toml.Decode(val, &decoded); err != nil {
+			t.Errorf("flags[%d+1]=%q failed toml.Decode: %v", i, val, err)
+		}
+	}
+}
+
+// TestRenderRoleConditionalMCPFlags_BuildQAProof verifies both build-qa
+// variant strings match *build-qa*.
+func TestRenderRoleConditionalMCPFlags_BuildQAProof(t *testing.T) {
+	for _, role := range []string{"ta-go-build-qa-proof", "ta-go-build-qa-falsification"} {
+		t.Run(role, func(t *testing.T) {
+			flags := RenderRoleConditionalMCPFlags(role, "/p")
+			assertFlagsContainServer(t, flags, "ta")
+			assertFlagsNotContainServer(t, flags, "hylla")
+			assertFlagsNotContainServer(t, flags, "context7")
+			assertFlagsNotContainServer(t, flags, "gopls")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for RenderRoleConditionalMCPFlags assertions.
+// ---------------------------------------------------------------------------
+
+// assertFlagPairs checks that flags are strictly alternating -c / value pairs.
+func assertFlagPairs(t *testing.T, flags []string) {
+	t.Helper()
+	if len(flags)%2 != 0 {
+		t.Fatalf("flags length %d is not even: %v", len(flags), flags)
+	}
+	for i := 0; i < len(flags); i += 2 {
+		if flags[i] != "-c" {
+			t.Errorf("flags[%d]=%q, want -c", i, flags[i])
+		}
+	}
+}
+
+// assertFlagsContainServer checks that at least one -c value in flags
+// starts with "mcp_servers.<name>=".
+func assertFlagsContainServer(t *testing.T, flags []string, name string) {
+	t.Helper()
+	prefix := "mcp_servers." + name + "="
+	for i := 1; i < len(flags); i += 2 {
+		if strings.HasPrefix(flags[i], prefix) {
+			return
+		}
+	}
+	t.Errorf("expected mcp_servers.%s in flags but not found\nflags: %v", name, flags)
+}
+
+// assertFlagsNotContainServer checks that no -c value in flags starts
+// with "mcp_servers.<name>=".
+func assertFlagsNotContainServer(t *testing.T, flags []string, name string) {
+	t.Helper()
+	prefix := "mcp_servers." + name + "="
+	for i := 1; i < len(flags); i += 2 {
+		if strings.HasPrefix(flags[i], prefix) {
+			t.Errorf("expected NO mcp_servers.%s in flags but found it: %q", name, flags[i])
+			return
+		}
+	}
+}
+
+// findServerValue returns the TOML inline value for the named MCP server,
+// or fails the test if not present.
+func findServerValue(t *testing.T, flags []string, name string) string {
+	t.Helper()
+	prefix := "mcp_servers." + name + "="
+	for i := 1; i < len(flags); i += 2 {
+		if strings.HasPrefix(flags[i], prefix) {
+			return flags[i]
+		}
+	}
+	t.Fatalf("mcp_servers.%s not found in flags: %v", name, flags)
+	return ""
+}
+
 // TestProbeMCPServer_NonexistentCommand — start failure surfaces as
 // non-fatal Skipped with the underlying error inside SkipReason. Not
 // listed in A1-A7 but the contract ("probe failures are non-fatal

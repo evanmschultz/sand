@@ -422,6 +422,139 @@ func parseToolsListResponse(line []byte) ([]string, error) {
 	return names, nil
 }
 
+// RenderRoleConditionalMCPFlags returns the flat []string of alternating
+// "-c" / "<toml-value>" pairs that codex consumes to configure its MCP
+// servers for the given role.  The returned slice is ready to
+// append(args, flags...) in the caller — no further transformation needed.
+//
+// Role-conditional injection matrix (oracle: bin/agent-dispatch.sh:430-495):
+//
+//   - ta         — ALWAYS (every role).  9 tools.  stdio.
+//   - hylla      — non-build-qa only (strings.Contains(role,"build-qa")==false).
+//     14 dotted tool names (quoted keys).  stdio.
+//   - context7   — non-build-qa only.  HTTP server: url= + env_http_headers=.
+//     Custom render (not RenderMCPInlineTOML).
+//   - gopls      — *-go-* AND non-build-qa.  cwd ALWAYS emitted even when
+//     empty (oracle always emits cwd="${CWD}").  Custom render.
+//   - playwright — *-fe-* only.  20 browser_* tools.  stdio.
+//
+// Every per-tool entry carries approval_mode="approve".  ProbeMCPServer is
+// never called — all tool lists are static.
+func RenderRoleConditionalMCPFlags(role, cwd string) []string {
+	isBuildQA := strings.Contains(role, "build-qa")
+	isGo := strings.Contains(role, "-go-")
+	isFE := strings.Contains(role, "-fe-")
+
+	var flags []string
+
+	// --- ta (always) ---
+	flags = append(flags, "-c", renderStaticStdioMCPInlineTOML(
+		"ta",
+		"ta", []string{"--project", cwd},
+		[]string{"get", "update", "list_sections", "search", "schema", "create", "delete", "move", "init"},
+	))
+
+	// --- hylla (non-build-qa) ---
+	if !isBuildQA {
+		flags = append(flags, "-c", renderStaticStdioMCPInlineTOML(
+			"hylla",
+			"/Users/evanschultz/go/bin/hylla", []string{"mcp"},
+			[]string{
+				"hylla.artifact.list", "hylla.artifact.metadata", "hylla.artifact.overview",
+				"hylla.dql.query", "hylla.graph.list", "hylla.graph.nav", "hylla.node.full",
+				"hylla.refs.find", "hylla.run.get", "hylla.run.list",
+				"hylla.search", "hylla.search.keyword", "hylla.search.vector", "hylla.task.get",
+			},
+		))
+	}
+
+	// --- context7 (non-build-qa, HTTP form) ---
+	if !isBuildQA {
+		flags = append(
+			flags, "-c",
+			`mcp_servers.context7={url="https://mcp.context7.com/mcp",env_http_headers={CONTEXT7_API_KEY="CONTEXT7_API_KEY"},startup_timeout_sec=15}`,
+		)
+	}
+
+	// --- gopls (*-go-* and non-build-qa; cwd always emitted) ---
+	if isGo && !isBuildQA {
+		flags = append(flags, "-c", renderGoplsMCPInlineTOML(cwd))
+	}
+
+	// --- playwright (*-fe-*) ---
+	if isFE {
+		flags = append(flags, "-c", renderStaticStdioMCPInlineTOML(
+			"playwright",
+			"/opt/homebrew/bin/playwright-mcp", []string{"--headless", "--isolated"},
+			[]string{
+				"browser_navigate", "browser_navigate_back", "browser_click",
+				"browser_type", "browser_press_key", "browser_hover",
+				"browser_select_option", "browser_fill_form", "browser_file_upload",
+				"browser_handle_dialog", "browser_drag", "browser_snapshot",
+				"browser_take_screenshot", "browser_console_messages",
+				"browser_network_requests", "browser_evaluate", "browser_resize",
+				"browser_wait_for", "browser_tabs", "browser_close", "browser_install",
+			},
+		))
+	}
+
+	return flags
+}
+
+// renderStaticStdioMCPInlineTOML renders a stdio mcp_servers entry with
+// startup_timeout_sec=15 for use in RenderRoleConditionalMCPFlags.  The
+// existing RenderMCPInlineTOML does not include startup_timeout_sec (it is
+// a general-purpose renderer); this variant is oracle-exact.
+//
+// Output shape:
+//
+//	mcp_servers.<name>={command="<cmd>",args=[...],startup_timeout_sec=15,tools={...}}
+func renderStaticStdioMCPInlineTOML(name, command string, args []string, toolNames []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "mcp_servers.%s={command=%s,args=[", name, strconv.Quote(command))
+	for i, a := range args {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(strconv.Quote(a))
+	}
+	b.WriteString("],startup_timeout_sec=15,tools={")
+	for i, t := range toolNames {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, "%s={approval_mode=\"approve\"}", strconv.Quote(t))
+	}
+	b.WriteString("}}")
+	return b.String()
+}
+
+// renderGoplsMCPInlineTOML renders the gopls mcp_servers entry including the
+// mandatory cwd= field.  RenderMCPInlineTOML cannot be reused here because it
+// has no cwd parameter — the oracle always emits cwd="${CWD}" and the QA
+// amendment mandates unconditional emission (F3/F4).
+//
+// Output shape:
+//
+//	mcp_servers.gopls={command="gopls",args=["mcp"],cwd="<cwd>",startup_timeout_sec=15,tools={...}}
+func renderGoplsMCPInlineTOML(cwd string) string {
+	tools := []string{
+		"go_diagnostics", "go_file_context", "go_package_api",
+		"go_search", "go_symbol_references", "go_workspace",
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "mcp_servers.gopls={command=\"gopls\",args=[\"mcp\"],cwd=%s,startup_timeout_sec=15,tools={",
+		strconv.Quote(cwd))
+	for i, t := range tools {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, "%s={approval_mode=\"approve\"}", strconv.Quote(t))
+	}
+	b.WriteString("}}")
+	return b.String()
+}
+
 // RenderMCPInlineTOML renders the per-server `mcp_servers.<name>={...}`
 // payload codex consumes via `-c "<rendered>"` flags. The returned string
 // is the VALUE portion (the `mcp_servers.<name>={...}` form); callers

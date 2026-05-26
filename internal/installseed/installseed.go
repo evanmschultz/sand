@@ -75,11 +75,14 @@ stdin_prompt = true
 # args = [
 #   "exec",
 #   "--ephemeral",
-#   "--ignore-rules",
+#   "--ignore-user-config",
 #   "--skip-git-repo-check",
 #   "-C", "{{.CWD}}",
 #   "-m", "{{.Model}}",
 # ]
+# # Note: four hermetic -c flags (approval_policy="never", web_search="live",
+# # project_doc_max_bytes=0, skills.bundled.enabled=false) are appended
+# # automatically by renderArgs — they do NOT need to appear in args here.
 # mcp_injection = "codex_inline_toml"
 # slots_default = 0
 # envelope_format = "codex_stream"

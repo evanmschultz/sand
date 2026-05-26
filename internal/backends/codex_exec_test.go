@@ -2,8 +2,8 @@
 // the committed TestClaudeNativeBackend_* suite where the contracts
 // overlap (anti-recursion suffix, env filter, non-zero-exit-is-data,
 // ctx cancellation, Preview byte shape) and adds codex-specific
-// assertions for per-MCP `-c <inline-TOML>` flag injection driven by
-// ProbeMCPServer.
+// assertions for role-conditional MCP `-c <inline-TOML>` flag injection
+// via RenderRoleConditionalMCPFlags.
 //
 // Test seam: each test that needs a live codex subprocess installs a
 // fake `codex` shell script on a fresh PATH-prefix tempdir via
@@ -11,17 +11,13 @@
 // stdin + env to recorder files the test asserts against. This mirrors
 // the fake-claude-* pattern installFakeClaude uses.
 //
-// MCP-injection tests reuse the fake-mcp-* fixtures already committed
-// for codex_mcp_probe_test.go: a synthetic `.mcp.json` is written
-// pointing at the installed fake-mcp script, the real ProbeMCPServer
-// runs end-to-end against the subprocess, and the test asserts the
-// resulting `-c <inline-TOML>` argv pair surfaced in the codex argv
-// recording.
+// MCP-injection tests assert that Spawn's argv carries the static
+// role-conditional `-c mcp_servers.*` flags from
+// RenderRoleConditionalMCPFlags — no `.mcp.json` probe is performed.
 package backends
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,25 +32,31 @@ import (
 // fullArgsCodexExecTOML is the backends.toml fixture used by every
 // TestCodexExecBackend_* test. It populates BackendConfig with the
 // canonical SAND-SPEC §7.1 codex argv:
-// `exec --ephemeral --ignore-rules --skip-git-repo-check -C {{.CWD}}
+// `exec --ephemeral --ignore-user-config --skip-git-repo-check -C {{.CWD}}
 //
 //	-m {{.Model}}`.
+//
+// The four hermetic -c flags (approval_policy, web_search,
+// project_doc_max_bytes, skills.bundled.enabled) are appended by
+// renderArgs unconditionally — they do NOT appear in the TOML args
+// list, because renderArgs injects them statically after template
+// substitution so Preview also reflects them.
 //
 // stdin_prompt=true is the load-bearing codex contract: the prompt is
 // piped to the child's stdin per the bash dispatcher reference.
 //
 // mcp_config_arg + allowed_tools_arg are intentionally EMPTY because
 // codex does not consume those Claude-style flags — MCP injection is
-// per-server `-c <inline-TOML>` (handled by renderMCPInjectionFlags)
-// and there is no codex equivalent for --allowedTools (tool allow-
-// listing is per-server via the inline TOML's `tools={...}` map).
+// per-server `-c <inline-TOML>` (handled by RenderRoleConditionalMCPFlags
+// in Spawn) and there is no codex equivalent for --allowedTools (tool
+// allow-listing is per-server via the inline TOML's `tools={...}` map).
 const fullArgsCodexExecTOML = `
 [backends.codex-exec]
 command = "codex"
 args = [
   "exec",
   "--ephemeral",
-  "--ignore-rules",
+  "--ignore-user-config",
   "--skip-git-repo-check",
   "-C", "{{.CWD}}",
   "-m", "{{.Model}}",
@@ -209,10 +211,29 @@ func TestCodexExecBackend_HappyPath(t *testing.T) {
 	requiredFlags := []string{
 		"exec",
 		"--ephemeral",
-		"--ignore-rules",
+		"--ignore-user-config",
 		"--skip-git-repo-check",
 		"-C",
 		"-m",
+	}
+	absentFlags := []string{"--ignore-rules"}
+	for _, flag := range absentFlags {
+		if containsArg(argv, flag) {
+			t.Errorf("argv must NOT contain flag %q; argv=%v", flag, argv)
+		}
+	}
+
+	// Hermetic -c flags must be present.
+	hermeticFlags := []string{
+		`approval_policy="never"`,
+		`web_search="live"`,
+		`project_doc_max_bytes=0`,
+		`skills.bundled.enabled=false`,
+	}
+	for _, val := range hermeticFlags {
+		if !containsAdjacent(argv, "-c", val) {
+			t.Errorf("argv missing hermetic -c %q; argv=%v", val, argv)
+		}
 	}
 	for _, flag := range requiredFlags {
 		if !containsArg(argv, flag) {
@@ -333,45 +354,23 @@ func TestCodexExecBackend_CWDHonored(t *testing.T) {
 	}
 }
 
-// TestCodexExecBackend_MCPInjectionIncludesProbedServer verifies the
-// per-MCP `-c <inline-TOML>` flag injection: when the caller's
-// .mcp.json declares an MCP server, codex_exec probes it via the real
-// ProbeMCPServer, captures the canonical tool names, and appends a
-// `-c "mcp_servers.<name>={...}"` pair to the codex argv.
-//
-// Uses the committed fake-mcp-happy fixture for the probe stub.
-func TestCodexExecBackend_MCPInjectionIncludesProbedServer(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake-MCP seam uses /bin/sh and is not portable to windows")
-	}
-
+// TestCodexExecBackend_SpawnInjectsMCPForPlanningRole verifies that a
+// ta-go-planning role spawn argv carries the expected static
+// role-conditional MCP flags from RenderRoleConditionalMCPFlags:
+// ta, hylla, context7, and gopls (all four, since planning is go +
+// non-build-qa). McpConfigPath is intentionally not set — injection
+// is now unconditional and role-driven.
+func TestCodexExecBackend_SpawnInjectsMCPForPlanningRole(t *testing.T) {
 	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
 	ce := resolveCodexExecFromFixture(t)
 
-	// Install the fake-mcp-happy script on PATH so its self-recording
-	// env vars get propagated; we ALSO need a concrete path to that
-	// script for the MCPServerEntry.Command field.
-	mcpScriptPath := installScriptToTempPATH(t, "fake-mcp-happy", "server.sh", "mcp-server")
-
-	// Write a synthetic .mcp.json pointing at the installed script.
-	mcpJSON := map[string]any{
-		"mcpServers": map[string]any{
-			"ta": map[string]any{
-				"command": mcpScriptPath,
-				"args":    []string{"--flagA", "valA"},
-			},
-		},
-	}
-	mcpJSONPath := filepath.Join(t.TempDir(), ".mcp.json")
-	writeJSONFile(t, mcpJSONPath, mcpJSON)
-
+	cwd := t.TempDir()
 	req := SpawnRequest{
-		Role:          "ta-go-builder",
-		Prompt:        "x",
-		Model:         "gpt-5.4",
-		CWD:           t.TempDir(),
-		PersonaBody:   "B",
-		McpConfigPath: mcpJSONPath,
+		Role:        "ta-go-planning",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
 	}
 
 	if _, err := ce.Spawn(context.Background(), req); err != nil {
@@ -381,84 +380,53 @@ func TestCodexExecBackend_MCPInjectionIncludesProbedServer(t *testing.T) {
 	argvBytes, _ := os.ReadFile(argvFile)
 	argv := splitArgv(argvBytes)
 
-	// The -c flag should be present immediately followed by an inline
-	// TOML payload starting with `mcp_servers.ta=`.
-	found := false
-	for i := 0; i < len(argv)-1; i++ {
-		if argv[i] == "-c" && strings.HasPrefix(argv[i+1], "mcp_servers.ta=") {
-			found = true
-			// Confirm the rendered TOML carries probed tool names from
-			// the fake-mcp-happy fixture (it emits get, hylla.search.vector,
-			// my-tool, Update).
-			if !strings.Contains(argv[i+1], `"get"`) {
-				t.Errorf("inline TOML missing get tool key; got %q", argv[i+1])
-			}
-			if !strings.Contains(argv[i+1], `"hylla.search.vector"`) {
-				t.Errorf("inline TOML missing dotted tool key; got %q", argv[i+1])
-			}
-			if !strings.Contains(argv[i+1], `approval_mode="approve"`) {
-				t.Errorf("inline TOML missing approval_mode; got %q", argv[i+1])
-			}
-			break
-		}
-	}
-	if !found {
-		t.Errorf("argv missing -c mcp_servers.ta=... pair; argv=%v", argv)
-	}
+	// ta must always be present.
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.ta=")
+	// hylla must be present (non-build-qa).
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.hylla=")
+	// context7 must be present (non-build-qa).
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.context7=")
+	// gopls must be present (go + non-build-qa).
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.gopls=")
+	// playwright must be absent (not -fe-).
+	assertArgvAbsentMCPServer(t, argv, "mcp_servers.playwright=")
 }
 
-// TestCodexExecBackend_MCPInjectionSkipsFailedProbe verifies the
-// non-fatal-probe-failure contract: when an MCP server's probe is
-// Skipped (e.g. malformed transport), codex dispatch proceeds with no
-// `-c` flag for that server — but the spawn itself succeeds.
-func TestCodexExecBackend_MCPInjectionSkipsFailedProbe(t *testing.T) {
+// TestCodexExecBackend_SpawnOmitsHyllaForBuildQA verifies that a
+// ta-go-build-qa-falsification role spawn argv carries ta (always)
+// but omits hylla, context7, and gopls (build-qa exclusion).
+func TestCodexExecBackend_SpawnOmitsHyllaForBuildQA(t *testing.T) {
 	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
 	ce := resolveCodexExecFromFixture(t)
 
-	// Write a .mcp.json with a server that has NEITHER command NOR url
-	// — guaranteed to be Skipped per A5 transport detection in
-	// codex_mcp_probe.go.
-	mcpJSON := map[string]any{
-		"mcpServers": map[string]any{
-			"malformed": map[string]any{},
-		},
-	}
-	mcpJSONPath := filepath.Join(t.TempDir(), ".mcp.json")
-	writeJSONFile(t, mcpJSONPath, mcpJSON)
-
 	req := SpawnRequest{
-		Role:          "ta-go-builder",
-		Prompt:        "x",
-		Model:         "gpt-5.4",
-		CWD:           t.TempDir(),
-		PersonaBody:   "B",
-		McpConfigPath: mcpJSONPath,
+		Role:        "ta-go-build-qa-falsification",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         t.TempDir(),
+		PersonaBody: "B",
 	}
 
-	result, err := ce.Spawn(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Spawn must succeed even when MCP probe is skipped; got %v", err)
-	}
-	if result.ExitCode != 0 {
-		t.Fatalf("exit code: got %d want 0", result.ExitCode)
+	if _, err := ce.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
 	}
 
 	argvBytes, _ := os.ReadFile(argvFile)
 	argv := splitArgv(argvBytes)
 
-	// No -c flag should have been emitted for the skipped server.
-	for i := 0; i < len(argv)-1; i++ {
-		if argv[i] == "-c" && strings.Contains(argv[i+1], "mcp_servers.malformed") {
-			t.Errorf("argv unexpectedly contains -c for skipped server; argv=%v", argv)
-		}
-	}
+	// ta must be present (always).
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.ta=")
+	// hylla, context7, gopls must be absent for build-qa roles.
+	assertArgvAbsentMCPServer(t, argv, "mcp_servers.hylla=")
+	assertArgvAbsentMCPServer(t, argv, "mcp_servers.context7=")
+	assertArgvAbsentMCPServer(t, argv, "mcp_servers.gopls=")
 }
 
-// TestCodexExecBackend_MCPInjectionOmittedWhenMcpConfigPathEmpty
-// verifies that when the caller has no .mcp.json (empty
-// McpConfigPath), the codex argv contains zero `-c` flags. This pins
-// the no-mcp-config case so empty callers don't pay the probe cost.
-func TestCodexExecBackend_MCPInjectionOmittedWhenMcpConfigPathEmpty(t *testing.T) {
+// TestCodexExecBackend_SpawnAlwaysInjectsTa verifies that ta MCP
+// injection is always present even when McpConfigPath is empty and even
+// for a non-go, non-fe builder role. Ta injection is unconditional in
+// the new static role-conditional path.
+func TestCodexExecBackend_SpawnAlwaysInjectsTa(t *testing.T) {
 	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
 	ce := resolveCodexExecFromFixture(t)
 
@@ -468,7 +436,7 @@ func TestCodexExecBackend_MCPInjectionOmittedWhenMcpConfigPathEmpty(t *testing.T
 		Model:       "gpt-5.4",
 		CWD:         t.TempDir(),
 		PersonaBody: "B",
-		// no McpConfigPath
+		// McpConfigPath intentionally empty — ta injection is unconditional.
 	}
 
 	if _, err := ce.Spawn(context.Background(), req); err != nil {
@@ -477,41 +445,39 @@ func TestCodexExecBackend_MCPInjectionOmittedWhenMcpConfigPathEmpty(t *testing.T
 
 	argvBytes, _ := os.ReadFile(argvFile)
 	argv := splitArgv(argvBytes)
-	if containsArg(argv, "-c") {
-		t.Errorf("argv must not contain -c when McpConfigPath is empty; argv=%v", argv)
-	}
+
+	// ta must be present regardless of McpConfigPath.
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.ta=")
 }
 
-// TestCodexExecBackend_MCPInjectionUnreadableConfigIsNonFatal verifies
-// the soft-fail contract for an unreadable / unparseable .mcp.json:
-// the spawn proceeds without any -c flags rather than erroring out.
-// Mirrors the per-server probe-skip contract one level up.
-func TestCodexExecBackend_MCPInjectionUnreadableConfigIsNonFatal(t *testing.T) {
+// TestCodexExecBackend_SpawnInjectsMCPForFERole verifies that a
+// ta-fe-planning role spawn argv carries playwright (fe-specific)
+// but NOT gopls (no -go- in role name).
+func TestCodexExecBackend_SpawnInjectsMCPForFERole(t *testing.T) {
 	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
 	ce := resolveCodexExecFromFixture(t)
 
 	req := SpawnRequest{
-		Role:          "ta-go-builder",
-		Prompt:        "x",
-		Model:         "gpt-5.4",
-		CWD:           t.TempDir(),
-		PersonaBody:   "B",
-		McpConfigPath: filepath.Join(t.TempDir(), "does-not-exist.mcp.json"),
+		Role:        "ta-fe-planning",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         t.TempDir(),
+		PersonaBody: "B",
 	}
 
-	result, err := ce.Spawn(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Spawn must succeed even with unreadable .mcp.json; got %v", err)
-	}
-	if result.ExitCode != 0 {
-		t.Fatalf("exit code: got %d want 0", result.ExitCode)
+	if _, err := ce.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
 	}
 
 	argvBytes, _ := os.ReadFile(argvFile)
 	argv := splitArgv(argvBytes)
-	if containsArg(argv, "-c") {
-		t.Errorf("argv must not contain -c when .mcp.json unreadable; argv=%v", argv)
-	}
+
+	// ta must always be present.
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.ta=")
+	// playwright must be present (-fe- role).
+	assertArgvContainsMCPServer(t, argv, "mcp_servers.playwright=")
+	// gopls must be absent (no -go- in role).
+	assertArgvAbsentMCPServer(t, argv, "mcp_servers.gopls=")
 }
 
 // TestCodexExecBackend_MissingBinaryReturnsError verifies a missing
@@ -652,11 +618,24 @@ func TestCodexExecBackend_PreviewShape(t *testing.T) {
 	wantSubstrings := []string{
 		"codex exec",
 		"  --ephemeral",
-		"  --ignore-rules",
+		"  --ignore-user-config",
 		"  --skip-git-repo-check",
 		"  -C " + cwd,
 		"  -m gpt-5.4",
+		// Four hermetic -c flags must appear in Preview (F1: renderArgs injects them).
+		// Values containing `"` are wrapped by Preview's quoteValue renderer:
+		//   approval_policy="never"  → "approval_policy=\"never\""
+		//   web_search="live"        → "web_search=\"live\""
+		// Values without special chars render as-is (no outer quotes).
+		"  -c \"approval_policy=\\\"never\\\"\"",
+		"  -c \"web_search=\\\"live\\\"\"",
+		"  -c project_doc_max_bytes=0",
+		"  -c skills.bundled.enabled=false",
 		`  <<< "build droplet X"`,
+	}
+	// --ignore-rules must be absent from Preview output.
+	if strings.Contains(preview, "--ignore-rules") {
+		t.Errorf("Preview must not contain --ignore-rules; got:\n%s", preview)
 	}
 	for _, want := range wantSubstrings {
 		if !strings.Contains(preview, want) {
@@ -723,47 +702,311 @@ mcp_injection = "codex_inline_toml"
 	}
 }
 
-// installScriptToTempPATH installs a fixture script into a fresh
-// tempdir on PATH and returns the absolute path to the installed
-// script. Used by MCP-injection tests that need a concrete command
-// path to put inside the synthetic .mcp.json.
-func installScriptToTempPATH(t *testing.T, fixture, srcName, installAs string) string {
-	t.Helper()
-	srcDir := filepath.Join("testdata", fixture)
-	content, err := os.ReadFile(filepath.Join(srcDir, srcName))
+// TestCodexExecBackend_HermeticHomeCleanedUp verifies that Spawn creates
+// a hermetic CODEX_HOME temp directory, injects CODEX_HOME=<dir> into
+// the child process env, and removes the directory when Spawn returns.
+//
+// Two assertions:
+//  1. The child env (captured by fake-codex-happy) contains a
+//     CODEX_HOME= entry whose value lies under os.TempDir().
+//  2. After Spawn returns, the directory no longer exists on disk.
+//
+// This test does NOT assert on rules/default.rules content — that is
+// covered by TestNewHermeticCodexHome_* in codex_hermetic_test.go (F8
+// resolution: keep the concern in the right file).
+func TestCodexExecBackend_HermeticHomeCleanedUp(t *testing.T) {
+	_, _, envFile := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "hermetic home test",
+		Model:       "gpt-5.4",
+		CWD:         t.TempDir(),
+		PersonaBody: "B",
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
 	if err != nil {
-		t.Fatalf("read fixture %s/%s: %v", fixture, srcName, err)
+		t.Fatalf("Spawn: %v", err)
 	}
-	binDir := t.TempDir()
-	scriptPath := filepath.Join(binDir, installAs)
-	if err := os.WriteFile(scriptPath, content, 0o755); err != nil {
-		t.Fatalf("write fake %s script: %v", installAs, err)
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
 	}
-	// Also prepend to PATH so any reference to bare `installAs` resolves.
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+origPath)
-	// Mirror the FAKE_MCP_* env vars that fake-mcp-* scripts expect, so
-	// the script can write its argv/stdin recorders without erroring.
-	if strings.HasPrefix(fixture, "fake-mcp-") {
-		t.Setenv("FAKE_MCP_ARGV_OUT", filepath.Join(t.TempDir(), "mcp-argv"))
-		t.Setenv("FAKE_MCP_STDIN_OUT", filepath.Join(t.TempDir(), "mcp-stdin"))
+
+	envBytes, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("read env recorder: %v", err)
 	}
-	return scriptPath
+	envText := string(envBytes)
+
+	// 1. CODEX_HOME must appear in the child env.
+	var hermeticDir string
+	for _, line := range strings.Split(envText, "\n") {
+		if strings.HasPrefix(line, "CODEX_HOME=") {
+			hermeticDir = strings.TrimPrefix(line, "CODEX_HOME=")
+			break
+		}
+	}
+	if hermeticDir == "" {
+		t.Fatalf("CODEX_HOME not found in child env; env:\n%s", envText)
+	}
+
+	// Verify the value looks like an OS temp dir path.
+	tmpBase := os.TempDir()
+	if !strings.HasPrefix(hermeticDir, tmpBase) {
+		t.Errorf("CODEX_HOME=%q does not lie under os.TempDir()=%q", hermeticDir, tmpBase)
+	}
+
+	// 2. After Spawn returns, the hermetic dir must no longer exist.
+	if _, statErr := os.Stat(hermeticDir); !os.IsNotExist(statErr) {
+		t.Errorf("hermetic dir %q still exists after Spawn returned (cleanup did not run)", hermeticDir)
+	}
 }
 
-// writeJSONFile is a tiny test helper for laying down a synthetic
-// `.mcp.json` (or any JSON file) into a tempdir. Pretty-prints for
-// human debuggability of failed tests.
-func writeJSONFile(t *testing.T, path string, payload any) {
-	t.Helper()
-	raw, err := json.MarshalIndent(payload, "", "  ")
+// TestCodexExecBackend_OracleArgvShape is the consolidated oracle-
+// equivalence contract test pinning the Spawn argv shape against the
+// canonical bin/agent-dispatch.sh dispatch_codex reference (lines
+// ~384-428, 4-way consensus 2026-05-25). It uses the fake-codex seam
+// for full end-to-end coverage of the Spawn → renderArgs → hermetic-
+// -c append → RenderRoleConditionalMCPFlags pipeline.
+//
+// Relationship to TestCodexExecBackend_HappyPath: HappyPath verifies
+// the general argv + stdin + stdout contract. This test is the EXPLICIT
+// named oracle — it names every token the oracle requires, pins the
+// ordering invariant (hermetic -c flags precede MCP -c flags), and
+// serves as the canonical reference for future oracle-drift detection.
+// Assertions that overlap with HappyPath are intentional: this test
+// may survive even if HappyPath is refactored.
+func TestCodexExecBackend_OracleArgvShape(t *testing.T) {
+	// Oracle rows drawn from bin/agent-dispatch.sh:384-428.
+	// Each row is a named oracle contract; the slice allows future
+	// per-role oracle variants without new top-level test functions.
+	type oracleCase struct {
+		name string
+		role string
+	}
+	cases := []oracleCase{
+		{name: "go_builder", role: "ta-go-builder"},
+		{name: "go_planning", role: "ta-go-planning"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+			ce := resolveCodexExecFromFixture(t)
+
+			req := SpawnRequest{
+				Role:        tc.role,
+				Prompt:      "oracle test",
+				Model:       "gpt-5.4",
+				CWD:         t.TempDir(),
+				PersonaBody: "P",
+			}
+
+			if _, err := ce.Spawn(context.Background(), req); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+
+			argvBytes, err := os.ReadFile(argvFile)
+			if err != nil {
+				t.Fatalf("read argv recorder: %v", err)
+			}
+			argv := splitArgv(argvBytes)
+
+			// --- Oracle invariant 1: --ignore-rules must be ABSENT ---
+			// bin/agent-dispatch.sh uses --ignore-user-config; --ignore-rules
+			// is a different (per-project .codex/rules) suppression flag that
+			// conflicts with hermetic-home isolation. It must never appear.
+			if containsArg(argv, "--ignore-rules") {
+				t.Errorf("oracle: argv MUST NOT contain --ignore-rules (breaks hermetic isolation); argv=%v", argv)
+			}
+
+			// --- Oracle invariant 2: --ignore-user-config must be PRESENT ---
+			// Suppresses ~/.codex/config.toml so no user-level auth or
+			// model selection bleeds into the hermetic dispatch.
+			if !containsArg(argv, "--ignore-user-config") {
+				t.Errorf("oracle: argv missing --ignore-user-config; argv=%v", argv)
+			}
+
+			// --ignore-user-config must appear before -C and -m so it is
+			// processed before CWD/model substitution (ordering contract).
+			ignoreIdx := -1
+			cwdIdx := -1
+			modelIdx := -1
+			for i, a := range argv {
+				switch a {
+				case "--ignore-user-config":
+					ignoreIdx = i
+				case "-C":
+					cwdIdx = i
+				case "-m":
+					modelIdx = i
+				}
+			}
+			if cwdIdx >= 0 && ignoreIdx > cwdIdx {
+				t.Errorf("oracle: --ignore-user-config (%d) must appear before -C (%d); argv=%v", ignoreIdx, cwdIdx, argv)
+			}
+			if modelIdx >= 0 && ignoreIdx > modelIdx {
+				t.Errorf("oracle: --ignore-user-config (%d) must appear before -m (%d); argv=%v", ignoreIdx, modelIdx, argv)
+			}
+
+			// --- Oracle invariants 3-6: four hermetic -c flags must be PRESENT ---
+			// These mirror bin/agent-dispatch.sh:393-428 and are appended by
+			// renderArgs unconditionally after TOML template substitution.
+			hermeticCFlags := []string{
+				`approval_policy="never"`,
+				`web_search="live"`,
+				`project_doc_max_bytes=0`,
+				`skills.bundled.enabled=false`,
+			}
+			for _, val := range hermeticCFlags {
+				if !containsAdjacent(argv, "-c", val) {
+					t.Errorf("oracle: argv missing hermetic -c %q; argv=%v", val, argv)
+				}
+			}
+
+			// --- Ordering invariant: hermetic -c flags precede MCP -c flags ---
+			// renderArgs appends hermetic flags; Spawn then appends
+			// RenderRoleConditionalMCPFlags. The first MCP -c flag must
+			// appear AFTER the last hermetic -c flag in argv.
+			lastHermeticIdx := -1
+			for i := 0; i < len(argv)-1; i++ {
+				if argv[i] != "-c" {
+					continue
+				}
+				val := argv[i+1]
+				for _, hv := range hermeticCFlags {
+					if val == hv {
+						lastHermeticIdx = i
+					}
+				}
+			}
+			if lastHermeticIdx >= 0 {
+				for i := 0; i < lastHermeticIdx; i++ {
+					if argv[i] != "-c" {
+						continue
+					}
+					val := argv[i+1]
+					// An mcp_servers.* value before the last hermetic flag is
+					// an ordering violation.
+					if strings.HasPrefix(val, "mcp_servers.") {
+						t.Errorf("oracle: MCP -c flag at argv[%d] (%q) appears before last hermetic -c flag at argv[%d]; argv=%v", i, val, lastHermeticIdx, argv)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestCodexExecBackend_HermeticitySmoke asserts the hermeticity
+// invariants that are visible from outside the Spawn call (post-
+// Spawn, without reading cleaned-up files). Per QA-derived F8
+// resolution (plan-QA option B): do NOT attempt to read
+// rules/default.rules after Spawn — the deferred cleanup() has
+// already removed the hermetic dir. Rules content is covered by
+// TestNewHermeticCodexHome_* in codex_hermetic_test.go.
+//
+// Invariants asserted here:
+//  1. CODEX_HOME=<dir> appears in the child env recorder.
+//  2. The dir path lies under os.TempDir() (not ~/.codex).
+//  3. --ignore-user-config is in argv (project config suppressed).
+//  4. No AGENTS.md or CODEX_PROJECT_DOC path leaks into the child env
+//     (project-doc budget is zeroed via project_doc_max_bytes=0 -c flag;
+//     this asserts the env side of the same contract).
+func TestCodexExecBackend_HermeticitySmoke(t *testing.T) {
+	argvFile, _, envFile := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "hermeticity smoke",
+		Model:       "gpt-5.4",
+		CWD:         t.TempDir(),
+		PersonaBody: "P",
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
 	if err != nil {
-		t.Fatalf("marshal JSON for %s: %v", path, err)
+		t.Fatalf("Spawn: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir %q: %v", filepath.Dir(path), err)
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
 	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
+
+	// --- Invariant 1+2: CODEX_HOME in child env, under os.TempDir() ---
+	envBytes, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("read env recorder: %v", err)
+	}
+	envText := string(envBytes)
+
+	var hermeticDir string
+	for _, line := range strings.Split(envText, "\n") {
+		if strings.HasPrefix(line, "CODEX_HOME=") {
+			hermeticDir = strings.TrimPrefix(line, "CODEX_HOME=")
+			break
+		}
+	}
+	if hermeticDir == "" {
+		t.Fatalf("hermeticity: CODEX_HOME not found in child env; env:\n%s", envText)
+	}
+
+	// The hermetic dir must be rooted under the OS temp prefix, NOT under
+	// the real ~/.codex path.
+	tmpBase := os.TempDir()
+	if !strings.HasPrefix(hermeticDir, tmpBase) {
+		t.Errorf("hermeticity: CODEX_HOME=%q must lie under os.TempDir()=%q (not ~/.codex)", hermeticDir, tmpBase)
+	}
+	homeDir := os.Getenv("HOME")
+	if homeDir != "" {
+		dotCodex := filepath.Join(homeDir, ".codex")
+		if strings.HasPrefix(hermeticDir, dotCodex) {
+			t.Errorf("hermeticity: CODEX_HOME=%q must NOT lie under ~/.codex=%q", hermeticDir, dotCodex)
+		}
+	}
+
+	// --- Invariant 3: --ignore-user-config in argv ---
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+	if !containsArg(argv, "--ignore-user-config") {
+		t.Errorf("hermeticity: argv missing --ignore-user-config (project config not suppressed); argv=%v", argv)
+	}
+
+	// --- Invariant 4: no AGENTS.md / CODEX_PROJECT_DOC path in child env ---
+	// project_doc_max_bytes=0 prevents AGENTS.md from being passed to
+	// codex; this asserts the env does not carry a bypass path.
+	if strings.Contains(envText, "AGENTS.md") {
+		t.Errorf("hermeticity: child env must not reference AGENTS.md (project-doc bypasses hermetic isolation); env:\n%s", envText)
+	}
+	if strings.Contains(envText, "CODEX_PROJECT_DOC=") {
+		t.Errorf("hermeticity: child env must not contain CODEX_PROJECT_DOC= (project-doc bypasses hermetic isolation); env:\n%s", envText)
+	}
+}
+
+// assertArgvContainsMCPServer is a test helper that fails if no `-c`
+// flag in argv has a value starting with the given mcp_servers prefix.
+func assertArgvContainsMCPServer(t *testing.T, argv []string, prefix string) {
+	t.Helper()
+	for i := 0; i < len(argv)-1; i++ {
+		if argv[i] == "-c" && strings.HasPrefix(argv[i+1], prefix) {
+			return
+		}
+	}
+	t.Errorf("argv missing expected -c %s* flag; argv=%v", prefix, argv)
+}
+
+// assertArgvAbsentMCPServer is a test helper that fails if any `-c`
+// flag in argv has a value starting with the given mcp_servers prefix.
+func assertArgvAbsentMCPServer(t *testing.T, argv []string, prefix string) {
+	t.Helper()
+	for i := 0; i < len(argv)-1; i++ {
+		if argv[i] == "-c" && strings.HasPrefix(argv[i+1], prefix) {
+			t.Errorf("argv unexpectedly contains -c %s* flag; argv=%v", prefix, argv)
+			return
+		}
 	}
 }

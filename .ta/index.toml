@@ -1808,41 +1808,101 @@ updated = 2026-05-25T04:16:48.606581Z
 
 [drop_014]
 [drop_014.drop]
+[drop_014.drop.a3_build_qa_falsification]
+created = 2026-05-26T22:41:28.059355Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-26T23:42:12.750476Z
+
+[drop_014.drop.a3_build_qa_proof]
+created = 2026-05-26T22:41:28.046728Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-26T23:40:15.362569Z
+
+[drop_014.drop.a3_codex_home_helper]
+created = 2026-05-26T22:40:43.260567Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:20:03.972222Z
+
+[drop_014.drop.a3_config_argv_contract]
+created = 2026-05-26T22:40:20.119181Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:14:41.303804Z
+
+[drop_014.drop.a3_oracle_smoke_tests]
+created = 2026-05-26T22:41:20.573666Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:34:47.903913Z
+
+[drop_014.drop.a3_spawn_wiring]
+created = 2026-05-26T22:41:00.028852Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:30:40.179547Z
+
+[drop_014.drop.a4_build_qa_falsification]
+created = 2026-05-26T22:42:16.051664Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-26T23:43:02.27407Z
+
+[drop_014.drop.a4_build_qa_proof]
+created = 2026-05-26T22:42:03.557692Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-26T23:40:15.377097Z
+
+[drop_014.drop.a4_spawn_wiring]
+created = 2026-05-26T22:41:52.202679Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:27:01.157802Z
+
+[drop_014.drop.a4_static_oracle_renderer]
+created = 2026-05-26T22:41:27.788286Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-26T23:09:10.050159Z
+
 [drop_014.drop.area3_codex_hermetic]
 created = 2026-05-26T19:05:42.365678Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-26T19:26:43.478815Z
+updated = 2026-05-26T23:42:12.780428Z
 
 [drop_014.drop.area3_plan_qa_falsification]
 created = 2026-05-26T19:07:03.353246Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T19:07:03.353246Z
+updated = 2026-05-26T23:00:43.825576Z
 
 [drop_014.drop.area3_plan_qa_proof]
 created = 2026-05-26T19:07:03.337497Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T19:07:03.337497Z
+updated = 2026-05-26T23:00:43.797942Z
 
 [drop_014.drop.area4_plan_qa_falsification]
 created = 2026-05-26T19:07:03.379913Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T19:07:03.379913Z
+updated = 2026-05-26T23:00:43.839879Z
 
 [drop_014.drop.area4_plan_qa_proof]
 created = 2026-05-26T19:07:03.367442Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T19:07:03.367442Z
+updated = 2026-05-26T23:00:43.811517Z
 
 [drop_014.drop.area4_role_conditional_mcp]
 created = 2026-05-26T19:05:42.379983Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-26T19:26:25.287964Z
+updated = 2026-05-26T23:43:02.290361Z
 
 [drop_014.drop.area5_gate_threading]
 created = 2026-05-26T19:05:42.392855Z
