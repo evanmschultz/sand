@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/evanmschultz/sand/internal/gate"
 )
 
 // ErrUnknownBackend signals a missing config ENTRY (the backends.toml
@@ -85,6 +87,14 @@ type Backend interface {
 //     applying any backend-level env-filter rules (see drop_011's
 //     filterEnv design); the dispatcher passes this raw and the
 //     backend decides what to forward.
+//   - Gate, when non-nil, carries the dispatch-time gate.Allowlist
+//     the orchestrator passed via the `<TA_ALLOWLIST>` block. Backend
+//     translation droplets (a5_codex_gate_translation, a5_claude_p_gate_translation)
+//     convert it into the appropriate subprocess delivery mechanism
+//     (TA_GATE_ALLOWLIST env var for claude-native/ollama; --sandbox
+//     policy for codex-exec). Nil means no gate was requested; existing
+//     backends that do not yet read this field continue to compile and
+//     run correctly until their translation droplets land.
 type SpawnRequest struct {
 	PersonaBody     string
 	PersonaToolsCSV string
@@ -94,6 +104,7 @@ type SpawnRequest struct {
 	CWD             string
 	Role            string
 	Env             []string
+	Gate            *gate.Allowlist
 }
 
 // SpawnResult is the backend-local output shape every Backend.Spawn

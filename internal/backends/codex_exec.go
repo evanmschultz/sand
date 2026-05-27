@@ -39,6 +39,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/evanmschultz/sand/internal/gate"
 )
 
 // codexExecBackend is the Backend implementation for the `codex-exec`
@@ -115,6 +117,15 @@ func (b *codexExecBackend) Spawn(ctx context.Context, req SpawnRequest) (SpawnRe
 		return SpawnResult{}, fmt.Errorf("backends: locate %s on PATH: %w", b.cfg.Command, err)
 	}
 
+	// CF-1 (AGENT_SANDBOX_SPEC.md:67): codex is dir-level, not file-level.
+	// When the gate carries file-scoped edits (EditPresent=true) but no
+	// writable_dirs, do NOT silently fall back to req.CWD — that widens a
+	// file-scoped edit gate into project-dir-writable execution (gate bypass).
+	// Return a hard error so the orchestrator can correct the dispatch.
+	if err := validateGateForCodex(req.Gate); err != nil {
+		return SpawnResult{}, err
+	}
+
 	args, td, err := b.renderArgs(req)
 	if err != nil {
 		return SpawnResult{}, err
@@ -126,18 +137,31 @@ func (b *codexExecBackend) Spawn(ctx context.Context, req SpawnRequest) (SpawnRe
 	mcpArgs := RenderRoleConditionalMCPFlags(req.Role, req.CWD)
 	args = append(args, mcpArgs...)
 
+	// Gate translation: writable_dirs[1..N] → --add-dir flags
+	// (AGENT_SANDBOX_SPEC.md:74). WritableDirs[0] maps to req.CWD, which the
+	// TOML's -C {{.CWD}} handles. Only entries beyond the first need --add-dir.
+	args = appendWritableDirFlags(args, req.Gate)
+
+	// Gate translation: network=false → exact flag literal per spec:76.
+	args = appendNetworkFlag(args, req.Gate)
+
 	envOut, err := b.renderEnv(td)
 	if err != nil {
 		return SpawnResult{}, err
 	}
 
+	// Gate translation: bash_deny → execpolicy prefix_rule(forbidden) entries
+	// in the hermetic CODEX_HOME rules file. Pass req.Gate.BashDeny (or nil
+	// when no gate) to newHermeticCodexHome so the seam is filled.
 	// Hermetic CODEX_HOME lifecycle — mirrors bin/agent-dispatch.sh:521-544.
 	// Create a throwaway temp dir that contains only the auth/identity
 	// symlinks codex needs plus an execpolicy rules file. defer cleanup()
 	// fires regardless of subsequent errors so the dir never leaks.
-	// bashDenyPatterns is nil here (Area 5 threads the real gate patterns;
-	// this nil is the intentional Area 5 seam — do not fill it here).
-	hermeticDir, cleanup, hermeticErr := newHermeticCodexHome(nil)
+	var bashDeny []string
+	if req.Gate != nil {
+		bashDeny = req.Gate.BashDeny
+	}
+	hermeticDir, cleanup, hermeticErr := newHermeticCodexHome(bashDeny)
 	if hermeticErr != nil {
 		return SpawnResult{}, hermeticErr
 	}
@@ -331,4 +355,50 @@ func (b *codexExecBackend) renderEnv(td TemplateData) ([]string, error) {
 		return nil, fmt.Errorf("backends: render env: %w", err)
 	}
 	return append(envOut, rendered...), nil
+}
+
+// validateGateForCodex enforces CF-1 (AGENT_SANDBOX_SPEC.md:67): codex is
+// dir-level, not file-level. When the gate carries file-scoped edits
+// (EditPresent=true) but provides no writable_dirs, we refuse rather than
+// silently widening the scope to the process CWD. A nil gate is always valid
+// (no gate requested → existing behavior unchanged).
+func validateGateForCodex(g *gate.Allowlist) error {
+	if g == nil {
+		return nil
+	}
+	if g.EditPresent && len(g.WritableDirs) == 0 {
+		return fmt.Errorf("backends: codex gate translation: " +
+			"codex is dir-level; gate has EditPresent=true but no writable_dirs — " +
+			"provide writable_dirs so the codex -C root is explicit (falling back to " +
+			"req.CWD would widen a file-scoped edit gate into project-dir-writable execution)")
+	}
+	return nil
+}
+
+// appendWritableDirFlags appends --add-dir flags for WritableDirs[1..N] to
+// the argv slice per AGENT_SANDBOX_SPEC.md:74. WritableDirs[0] is the codex
+// -C writable root; it is already handled by the TOML's -C {{.CWD}} template
+// (the caller is expected to set req.CWD = WritableDirs[0]). Only the entries
+// beyond the first produce additional --add-dir flags.
+// A nil gate or a WritableDirs slice with 0 or 1 entries is a no-op.
+func appendWritableDirFlags(args []string, g *gate.Allowlist) []string {
+	if g == nil || len(g.WritableDirs) <= 1 {
+		return args
+	}
+	for _, dir := range g.WritableDirs[1:] {
+		args = append(args, "--add-dir", dir)
+	}
+	return args
+}
+
+// appendNetworkFlag appends -c sandbox_workspace_write.network_access=false
+// when the gate explicitly disables network access (gate.Network != nil &&
+// !*gate.Network). A nil gate, a nil Network pointer, or Network=true are
+// all no-ops — preserving the current default behavior.
+// The exact flag literal is pinned per AGENT_SANDBOX_SPEC.md:76.
+func appendNetworkFlag(args []string, g *gate.Allowlist) []string {
+	if g == nil || g.Network == nil || *g.Network {
+		return args
+	}
+	return append(args, "-c", "sandbox_workspace_write.network_access=false")
 }

@@ -277,12 +277,38 @@ func (b *claudeNativeBackend) renderArgs(req SpawnRequest) ([]string, TemplateDa
 		args = append(args, b.cfg.McpConfigArg, req.McpConfigPath)
 	}
 
-	// --allowedTools conditional append. The flag name comes from
-	// BackendConfig.AllowedToolsArg; the value is rendered from
-	// BackendConfig.AllowedToolsCSVTemplate against td (typically just
-	// `{{.PersonaToolsCSV}}` for claude-style backends but a backend
-	// could templat e in a default-list or env-lookup if it wants).
-	if req.PersonaToolsCSV != "" && b.cfg.AllowedToolsArg != "" {
+	// Gate translation: when req.Gate is non-nil, translate the Allowlist into
+	// claude -p tool flags per AGENT_SANDBOX_SPEC.md §3 + the bin oracle
+	// (bin/agent-dispatch.sh dispatch_ollama).
+	//
+	// When Gate.EditPresent is true, emit --allowedTools with a comma-separated
+	// list of Edit(//abs), Write(//abs), MultiEdit(//abs) entries for each file
+	// in Gate.Edit. The double-slash absolute form is required: single-slash
+	// denies every edit. The oracle derives this as "//" + path-without-leading-slash
+	// (${ef#/} in bash), so "/abs/foo.go" becomes "Edit(//abs/foo.go)".
+	//
+	// Bare "Bash" is intentionally never added to --allowedTools — it would let the
+	// agent bypass the per-file edit gate via shell writes.
+	//
+	// When Gate.BashDeny is non-empty, emit one --disallowedTools flag with a
+	// space-separated list of Bash(<deny>:*) entries; --disallow wins over
+	// --allowedTools so this blocks even persona-granted Bash patterns.
+	//
+	// Nil Gate falls through to the PersonaToolsCSV path (ungated requests keep
+	// their current behavior unchanged).
+	if req.Gate != nil && b.cfg.AllowedToolsArg != "" {
+		if req.Gate.EditPresent {
+			args = append(args, b.cfg.AllowedToolsArg, gateAllowedToolsCSV(req.Gate.Edit))
+		}
+		if len(req.Gate.BashDeny) > 0 {
+			args = append(args, "--disallowedTools", gateBashDisallowedCSV(req.Gate.BashDeny))
+		}
+	} else if req.PersonaToolsCSV != "" && b.cfg.AllowedToolsArg != "" {
+		// --allowedTools conditional append. The flag name comes from
+		// BackendConfig.AllowedToolsArg; the value is rendered from
+		// BackendConfig.AllowedToolsCSVTemplate against td (typically just
+		// `{{.PersonaToolsCSV}}` for claude-style backends but a backend
+		// could template in a default-list or env-lookup if it wants).
 		csv, csvErr := b.renderAllowedToolsCSV(req)
 		if csvErr != nil {
 			return nil, td, csvErr
@@ -291,6 +317,48 @@ func (b *claudeNativeBackend) renderArgs(req SpawnRequest) ([]string, TemplateDa
 	}
 
 	return args, td, nil
+}
+
+// gateAllowedToolsCSV builds the comma-separated --allowedTools value for a
+// gated claude -p dispatch. Each file in edit receives three scoped tool entries:
+// Edit(//abs), Write(//abs), MultiEdit(//abs). The double-slash absolute form is
+// the contract the claude CLI enforces (single-slash denies all edits). An empty
+// edit list produces an empty string (read-only edit-scoped role — no file writes
+// are permitted, so no allowedTools value is generated for edit scope).
+//
+// Bare "Bash" is never added here; including it would let an agent bypass the
+// per-file gate via shell writes.
+func gateAllowedToolsCSV(edit []string) string {
+	if len(edit) == 0 {
+		return ""
+	}
+	entries := make([]string, 0, len(edit)*3)
+	for _, f := range edit {
+		if f == "" {
+			continue
+		}
+		// Strip the leading "/" so the "//" prefix produces the canonical form:
+		// "/abs/foo.go" → "//abs/foo.go" → "Edit(//abs/foo.go)".
+		rel := strings.TrimPrefix(f, "/")
+		dbl := "//" + rel
+		entries = append(entries, "Edit("+dbl+")", "Write("+dbl+")", "MultiEdit("+dbl+")")
+	}
+	return strings.Join(entries, ",")
+}
+
+// gateBashDisallowedCSV builds the space-separated --disallowedTools value for
+// gate.BashDeny patterns. Each deny pattern (e.g. "git commit") becomes
+// "Bash(git commit:*)" — the claude -p form that matches any bash call whose
+// command begins with the deny pattern.
+func gateBashDisallowedCSV(bashDeny []string) string {
+	entries := make([]string, 0, len(bashDeny))
+	for _, pat := range bashDeny {
+		if pat == "" {
+			continue
+		}
+		entries = append(entries, "Bash("+pat+":*)")
+	}
+	return strings.Join(entries, ",")
 }
 
 // renderAllowedToolsCSV substitutes BackendConfig.AllowedToolsCSVTemplate

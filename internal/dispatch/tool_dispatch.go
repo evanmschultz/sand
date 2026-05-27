@@ -25,9 +25,11 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/evanmschultz/sand/internal/gate"
 	"github.com/evanmschultz/sand/internal/toon"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -83,6 +85,16 @@ func NewDispatchTool() mcp.Tool {
 			"dry_run",
 			mcp.Description("When true, render the would-be command and skip the backend spawn entirely."),
 		),
+		mcp.WithObject(
+			"gate",
+			mcp.Description("Optional dispatch-time gate allowlist. JSON object with keys: edit (string array), writable_dirs (string array), bash_deny (string array), network (bool). Matches the gate.Allowlist contract (internal/gate/gate.go)."),
+			mcp.Properties(map[string]any{
+				"edit":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"writable_dirs": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"bash_deny":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"network":       map[string]any{"type": "boolean"},
+			}),
+		),
 	)
 }
 
@@ -110,12 +122,22 @@ func DispatchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	var parsedGate *gate.Allowlist
+	if gateRaw, ok := req.GetArguments()["gate"]; ok && gateRaw != nil {
+		g, parseErr := parseGateArg(gateRaw)
+		if parseErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("dispatch: gate: %v", parseErr)), nil
+		}
+		parsedGate = g
+	}
+
 	params := Params{
 		Role:          role,
 		Prompt:        prompt,
 		CWD:           req.GetString("cwd", ""),
 		ModelOverride: req.GetString("model_override", ""),
 		DryRun:        req.GetBool("dry_run", false),
+		Gate:          parsedGate,
 	}
 
 	resp, err := dispatchFn(ctx, params)
@@ -138,6 +160,54 @@ func DispatchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	return mcp.NewToolResultText(string(encoded)), nil
+}
+
+// strictGateSchema is used to validate field types in a gate JSON object before
+// passing to gate.ParseAllowlist. Standard json.Unmarshal will return an error
+// if a field value does not match the declared Go type — e.g. a JSON string
+// where a bool or []string is expected. ParseAllowlist silently ignores per-field
+// decode errors (it uses json.RawMessage internally); this struct is the
+// type-checking gate before we delegate to ParseAllowlist for the final value
+// with EditPresent semantics.
+type strictGateSchema struct {
+	Edit         []string `json:"edit"`
+	WritableDirs []string `json:"writable_dirs"`
+	BashDeny     []string `json:"bash_deny"`
+	Network      *bool    `json:"network"`
+}
+
+// parseGateArg validates and decodes the "gate" MCP argument into a
+// *gate.Allowlist. It:
+//
+//  1. JSON-marshals the raw arg (any, expected map[string]any from mcp-go).
+//  2. Strict-decodes into strictGateSchema — fails if any field has the wrong
+//     type (e.g. "network":"false" or "edit":"/tmp/x").
+//  3. On success, delegates to gate.ParseAllowlist for the canonical
+//     *gate.Allowlist with EditPresent semantics.
+//
+// Returns an error on type mismatch, malformed JSON, or marshal failure.
+// Returns (nil, nil) only when raw is nil (the caller handles the nil check
+// before calling this function).
+func parseGateArg(raw any) (*gate.Allowlist, error) {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("marshal gate arg: %w", err)
+	}
+
+	// Strict type-validation: fails on field-type mismatches before we
+	// delegate to the more permissive gate.ParseAllowlist.
+	var strict strictGateSchema
+	if err := json.Unmarshal(b, &strict); err != nil {
+		return nil, fmt.Errorf("gate field type mismatch: %w", err)
+	}
+
+	// Delegate to gate.ParseAllowlist for EditPresent semantics (tracks
+	// whether the "edit" key was present at all, distinct from an empty slice).
+	a, err := gate.ParseAllowlist(b)
+	if err != nil {
+		return nil, fmt.Errorf("parse gate allowlist: %w", err)
+	}
+	return a, nil
 }
 
 // responseToTOON builds the toon.Object that mirrors the SAND-SPEC §3.1 +

@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/evanmschultz/sand/internal/gate"
 )
 
 // fullArgsCodexExecTOML is the backends.toml fixture used by every
@@ -984,6 +986,390 @@ func TestCodexExecBackend_HermeticitySmoke(t *testing.T) {
 	}
 	if strings.Contains(envText, "CODEX_PROJECT_DOC=") {
 		t.Errorf("hermeticity: child env must not contain CODEX_PROJECT_DOC= (project-doc bypasses hermetic isolation); env:\n%s", envText)
+	}
+}
+
+// TestCodexExecBackend_GateCF1_EditPresentNoWritableDirs verifies CF-1
+// (AGENT_SANDBOX_SPEC.md:67): codex is dir-level. When the gate carries
+// file-scoped edits (EditPresent=true) but no writable_dirs, Spawn MUST
+// return a non-nil error. Silently falling back to req.CWD would widen a
+// file-scoped edit gate into project-dir-writable execution — a gate bypass.
+func TestCodexExecBackend_GateCF1_EditPresentNoWritableDirs(t *testing.T) {
+	installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	falseBool := false
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         t.TempDir(),
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			Edit:         []string{"/abs/path/to/file.go"},
+			EditPresent:  true,
+			BashDeny:     []string{"git commit"},
+			WritableDirs: nil, // no writable_dirs — CF-1 must fire
+			Network:      &falseBool,
+		},
+	}
+
+	_, err := ce.Spawn(context.Background(), req)
+	if err == nil {
+		t.Fatal("CF-1: expected non-nil error when EditPresent=true and WritableDirs is empty, got nil")
+	}
+	if !strings.Contains(err.Error(), "writable_dirs") {
+		t.Errorf("CF-1 error should mention writable_dirs; got %q", err.Error())
+	}
+}
+
+// TestCodexExecBackend_GateCF1_EditPresentEmptySlice verifies CF-1 also
+// fires when WritableDirs is an explicitly empty slice (not nil) — both
+// represent the absent-writable-dirs condition.
+func TestCodexExecBackend_GateCF1_EditPresentEmptySlice(t *testing.T) {
+	installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         t.TempDir(),
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			Edit:         []string{"/abs/path/to/file.go"},
+			EditPresent:  true,
+			BashDeny:     nil,
+			WritableDirs: []string{}, // empty slice — CF-1 must still fire
+			Network:      nil,
+		},
+	}
+
+	_, err := ce.Spawn(context.Background(), req)
+	if err == nil {
+		t.Fatal("CF-1 (empty slice): expected non-nil error when EditPresent=true and WritableDirs=[], got nil")
+	}
+}
+
+// TestCodexExecBackend_GateCF1_EditNotPresent verifies CF-1 does NOT
+// fire when EditPresent=false, even if WritableDirs is empty. CF-1 is
+// conditional on EditPresent, not on WritableDirs being empty alone.
+func TestCodexExecBackend_GateCF1_EditNotPresent(t *testing.T) {
+	installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         t.TempDir(),
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			Edit:         nil,
+			EditPresent:  false, // not edit-scoped — CF-1 must NOT fire
+			WritableDirs: nil,
+			Network:      nil,
+		},
+	}
+
+	_, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("CF-1 must not fire when EditPresent=false; got error: %v", err)
+	}
+}
+
+// TestCodexExecBackend_GateBashDenyWiresSeam verifies that Spawn succeeds
+// (does not panic or error) when req.Gate.BashDeny contains non-git patterns,
+// proving the BashDeny seam is wired (newHermeticCodexHome is called with the
+// patterns, not nil). The execpolicy rules content is verified in
+// codex_hermetic_test.go; this test pins the Spawn-level wiring.
+func TestCodexExecBackend_GateBashDenyWiresSeam(t *testing.T) {
+	installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  false,
+			WritableDirs: []string{cwd},
+			BashDeny:     []string{"mage install", "go get", "go mod"},
+			Network:      nil,
+		},
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with Gate.BashDeny: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+}
+
+// TestCodexExecBackend_GateWritableDirsAddDir verifies that WritableDirs[1..N]
+// produce --add-dir <dir> flags in the codex argv, per AGENT_SANDBOX_SPEC.md:74.
+// WritableDirs[0] maps to req.CWD (the TOML's -C {{.CWD}} handles it); only
+// entries beyond the first require --add-dir injection.
+func TestCodexExecBackend_GateWritableDirsAddDir(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  true,
+			WritableDirs: []string{cwd, dir1, dir2},
+			BashDeny:     nil,
+			Network:      nil,
+		},
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with Gate.WritableDirs: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// WritableDirs[0] (cwd) is handled by -C {{.CWD}} from the TOML args.
+	// WritableDirs[1] and WritableDirs[2] must produce --add-dir flags.
+	if !containsAdjacent(argv, "--add-dir", dir1) {
+		t.Errorf("argv missing --add-dir %s (WritableDirs[1]); argv=%v", dir1, argv)
+	}
+	if !containsAdjacent(argv, "--add-dir", dir2) {
+		t.Errorf("argv missing --add-dir %s (WritableDirs[2]); argv=%v", dir2, argv)
+	}
+	// WritableDirs[0] must NOT produce an --add-dir (it maps to -C via TOML).
+	for i := 0; i < len(argv)-1; i++ {
+		if argv[i] == "--add-dir" && argv[i+1] == cwd {
+			t.Errorf("argv must NOT contain --add-dir %s for WritableDirs[0]; argv=%v", cwd, argv)
+		}
+	}
+}
+
+// TestCodexExecBackend_GateWritableDirsSingleEntry verifies that when
+// WritableDirs has exactly ONE entry, no --add-dir is emitted (only the
+// TOML -C {{.CWD}} handles it). Boundary case: WritableDirs[0] only.
+func TestCodexExecBackend_GateWritableDirsSingleEntry(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  true,
+			WritableDirs: []string{cwd}, // only one entry — no --add-dir
+			Network:      nil,
+		},
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with single WritableDirs: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+	if containsArg(argv, "--add-dir") {
+		t.Errorf("argv must NOT contain --add-dir when WritableDirs has exactly 1 entry; argv=%v", argv)
+	}
+}
+
+// TestCodexExecBackend_GateNetworkFalse verifies that when Gate.Network is
+// explicitly false, Spawn appends the EXACT literal flag
+// `-c sandbox_workspace_write.network_access=false` per AGENT_SANDBOX_SPEC.md:76.
+func TestCodexExecBackend_GateNetworkFalse(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	falseBool := false
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  true,
+			WritableDirs: []string{cwd},
+			BashDeny:     nil,
+			Network:      &falseBool,
+		},
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with Gate.Network=false: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	const wantNetworkFlag = "sandbox_workspace_write.network_access=false"
+	if !containsAdjacent(argv, "-c", wantNetworkFlag) {
+		t.Errorf("argv missing exact network flag -c %q; argv=%v", wantNetworkFlag, argv)
+	}
+}
+
+// TestCodexExecBackend_GateNetworkTrue verifies that when Gate.Network is
+// true (network permitted), the sandbox_workspace_write flag is NOT appended.
+func TestCodexExecBackend_GateNetworkTrue(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	trueBool := true
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  true,
+			WritableDirs: []string{cwd},
+			BashDeny:     nil,
+			Network:      &trueBool,
+		},
+	}
+
+	if _, err := ce.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn with Gate.Network=true: unexpected error: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	const networkFlag = "sandbox_workspace_write.network_access=false"
+	if containsAdjacent(argv, "-c", networkFlag) {
+		t.Errorf("argv must NOT contain network-disable flag when Gate.Network=true; argv=%v", argv)
+	}
+}
+
+// TestCodexExecBackend_GateNetworkNil verifies that when Gate.Network is nil
+// (omitted), the sandbox_workspace_write flag is NOT appended (nil = current
+// default behavior unchanged).
+func TestCodexExecBackend_GateNetworkNil(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  true,
+			WritableDirs: []string{cwd},
+			BashDeny:     nil,
+			Network:      nil, // omitted — must not append network flag
+		},
+	}
+
+	if _, err := ce.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn with Gate.Network=nil: unexpected error: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	const networkFlag = "sandbox_workspace_write.network_access=false"
+	if containsAdjacent(argv, "-c", networkFlag) {
+		t.Errorf("argv must NOT contain network-disable flag when Gate.Network=nil; argv=%v", argv)
+	}
+}
+
+// TestCodexExecBackend_NilGateUnchanged pins the nil-Gate contract: when
+// Gate is nil, Spawn must behave exactly as before gate threading — no error,
+// no --add-dir, no network flag, no change to the hermetic -c flags or argv
+// shape. This is the regression guard for the backwards-compat invariant.
+func TestCodexExecBackend_NilGateUnchanged(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "nil gate test",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate:        nil, // explicitly nil — no gate
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with nil Gate: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// No --add-dir should appear.
+	if containsArg(argv, "--add-dir") {
+		t.Errorf("nil Gate: argv must NOT contain --add-dir; argv=%v", argv)
+	}
+	// No network-disable flag should appear.
+	if containsAdjacent(argv, "-c", "sandbox_workspace_write.network_access=false") {
+		t.Errorf("nil Gate: argv must NOT contain network-disable flag; argv=%v", argv)
+	}
+	// Hermetic flags must still be present (unchanged behavior).
+	for _, val := range []string{`approval_policy="never"`, `web_search="live"`, `project_doc_max_bytes=0`, `skills.bundled.enabled=false`} {
+		if !containsAdjacent(argv, "-c", val) {
+			t.Errorf("nil Gate: argv missing hermetic flag -c %q; argv=%v", val, argv)
+		}
 	}
 }
 

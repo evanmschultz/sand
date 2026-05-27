@@ -28,6 +28,7 @@ import (
 
 	"github.com/evanmschultz/sand/internal/backends"
 	"github.com/evanmschultz/sand/internal/chains"
+	"github.com/evanmschultz/sand/internal/gate"
 	"github.com/evanmschultz/sand/internal/persona"
 	"github.com/evanmschultz/sand/internal/slots"
 )
@@ -380,6 +381,7 @@ func buildSpawnRequest(params Params, p persona.Persona, model, mcpConfigPath st
 		Model:           model,
 		CWD:             params.CWD,
 		Role:            params.Role,
+		Gate:            params.Gate,
 	}
 }
 
@@ -554,12 +556,18 @@ func permissionDenialsFromMap(m map[string]int) []PermissionDenial {
 //   - DryRun, when true, instructs Dispatch to render the would-be command +
 //     persona summary + mcp-config path as a TOON-encoded Response and skip
 //     the actual backend spawn entirely.
+//   - Gate, when non-nil, carries the dispatch-time gate.Allowlist parsed from
+//     the orchestrator's `<TA_ALLOWLIST>` block. It is plumbed through Params
+//     so sibling droplets (a5_spawnrequest_gate_field, backend threading) can
+//     thread it into the backend spawn environment variable without re-parsing.
+//     Nil means no gate was requested (orchestrator / un-scoped callers).
 type Params struct {
 	Role          string
 	Prompt        string
 	CWD           string
 	ModelOverride string
 	DryRun        bool
+	Gate          *gate.Allowlist
 }
 
 // Response is the typed output of Dispatch. The cmd/sand wiring encodes it as

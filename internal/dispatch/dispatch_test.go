@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/evanmschultz/sand/internal/chains"
+	"github.com/evanmschultz/sand/internal/gate"
+	"github.com/evanmschultz/sand/internal/persona"
 )
 
 // TestCoreContract exercises the zero-value shape of Params and Response and
@@ -50,6 +52,9 @@ func TestCoreContract(t *testing.T) {
 			if c.got != c.want {
 				t.Errorf("Params.%s zero value = %v, want %v", c.name, c.got, c.want)
 			}
+		}
+		if p.Gate != nil {
+			t.Errorf("Params.Gate zero value = %+v, want nil", p.Gate)
 		}
 	})
 
@@ -1337,6 +1342,165 @@ func TestDispatchSentinelErrChainExhausted(t *testing.T) {
 			t.Errorf("%v should not errors.Is-match ErrChainExhausted", other)
 		}
 	}
+}
+
+// TestParamsGateField exercises the Gate field on Params: zero-value, full
+// assign, and nil pointer semantics. Pins the public API so sibling droplets
+// (a5_spawnrequest_gate_field, backend threading) compile against the exact shape.
+func TestParamsGateField(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero value Gate is nil", func(t *testing.T) {
+		t.Parallel()
+		var p Params
+		if p.Gate != nil {
+			t.Errorf("Params.Gate zero value = %+v, want nil", p.Gate)
+		}
+	})
+
+	t.Run("Gate assignment round-trips all fields", func(t *testing.T) {
+		t.Parallel()
+		boolTrue := true
+		p := Params{
+			Role:   "ta-go-builder",
+			Prompt: "x",
+			Gate: &gate.Allowlist{
+				Edit:         []string{"/abs/file.go"},
+				EditPresent:  true,
+				BashDeny:     []string{"git commit"},
+				WritableDirs: []string{"/tmp"},
+				Network:      &boolTrue,
+			},
+		}
+		if p.Gate == nil {
+			t.Fatal("Params.Gate = nil after assignment; want non-nil")
+		}
+		if len(p.Gate.Edit) != 1 || p.Gate.Edit[0] != "/abs/file.go" {
+			t.Errorf("Gate.Edit = %v, want [/abs/file.go]", p.Gate.Edit)
+		}
+		if !p.Gate.EditPresent {
+			t.Errorf("Gate.EditPresent = false, want true")
+		}
+		if len(p.Gate.BashDeny) != 1 || p.Gate.BashDeny[0] != "git commit" {
+			t.Errorf("Gate.BashDeny = %v, want [git commit]", p.Gate.BashDeny)
+		}
+		if len(p.Gate.WritableDirs) != 1 || p.Gate.WritableDirs[0] != "/tmp" {
+			t.Errorf("Gate.WritableDirs = %v, want [/tmp]", p.Gate.WritableDirs)
+		}
+		if p.Gate.Network == nil || !*p.Gate.Network {
+			t.Errorf("Gate.Network = %v, want pointer to true", p.Gate.Network)
+		}
+	})
+
+	t.Run("nil Gate does not affect other fields", func(t *testing.T) {
+		t.Parallel()
+		p := Params{Role: "ta-go-builder", Prompt: "x", CWD: "/cwd", Gate: nil}
+		if p.Gate != nil {
+			t.Errorf("Params.Gate = %+v, want nil", p.Gate)
+		}
+		if p.Role != "ta-go-builder" {
+			t.Errorf("Params.Role = %q, want ta-go-builder", p.Role)
+		}
+	})
+}
+
+// TestBuildSpawnRequest exercises buildSpawnRequest's Gate threading contract:
+//   - nil Gate passes through as nil (no-gate-requested callers remain valid).
+//   - a populated Gate is copied field-for-field into SpawnRequest.Gate, covering
+//     all five Allowlist fields: Edit, EditPresent, BashDeny, WritableDirs, Network.
+//
+// buildSpawnRequest is unexported but the test lives in package dispatch (not
+// dispatch_test), so it can call it directly. The persona and params arguments
+// are minimal fixtures that satisfy the function signature; correctness of the
+// other SpawnRequest fields is covered by TestDispatchDryRun + TestDispatchHappyPath.
+func TestBuildSpawnRequest(t *testing.T) {
+	t.Parallel()
+
+	baseParams := Params{
+		Role:   "ta-go-builder",
+		Prompt: "build the thing",
+		CWD:    "/cwd",
+	}
+	basePersona := persona.Persona{
+		Body:  "PERSONA BODY",
+		Tools: []string{"Read", "Edit"},
+	}
+
+	t.Run("nil Gate passes through", func(t *testing.T) {
+		t.Parallel()
+		p := baseParams
+		p.Gate = nil
+		req := buildSpawnRequest(p, basePersona, "haiku", "")
+		if req.Gate != nil {
+			t.Errorf("SpawnRequest.Gate = %+v, want nil when Params.Gate is nil", req.Gate)
+		}
+	})
+
+	t.Run("populated Gate is copied verbatim", func(t *testing.T) {
+		t.Parallel()
+		boolTrue := true
+		p := baseParams
+		p.Gate = &gate.Allowlist{
+			Edit:         []string{"/abs/file.go", "/abs/other.go"},
+			EditPresent:  true,
+			BashDeny:     []string{"git commit", "git push"},
+			WritableDirs: []string{"/tmp"},
+			Network:      &boolTrue,
+		}
+		req := buildSpawnRequest(p, basePersona, "haiku", "")
+		if req.Gate == nil {
+			t.Fatal("SpawnRequest.Gate = nil, want non-nil copy of Params.Gate")
+		}
+
+		// Edit
+		wantEdit := []string{"/abs/file.go", "/abs/other.go"}
+		if !reflect.DeepEqual(req.Gate.Edit, wantEdit) {
+			t.Errorf("Gate.Edit = %v, want %v", req.Gate.Edit, wantEdit)
+		}
+
+		// EditPresent
+		if !req.Gate.EditPresent {
+			t.Errorf("Gate.EditPresent = false, want true")
+		}
+
+		// BashDeny
+		wantDeny := []string{"git commit", "git push"}
+		if !reflect.DeepEqual(req.Gate.BashDeny, wantDeny) {
+			t.Errorf("Gate.BashDeny = %v, want %v", req.Gate.BashDeny, wantDeny)
+		}
+
+		// WritableDirs
+		wantDirs := []string{"/tmp"}
+		if !reflect.DeepEqual(req.Gate.WritableDirs, wantDirs) {
+			t.Errorf("Gate.WritableDirs = %v, want %v", req.Gate.WritableDirs, wantDirs)
+		}
+
+		// Network
+		if req.Gate.Network == nil {
+			t.Fatal("Gate.Network = nil, want pointer to true")
+		}
+		if !*req.Gate.Network {
+			t.Errorf("*Gate.Network = false, want true")
+		}
+	})
+
+	t.Run("Gate pointer identity — SpawnRequest receives same pointer (not a deep copy)", func(t *testing.T) {
+		t.Parallel()
+		// buildSpawnRequest does a straight assignment; the backend translation
+		// droplets (a5_codex_gate_translation, a5_claude_p_gate_translation) own
+		// any further marshaling. Pointer identity is the expected contract.
+		boolFalse := false
+		al := &gate.Allowlist{
+			BashDeny: []string{"mage install"},
+			Network:  &boolFalse,
+		}
+		p := baseParams
+		p.Gate = al
+		req := buildSpawnRequest(p, basePersona, "haiku", "")
+		if req.Gate != al {
+			t.Errorf("SpawnRequest.Gate = %p, want same pointer %p (no deep copy expected)", req.Gate, al)
+		}
+	})
 }
 
 // TestResponseV02Fields exercises the FallbackChain []Attempt and ToolCalls

@@ -1868,6 +1868,42 @@ db_name = 'cascade'
 type = 'droplet'
 updated = 2026-05-26T23:09:10.050159Z
 
+[drop_014.drop.a5_build_qa_falsification]
+created = 2026-05-26T23:57:33.528678Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T01:13:57.718778Z
+
+[drop_014.drop.a5_build_qa_proof]
+created = 2026-05-26T23:57:33.517003Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T01:13:57.703253Z
+
+[drop_014.drop.a5_claude_p_gate_translation]
+created = 2026-05-26T23:57:33.505038Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T01:13:57.761843Z
+
+[drop_014.drop.a5_codex_gate_translation]
+created = 2026-05-26T23:57:33.49302Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T01:13:57.747814Z
+
+[drop_014.drop.a5_gate_param_plumbing]
+created = 2026-05-26T23:57:33.46751Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T00:38:11.717745Z
+
+[drop_014.drop.a5_spawnrequest_gate_field]
+created = 2026-05-26T23:57:33.480984Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T00:23:38.081365Z
+
 [drop_014.drop.area3_codex_hermetic]
 created = 2026-05-26T19:05:42.365678Z
 db_name = 'cascade'
@@ -1908,19 +1944,19 @@ updated = 2026-05-26T23:43:02.290361Z
 created = 2026-05-26T19:05:42.392855Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-26T19:05:42.392855Z
+updated = 2026-05-27T01:13:57.733538Z
 
 [drop_014.drop.area5_plan_qa_falsification]
 created = 2026-05-26T19:07:03.407516Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T19:07:03.407516Z
+updated = 2026-05-27T00:10:46.931749Z
 
 [drop_014.drop.area5_plan_qa_proof]
 created = 2026-05-26T19:07:03.394211Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T19:07:03.394211Z
+updated = 2026-05-27T00:01:50.71251Z
 
 [drop_014.drop.area6_claude_p_tier]
 created = 2026-05-26T19:05:42.406388Z
@@ -1987,6 +2023,12 @@ created = 2026-05-21T04:59:59.062653Z
 db_name = 'claude_agents'
 type = 'agent'
 updated = 2026-05-21T18:00:02.645442Z
+
+[ta-go-plan-qa-proof]
+created = 2026-05-27T00:47:13.087578Z
+db_name = 'claude_agents'
+type = 'agent'
+updated = 2026-05-27T00:47:13.087578Z
 
 [ta-go-planning]
 created = 2026-05-21T04:59:59.032204Z

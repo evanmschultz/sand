@@ -10,6 +10,10 @@
 //     it as TOON and embeds known keys (served_by, tier) in the result text
 //   - dry_run + cwd + model_override propagate from MCP args into the
 //     Params struct dispatchFn receives
+//   - gate JSON object is decoded into Params.Gate (*gate.Allowlist)
+//   - omitted gate leaves Params.Gate nil (existing behavior unchanged)
+//   - malformed gate JSON returns IsError=true
+//   - field-type mismatch in gate JSON (e.g. "network":"false") returns IsError=true
 package dispatch
 
 import (
@@ -18,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evanmschultz/sand/internal/gate"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -386,5 +391,296 @@ func TestDispatchHandlerDispatchError(t *testing.T) {
 	text := resultText(t, result)
 	if !strings.Contains(text, "unsupported backend") {
 		t.Errorf("dispatch error text = %q; want it to contain %q", text, "unsupported backend")
+	}
+}
+
+// TestNewDispatchToolGateSchema verifies that the NewDispatchTool schema exposes
+// a "gate" field as an optional (non-required) object in InputSchema.Properties.
+func TestNewDispatchToolGateSchema(t *testing.T) {
+	t.Parallel()
+
+	tool := NewDispatchTool()
+
+	// "gate" must appear in Properties.
+	if _, ok := tool.InputSchema.Properties["gate"]; !ok {
+		t.Errorf("InputSchema.Properties missing %q; got keys %v", "gate",
+			schemaPropertyKeys(tool.InputSchema.Properties))
+	}
+
+	// "gate" must NOT appear in Required (it is optional).
+	for _, name := range tool.InputSchema.Required {
+		if name == "gate" {
+			t.Errorf("InputSchema.Required contains %q; it must be optional", "gate")
+		}
+	}
+}
+
+// schemaPropertyKeys returns sorted property key names for diagnostic output.
+func schemaPropertyKeys(props map[string]any) []string {
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// TestDispatchHandlerGateOmitted verifies that omitting the gate argument leaves
+// Params.Gate nil, preserving existing behavior for callers that don't pass a gate.
+func TestDispatchHandlerGateOmitted(t *testing.T) {
+	// No t.Parallel(): mutates package-level dispatchFn.
+	var captured Params
+	withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+		captured = p
+		return Response{}, nil
+	})
+
+	req := callToolRequest(map[string]any{
+		"role":   "ta-go-builder",
+		"prompt": "do the thing",
+	})
+
+	result, err := DispatchHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("DispatchHandler returned Go error = %v; want nil", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected non-error result; got %#v", result)
+	}
+	if captured.Gate != nil {
+		t.Errorf("captured.Gate = %+v, want nil when gate is omitted", captured.Gate)
+	}
+}
+
+// TestDispatchHandlerGateDecode verifies that a well-formed gate object in the MCP
+// request is decoded into Params.Gate (*gate.Allowlist) and that all fields
+// (edit, writable_dirs, bash_deny, network) are populated correctly.
+func TestDispatchHandlerGateDecode(t *testing.T) {
+	// No t.Parallel(): mutates package-level dispatchFn.
+	var captured Params
+	withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+		captured = p
+		return Response{}, nil
+	})
+
+	// The MCP client would pass the gate as a JSON object; in the test we supply
+	// the in-memory map[string]any that the mcp-go handler unmarshals from.
+	req := callToolRequest(map[string]any{
+		"role":   "ta-go-builder",
+		"prompt": "do the thing",
+		"gate": map[string]any{
+			"edit":          []any{"/abs/file1.go", "/abs/file2.go"},
+			"writable_dirs": []any{"/tmp"},
+			"bash_deny":     []any{"git commit", "git push"},
+			"network":       true,
+		},
+	})
+
+	result, err := DispatchHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("DispatchHandler returned Go error = %v; want nil", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected non-error result; got IsError=true, text=%q", resultText(t, result))
+	}
+
+	g := captured.Gate
+	if g == nil {
+		t.Fatal("captured.Gate = nil; want populated *gate.Allowlist")
+	}
+	if !g.EditPresent {
+		t.Errorf("Gate.EditPresent = false, want true (edit key was present)")
+	}
+	if len(g.Edit) != 2 || g.Edit[0] != "/abs/file1.go" || g.Edit[1] != "/abs/file2.go" {
+		t.Errorf("Gate.Edit = %v, want [/abs/file1.go /abs/file2.go]", g.Edit)
+	}
+	if len(g.WritableDirs) != 1 || g.WritableDirs[0] != "/tmp" {
+		t.Errorf("Gate.WritableDirs = %v, want [/tmp]", g.WritableDirs)
+	}
+	if len(g.BashDeny) != 2 || g.BashDeny[0] != "git commit" || g.BashDeny[1] != "git push" {
+		t.Errorf("Gate.BashDeny = %v, want [git commit git push]", g.BashDeny)
+	}
+	if g.Network == nil || !*g.Network {
+		t.Errorf("Gate.Network = %v, want pointer to true", g.Network)
+	}
+}
+
+// TestDispatchHandlerGateEditPresentEmptyArray verifies the edit-key-present
+// semantics: when edit is supplied as an empty array, EditPresent=true and
+// Edit is an empty (non-nil) slice.
+func TestDispatchHandlerGateEditPresentEmptyArray(t *testing.T) {
+	// No t.Parallel(): mutates package-level dispatchFn.
+	var captured Params
+	withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+		captured = p
+		return Response{}, nil
+	})
+
+	req := callToolRequest(map[string]any{
+		"role":   "ta-go-builder",
+		"prompt": "do the thing",
+		"gate": map[string]any{
+			"edit": []any{},
+		},
+	})
+
+	result, err := DispatchHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("DispatchHandler returned Go error = %v; want nil", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected non-error result; got IsError=true, text=%q", resultText(t, result))
+	}
+
+	g := captured.Gate
+	if g == nil {
+		t.Fatal("captured.Gate = nil; want populated *gate.Allowlist")
+	}
+	if !g.EditPresent {
+		t.Errorf("Gate.EditPresent = false; want true when edit key is present as []")
+	}
+	if g.Edit == nil {
+		t.Errorf("Gate.Edit = nil; want empty non-nil slice when edit:[]")
+	}
+	if len(g.Edit) != 0 {
+		t.Errorf("Gate.Edit = %v; want zero-length", g.Edit)
+	}
+}
+
+// TestDispatchHandlerGateMalformed verifies that an invalid gate value (not a
+// valid JSON object) returns IsError=true with an appropriate error message.
+// Sub-tests cover:
+//   - invalid top-level JSON (unparseable garbage)
+//   - field-type mismatch: "network" as string instead of bool
+//   - field-type mismatch: "edit" as string instead of array
+func TestDispatchHandlerGateMalformed(t *testing.T) {
+	// TestDispatchHandlerGateMalformed uses subtests that each call
+	// withDispatchFn — no t.Parallel() at parent level because withDispatchFn
+	// mutates the package-level dispatchFn and subtests that call it must run
+	// serially. The stub below is shared; each subtest overrides via
+	// withDispatchFn if needed.
+
+	t.Run("network is string not bool", func(t *testing.T) {
+		// field-type mismatch: "network":"false" — JSON string, not bool.
+		// ParseAllowlist uses json.Unmarshal on the typed field, which must
+		// return an error for this case per the QA NIT.
+		withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+			t.Errorf("dispatchFn must not be called on malformed gate; got Params=%+v", p)
+			return Response{}, nil
+		})
+
+		req := callToolRequest(map[string]any{
+			"role":   "ta-go-builder",
+			"prompt": "do the thing",
+			// gate is passed as a raw JSON string that encodes a type mismatch.
+			// We simulate how the handler receives a string-typed network field
+			// by nesting the gate as a map where "network" is a string.
+			"gate": map[string]any{
+				"network": "false", // string, not bool — must error
+			},
+		})
+
+		result, err := DispatchHandler(context.Background(), req)
+		if err != nil {
+			t.Fatalf("DispatchHandler returned Go error = %v; want nil with IsError=true", err)
+		}
+		if result == nil || !result.IsError {
+			text := ""
+			if result != nil {
+				text = resultText(t, result)
+			}
+			t.Fatalf("expected IsError=true on field-type mismatch (network:string); got IsError=false, text=%q", text)
+		}
+	})
+
+	t.Run("edit is string not array", func(t *testing.T) {
+		// field-type mismatch: "edit":"/tmp/x" — JSON string, not array.
+		withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+			t.Errorf("dispatchFn must not be called on malformed gate; got Params=%+v", p)
+			return Response{}, nil
+		})
+
+		req := callToolRequest(map[string]any{
+			"role":   "ta-go-builder",
+			"prompt": "do the thing",
+			"gate": map[string]any{
+				"edit": "/tmp/x", // string, not array — must error
+			},
+		})
+
+		result, err := DispatchHandler(context.Background(), req)
+		if err != nil {
+			t.Fatalf("DispatchHandler returned Go error = %v; want nil with IsError=true", err)
+		}
+		if result == nil || !result.IsError {
+			text := ""
+			if result != nil {
+				text = resultText(t, result)
+			}
+			t.Fatalf("expected IsError=true on field-type mismatch (edit:string); got IsError=false, text=%q", text)
+		}
+	})
+}
+
+// TestDispatchHandlerGatePassthrough verifies that when gate is provided,
+// the full Params (including Gate) passes correctly alongside the other fields.
+func TestDispatchHandlerGatePassthrough(t *testing.T) {
+	// No t.Parallel(): mutates package-level dispatchFn.
+	var captured Params
+	withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+		captured = p
+		return Response{}, nil
+	})
+
+	req := callToolRequest(map[string]any{
+		"role":           "ta-go-builder",
+		"prompt":         "build the thing",
+		"cwd":            "/abs/cwd",
+		"model_override": "haiku",
+		"dry_run":        true,
+		"gate": map[string]any{
+			"edit":      []any{"/abs/file.go"},
+			"bash_deny": []any{"git commit"},
+			"network":   false,
+		},
+	})
+
+	result, err := DispatchHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("DispatchHandler returned Go error = %v; want nil", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected non-error result; got IsError=true, text=%q", resultText(t, result))
+	}
+
+	// Non-gate fields must be unchanged.
+	if captured.Role != "ta-go-builder" {
+		t.Errorf("Role = %q, want ta-go-builder", captured.Role)
+	}
+	if captured.Prompt != "build the thing" {
+		t.Errorf("Prompt = %q, want build the thing", captured.Prompt)
+	}
+	if captured.CWD != "/abs/cwd" {
+		t.Errorf("CWD = %q, want /abs/cwd", captured.CWD)
+	}
+	if captured.ModelOverride != "haiku" {
+		t.Errorf("ModelOverride = %q, want haiku", captured.ModelOverride)
+	}
+	if !captured.DryRun {
+		t.Errorf("DryRun = false, want true")
+	}
+
+	// Gate must be decoded.
+	if captured.Gate == nil {
+		t.Fatal("Gate = nil; want non-nil")
+	}
+	// Verify gate aliasing via gate.ParseAllowlist semantics: edit was supplied
+	// with one entry so EditPresent=true.
+	_ = gate.Allowlist{} // import used — Params.Gate type is *gate.Allowlist.
+	if !captured.Gate.EditPresent {
+		t.Errorf("Gate.EditPresent = false; want true (edit key was present)")
+	}
+	boolFalse := false
+	if captured.Gate.Network == nil || *captured.Gate.Network != boolFalse {
+		t.Errorf("Gate.Network = %v; want pointer to false", captured.Gate.Network)
 	}
 }

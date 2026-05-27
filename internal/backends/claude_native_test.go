@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/evanmschultz/sand/internal/gate"
 )
 
 // fullArgsClaudeNativeTOML is the backends.toml fixture used by every
@@ -559,5 +561,258 @@ mcp_injection = ""
 	}
 	if !strings.Contains(envText, "EXTRA_TEMPLATED=from-os-getenv") {
 		t.Errorf("templated env entry not rendered via os.Getenv; got:\n%s", envText)
+	}
+}
+
+// TestClaudeNativeSpawn_GateEditScoped verifies that when req.Gate carries
+// an edit-scoped Allowlist (EditPresent=true, non-empty Edit), renderArgs
+// emits --allowedTools with Edit(//abs), Write(//abs), and MultiEdit(//abs)
+// entries for each file — and does NOT emit bare Bash in that value.
+//
+// Acceptance criteria from drop_014.drop.a5_claude_p_gate_translation:
+//   - Edit(//abs), Write(//abs), MultiEdit(//abs) per file in Gate.Edit.
+//   - Double-slash absolute form (not single-slash or relative).
+//   - No bare "Bash" token in the --allowedTools value.
+func TestClaudeNativeSpawn_GateEditScoped(t *testing.T) {
+	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+
+	editFiles := []string{
+		"/abs/project/internal/foo/foo.go",
+		"/abs/project/internal/foo/foo_test.go",
+	}
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "build thing",
+		Model:       "haiku",
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent: true,
+			Edit:        editFiles,
+			BashDeny: []string{
+				"git commit", "git push",
+			},
+		},
+	}
+
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// --allowedTools must be present.
+	allowedToolsVal := findArgAfter(argv, "--allowedTools")
+	if allowedToolsVal == "" {
+		t.Fatalf("--allowedTools must be present when Gate.EditPresent; argv=%v", argv)
+	}
+
+	// Each file must appear as Edit(//abs), Write(//abs), MultiEdit(//abs).
+	// The oracle (bin/agent-dispatch.sh dispatch_ollama) uses ${ef#/} to strip
+	// the leading slash from an absolute path, then prepends "//" — so
+	// "/abs/foo.go" becomes "Edit(//abs/foo.go)".
+	for _, f := range editFiles {
+		stripped := strings.TrimPrefix(f, "/")
+		wantEdit := "Edit(//" + stripped + ")"
+		wantWrite := "Write(//" + stripped + ")"
+		wantMultiEdit := "MultiEdit(//" + stripped + ")"
+		if !strings.Contains(allowedToolsVal, wantEdit) {
+			t.Errorf("--allowedTools missing %q; got %q", wantEdit, allowedToolsVal)
+		}
+		if !strings.Contains(allowedToolsVal, wantWrite) {
+			t.Errorf("--allowedTools missing %q; got %q", wantWrite, allowedToolsVal)
+		}
+		if !strings.Contains(allowedToolsVal, wantMultiEdit) {
+			t.Errorf("--allowedTools missing %q; got %q", wantMultiEdit, allowedToolsVal)
+		}
+		// Double-slash form required: a single-slash form would deny all edits.
+		// Verify the canonical //abs form (not single-slash /(abs)).
+		singleSlashEdit := "Edit(/" + stripped + ")"
+		if strings.Contains(allowedToolsVal, singleSlashEdit) && !strings.Contains(allowedToolsVal, wantEdit) {
+			t.Errorf("--allowedTools has single-slash form %q instead of double-slash; got %q", singleSlashEdit, allowedToolsVal)
+		}
+	}
+
+	// No bare "Bash" token in --allowedTools value.
+	if strings.Contains(allowedToolsVal, "Bash") {
+		t.Errorf("--allowedTools must not contain bare Bash; got %q", allowedToolsVal)
+	}
+
+	// --disallowedTools must be present for each BashDeny pattern.
+	if !containsArg(argv, "--disallowedTools") {
+		t.Fatalf("--disallowedTools must be present when Gate.BashDeny non-empty; argv=%v", argv)
+	}
+	// Both deny patterns should appear somewhere in argv as Bash(<pat>:*).
+	allArgv := strings.Join(argv, " ")
+	for _, deny := range req.Gate.BashDeny {
+		want := "Bash(" + deny + ":*)"
+		if !strings.Contains(allArgv, want) {
+			t.Errorf("argv missing disallowed tool entry %q; argv=%v", want, argv)
+		}
+	}
+}
+
+// TestClaudeNativeSpawn_GateEditPresentEmptyList exercises EditPresent=true
+// with an empty Edit slice: --allowedTools should still appear (no file-scoped
+// entries, but the flag is emitted) and no bare Bash should be present.
+func TestClaudeNativeSpawn_GateEditPresentEmptyList(t *testing.T) {
+	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "haiku",
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent: true,
+			Edit:        []string{}, // empty — read-only edit-scoped role
+		},
+	}
+
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// With EditPresent=true and empty Edit list the gate path still fires.
+	// No file scopes are added but --allowedTools must NOT have bare Bash.
+	allowedToolsVal := findArgAfter(argv, "--allowedTools")
+	if allowedToolsVal != "" && strings.Contains(allowedToolsVal, "Bash") {
+		t.Errorf("bare Bash must never appear in --allowedTools under a Gate; got %q", allowedToolsVal)
+	}
+	// No --disallowedTools when BashDeny is empty.
+	if containsArg(argv, "--disallowedTools") {
+		t.Errorf("--disallowedTools should be absent when Gate.BashDeny is empty; argv=%v", argv)
+	}
+}
+
+// TestClaudeNativeSpawn_GateBashDenyOnly verifies that BashDeny entries are
+// translated to --disallowedTools flags even when EditPresent is false.
+func TestClaudeNativeSpawn_GateBashDenyOnly(t *testing.T) {
+	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "haiku",
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent: false,
+			Edit:        nil,
+			BashDeny:    []string{"git commit", "mage install"},
+		},
+	}
+
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	if !containsArg(argv, "--disallowedTools") {
+		t.Fatalf("--disallowedTools must be present when Gate.BashDeny non-empty; argv=%v", argv)
+	}
+	allArgv := strings.Join(argv, " ")
+	for _, deny := range req.Gate.BashDeny {
+		want := "Bash(" + deny + ":*)"
+		if !strings.Contains(allArgv, want) {
+			t.Errorf("argv missing disallowed tool entry %q; argv=%v", want, argv)
+		}
+	}
+}
+
+// TestClaudeNativeSpawn_NilGateUnchanged verifies that nil Gate leaves the
+// existing PersonaToolsCSV/AllowedToolsCSVTemplate path fully intact.
+// This is the backwards-compatibility regression guard.
+func TestClaudeNativeSpawn_NilGateUnchanged(t *testing.T) {
+	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+
+	req := SpawnRequest{
+		Role:            "ta-go-builder",
+		Prompt:          "x",
+		Model:           "haiku",
+		PersonaBody:     "B",
+		PersonaToolsCSV: "Read,Edit,Bash(mage testFunc *)",
+		McpConfigPath:   "/abs/.mcp.json",
+		Gate:            nil, // explicit nil — existing path must be unchanged
+	}
+
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// Existing path: --allowedTools with the raw CSV value.
+	if !containsAdjacent(argv, "--allowedTools", "Read,Edit,Bash(mage testFunc *)") {
+		t.Errorf("nil Gate must preserve PersonaToolsCSV path; argv=%v", argv)
+	}
+	// No --disallowedTools injected.
+	if containsArg(argv, "--disallowedTools") {
+		t.Errorf("nil Gate must not inject --disallowedTools; argv=%v", argv)
+	}
+}
+
+// TestClaudeNativePreview_GateEditScoped verifies that Preview renders the
+// gate-translated --allowedTools and --disallowedTools flags in the dry-run
+// output alongside the standard argv shape.
+func TestClaudeNativePreview_GateEditScoped(t *testing.T) {
+	cn := resolveClaudeNativeFromFixture(t)
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "build thing",
+		Model:       "haiku",
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent: true,
+			Edit:        []string{"/abs/foo.go", "/abs/foo_test.go"},
+			BashDeny:    []string{"git commit"},
+		},
+	}
+
+	preview, err := cn.Preview(req)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	// --allowedTools must appear with double-slash file scopes.
+	// "/abs/foo.go" → strip leading "/" → "abs/foo.go" → prefix "//" → "Edit(//abs/foo.go)".
+	if !strings.Contains(preview, "Edit(//abs/foo.go)") {
+		t.Errorf("Preview missing Edit(//abs/foo.go); got:\n%s", preview)
+	}
+	if !strings.Contains(preview, "Write(//abs/foo.go)") {
+		t.Errorf("Preview missing Write(//abs/foo.go); got:\n%s", preview)
+	}
+	if !strings.Contains(preview, "MultiEdit(//abs/foo.go)") {
+		t.Errorf("Preview missing MultiEdit(//abs/foo.go); got:\n%s", preview)
+	}
+	// --disallowedTools must appear.
+	if !strings.Contains(preview, "--disallowedTools") {
+		t.Errorf("Preview missing --disallowedTools; got:\n%s", preview)
+	}
+	if !strings.Contains(preview, "Bash(git commit:*)") {
+		t.Errorf("Preview missing Bash(git commit:*) in disallowed; got:\n%s", preview)
 	}
 }
