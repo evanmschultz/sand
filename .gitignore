@@ -36,3 +36,8 @@ mage_output_file.go
 
 # Per-dispatch audit trace capture (bin/agent-dispatch.sh writes here; transient).
 .claude/agent-runs/
+
+# Hylla local artifacts — logs + any other per-machine state. Not part of sand's
+# committed surface; kept out of git until we explicitly decide which subtree (if
+# any) should be tracked. Dev directive 2026-05-27.
+.hylla/

@@ -7,8 +7,10 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1555,5 +1557,406 @@ func TestResponseV02Fields(t *testing.T) {
 	}
 	if r.ToolCalls[1] != (ToolCall{Index: 2, Name: "Bash", DurationMs: 234, IsError: true}) {
 		t.Errorf("ToolCalls[1] = %#v", r.ToolCalls[1])
+	}
+}
+
+// TestDispatch_SuccessPathWritesAuditFiles verifies that a successful wet-run
+// dispatch writes exactly three files (stdout, stderr, metadata JSON) under
+// <cwd>/.claude/agent-runs/ and assigns Response.LogPath to the .meta.json
+// absolute path (drop_014 area7).
+func TestDispatch_SuccessPathWritesAuditFiles(t *testing.T) {
+	// Cannot t.Parallel: installFakeClaudeEnvelope calls t.Setenv.
+	installFakeClaudeEnvelope(t, "claude-envelope-happy.json")
+
+	cwd := t.TempDir()
+	writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+	writeChainsConfig(t, cwd, builderChainsTOML)
+	writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
+	writeMCPConfig(t, cwd)
+
+	resp, err := Dispatch(context.Background(), Params{
+		Role:   "ta-go-builder",
+		Prompt: "test audit write",
+		CWD:    cwd,
+		DryRun: false,
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	// LogPath must be non-empty and point to an absolute path.
+	if resp.LogPath == "" {
+		t.Fatalf("Response.LogPath = %q, want non-empty absolute path to .meta.json", resp.LogPath)
+	}
+	if !filepath.IsAbs(resp.LogPath) {
+		t.Fatalf("Response.LogPath = %q, want absolute path", resp.LogPath)
+	}
+
+	// The .meta.json file must exist and be readable.
+	metaData, err := os.ReadFile(resp.LogPath)
+	if err != nil {
+		t.Fatalf("read LogPath %q: %v", resp.LogPath, err)
+	}
+	if len(metaData) == 0 {
+		t.Fatalf(".meta.json at %q is empty; want JSON content", resp.LogPath)
+	}
+
+	// Expect six files under auditDir: tier1 (unsupported) + tier2 (success), each with
+	// .out, .err, .meta.json. The basename is <run-id>.tier<N>.<backend>
+	// (builderChainsTOML has ollama-local at tier1 which is unsupported).
+	auditDir := filepath.Dir(resp.LogPath)
+	entries, err := os.ReadDir(auditDir)
+	if err != nil {
+		t.Fatalf("ReadDir %q: %v", auditDir, err)
+	}
+	if len(entries) != 6 {
+		t.Fatalf("auditDir %q has %d files, want 6 (tier1 unsupported + tier2 success); files: %v",
+			auditDir, len(entries), func() []string {
+				names := make([]string, len(entries))
+				for i, e := range entries {
+					names[i] = e.Name()
+				}
+				return names
+			}())
+	}
+
+	// All six files should have a shared run-id prefix.
+	fileNames := make(map[string]bool)
+	for _, e := range entries {
+		fileNames[e.Name()] = true
+	}
+
+	// Extract the basename prefix from resp.LogPath (success tier).
+	metaBase := filepath.Base(resp.LogPath)
+	expectedSuccessPrefix := strings.TrimSuffix(metaBase, ".meta.json")
+	if !strings.Contains(expectedSuccessPrefix, ".tier2.claude-native") {
+		t.Errorf("LogPath should point to tier2 (success) metadata; got %q", metaBase)
+	}
+
+	expectedSuccessOut := expectedSuccessPrefix + ".out"
+	expectedSuccessErr := expectedSuccessPrefix + ".err"
+
+	if !fileNames[metaBase] {
+		t.Errorf("Expected success meta.json %q not found in auditDir", metaBase)
+	}
+	if !fileNames[expectedSuccessOut] {
+		t.Errorf("Expected success .out %q not found in auditDir", expectedSuccessOut)
+	}
+	if !fileNames[expectedSuccessErr] {
+		t.Errorf("Expected success .err %q not found in auditDir", expectedSuccessErr)
+	}
+
+	// Also verify tier1 (unsupported) files exist with exit_code=-1.
+	var tier1MetaPath string
+	for fileName := range fileNames {
+		if strings.Contains(fileName, ".tier1.ollama-local.meta.json") {
+			tier1MetaPath = filepath.Join(auditDir, fileName)
+			break
+		}
+	}
+	if tier1MetaPath == "" {
+		t.Fatalf("Expected tier1 (unsupported) .meta.json not found in auditDir")
+	}
+
+	tier1Data, err := os.ReadFile(tier1MetaPath)
+	if err != nil {
+		t.Fatalf("read tier1 metadata %q: %v", tier1MetaPath, err)
+	}
+	var tier1Rec AuditRecord
+	if err := json.Unmarshal(tier1Data, &tier1Rec); err != nil {
+		t.Fatalf("unmarshal tier1 metadata: %v", err)
+	}
+	if tier1Rec.ExitCode != -1 {
+		t.Errorf("tier1 (unsupported) ExitCode = %d, want -1 (pre-spawn sentinel)", tier1Rec.ExitCode)
+	}
+	if tier1Rec.Tier != 1 {
+		t.Errorf("tier1 Tier = %d, want 1", tier1Rec.Tier)
+	}
+	if tier1Rec.Backend != "ollama-local" {
+		t.Errorf("tier1 Backend = %q, want ollama-local", tier1Rec.Backend)
+	}
+}
+
+// TestDispatch_AuditWriteFailureDoesNotAbort verifies that when WriteAuditFiles
+// fails (e.g., due to a non-writable parent directory), the dispatch still
+// returns successfully but with an empty LogPath. The failure is logged to stderr
+// with the exact "sand-dispatch: audit write failed:" prefix (drop_014 area7).
+func TestDispatch_AuditWriteFailureDoesNotAbort(t *testing.T) {
+	// Cannot t.Parallel: installFakeClaudeEnvelope calls t.Setenv.
+	installFakeClaudeEnvelope(t, "claude-envelope-happy.json")
+
+	cwd := t.TempDir()
+	writePersona(t, cwd, "ta-go-builder", "BODY", []string{"Read"}, "haiku")
+	writeChainsConfig(t, cwd, builderChainsTOML)
+	writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
+	writeMCPConfig(t, cwd)
+
+	// Create a file at <cwd>/.claude/agent-runs to block directory creation
+	// (WriteAuditFiles will try os.MkdirAll and fail).
+	blockingFile := filepath.Join(cwd, ".claude", "agent-runs")
+	if err := os.MkdirAll(filepath.Dir(blockingFile), 0o755); err != nil {
+		t.Fatalf("setup blocking file parent: %v", err)
+	}
+	if err := os.WriteFile(blockingFile, []byte("blocking"), 0o644); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+
+	// Capture stderr to verify the exact error prefix.
+	oldStderr := os.Stderr
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stderr = pw
+
+	resp, err := Dispatch(context.Background(), Params{
+		Role:   "ta-go-builder",
+		Prompt: "test audit write failure",
+		CWD:    cwd,
+		DryRun: false,
+	})
+
+	pw.Close()
+	os.Stderr = oldStderr
+
+	stderrBytes, _ := io.ReadAll(pr)
+	stderrText := string(stderrBytes)
+
+	// Dispatch must succeed (no error return) even though audit write failed.
+	if err != nil {
+		t.Fatalf("Dispatch must not abort on audit-write failure; got error: %v", err)
+	}
+
+	// Response must be populated with the agent result (dispatch succeeded).
+	if resp.Result == "" {
+		t.Errorf("Response.Result = %q, want non-empty result from successful dispatch", resp.Result)
+	}
+
+	// LogPath must be empty (audit write failed).
+	if resp.LogPath != "" {
+		t.Errorf("Response.LogPath = %q, want empty on audit-write failure", resp.LogPath)
+	}
+
+	// Stderr must contain the exact error prefix.
+	if !strings.Contains(stderrText, "sand-dispatch: audit write failed:") {
+		t.Errorf("stderr missing exact prefix; got %q", stderrText)
+	}
+}
+
+// TestDispatch_PreSpawnExhaustionWritesAuditFiles verifies that when all tiers
+// fail at pre-spawn stages (unsupported_backend), each failed tier writes audit
+// files with ExitCode=-1 and empty .out/.err (drop_014 area7 failure paths).
+func TestDispatch_PreSpawnExhaustionWritesAuditFiles(t *testing.T) {
+	// Cannot t.Parallel: writeBackendsConfig calls t.Setenv (via fake-claude install).
+	cwd := t.TempDir()
+	writePersona(t, cwd, "test-role", "BODY", []string{}, "haiku")
+
+	// Write a chains config with ONLY unsupported tiers (ollama-local + codex-exec).
+	// Both will fail at backends.Resolve and record "unsupported_backend".
+	chainsToml := `
+[chains]
+test-role = [
+  { backend = "ollama-local", model = "qwen3-coder:30b", opts = "", wait_max = 5, slots = 0 },
+  { backend = "codex-exec", model = "gpt-5.4", opts = "", wait_max = 5, slots = 0 },
+]
+`
+	writeChainsConfig(t, cwd, chainsToml)
+	// Write a minimal backends config with NO entries for ollama-local or codex-exec,
+	// so backends.Resolve will fail with ErrUnknownBackend for both tiers.
+	emptyBackendsToml := `
+[backends]
+`
+	writeBackendsConfig(t, cwd, emptyBackendsToml)
+
+	resp, err := Dispatch(context.Background(), Params{
+		Role:   "test-role",
+		Prompt: "test pre-spawn exhaustion",
+		CWD:    cwd,
+		DryRun: false,
+	})
+
+	// Dispatch must fail with ErrChainExhausted.
+	if err == nil {
+		t.Fatalf("Dispatch: expected ErrChainExhausted, got nil")
+	}
+	if !errors.Is(err, ErrChainExhausted) {
+		t.Errorf("Dispatch error = %v, want ErrChainExhausted", err)
+	}
+
+	// Response must have a FallbackChain with 2 failed attempts.
+	if len(resp.FallbackChain) != 2 {
+		t.Fatalf("FallbackChain len = %d, want 2; chain = %#v", len(resp.FallbackChain), resp.FallbackChain)
+	}
+
+	// Both attempts must be "unsupported_backend".
+	for i, attempt := range resp.FallbackChain {
+		if attempt.Outcome != "unsupported_backend" {
+			t.Errorf("FallbackChain[%d].Outcome = %q, want %q", i, attempt.Outcome, "unsupported_backend")
+		}
+	}
+
+	// Verify that audit files were written for each tier.
+	auditDir := filepath.Join(cwd, ".claude", "agent-runs")
+	entries, err := os.ReadDir(auditDir)
+	if err != nil {
+		t.Fatalf("ReadDir %q: %v", auditDir, err)
+	}
+
+	// Expect 6 files total: 2 tiers × 3 files each (.out, .err, .meta.json)
+	if len(entries) != 6 {
+		t.Fatalf("auditDir %q has %d files, want 6; files: %v",
+			auditDir, len(entries), func() []string {
+				names := make([]string, len(entries))
+				for i, e := range entries {
+					names[i] = e.Name()
+				}
+				return names
+			}())
+	}
+
+	// Count .meta.json files and verify each has exit_code: -1 (sentinel for pre-spawn).
+	metaFiles := 0
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".meta.json") {
+			continue
+		}
+		metaFiles++
+
+		metaPath := filepath.Join(auditDir, e.Name())
+		metaData, err := os.ReadFile(metaPath)
+		if err != nil {
+			t.Fatalf("read %q: %v", metaPath, err)
+		}
+
+		var rec AuditRecord
+		if err := json.Unmarshal(metaData, &rec); err != nil {
+			t.Fatalf("unmarshal %q: %v", metaPath, err)
+		}
+
+		if rec.ExitCode != -1 {
+			t.Errorf("%s: ExitCode = %d, want -1 (pre-spawn sentinel)", e.Name(), rec.ExitCode)
+		}
+		if rec.ResponseBytes != 0 {
+			t.Errorf("%s: ResponseBytes = %d, want 0 (no spawn output)", e.Name(), rec.ResponseBytes)
+		}
+	}
+
+	if metaFiles != 2 {
+		t.Errorf("found %d .meta.json files, want 2", metaFiles)
+	}
+}
+
+// TestDispatch_PostSpawnFailureWritesAuditFiles verifies that when a tier spawns
+// but returns a non-success exit (post-spawn failure), audit files are written
+// with the actual exit code and captured stdout/stderr (drop_014 area7 failure paths).
+func TestDispatch_PostSpawnFailureWritesAuditFiles(t *testing.T) {
+	// Cannot t.Parallel: installFakeClaudeEnvelope calls t.Setenv.
+	// Use a fake-claude that returns a non-zero exit (simulating a post-spawn failure).
+
+	cwd := t.TempDir()
+	writePersona(t, cwd, "test-role", "BODY", []string{}, "haiku")
+
+	// Write chains with only claude-native (the only backend drop_003 supports).
+	chainsToml := `
+[chains]
+test-role = [
+  { backend = "claude-native", model = "haiku", opts = "", wait_max = 0, slots = 0 },
+]
+`
+	writeChainsConfig(t, cwd, chainsToml)
+	writeBackendsConfig(t, cwd, defaultClaudeNativeBackendsTOML)
+	writeMCPConfig(t, cwd)
+
+	// Install fake-claude that returns exit code 1 (simulating a crash/unknown error).
+	// We'll use a simple fake that outputs a minimal envelope then exits non-zero.
+	binDir := t.TempDir()
+	scriptPath := filepath.Join(binDir, "claude")
+	fakeClaudeScript := `#!/bin/sh
+# Minimal fake claude that outputs a valid envelope then exits non-zero.
+cat <<'EOF'
+{
+  "result": "error result",
+  "iterations": []
+}
+EOF
+exit 1
+`
+	if err := os.WriteFile(scriptPath, []byte(fakeClaudeScript), 0o755); err != nil {
+		t.Fatalf("write fake claude script: %v", err)
+	}
+
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+origPath)
+
+	resp, err := Dispatch(context.Background(), Params{
+		Role:   "test-role",
+		Prompt: "test post-spawn failure",
+		CWD:    cwd,
+		DryRun: false,
+	})
+
+	// Dispatch must fail (crash/unknown is unrecoverable).
+	if err == nil {
+		t.Fatalf("Dispatch: expected error on post-spawn crash, got nil; resp=%#v", resp)
+	}
+
+	// Response must have a FallbackChain with 1 failed attempt.
+	if len(resp.FallbackChain) != 1 {
+		t.Fatalf("FallbackChain len = %d, want 1; chain = %#v", len(resp.FallbackChain), resp.FallbackChain)
+	}
+
+	if resp.FallbackChain[0].Outcome != "crash" {
+		t.Errorf("FallbackChain[0].Outcome = %q, want %q", resp.FallbackChain[0].Outcome, "crash")
+	}
+
+	// Verify that audit files were written.
+	auditDir := filepath.Join(cwd, ".claude", "agent-runs")
+	entries, err := os.ReadDir(auditDir)
+	if err != nil {
+		t.Fatalf("ReadDir %q: %v", auditDir, err)
+	}
+
+	// Expect 3 files: .out, .err, .meta.json
+	if len(entries) != 3 {
+		t.Fatalf("auditDir %q has %d files, want 3; files: %v",
+			auditDir, len(entries), func() []string {
+				names := make([]string, len(entries))
+				for i, e := range entries {
+					names[i] = e.Name()
+				}
+				return names
+			}())
+	}
+
+	// Find and verify the .meta.json file.
+	var metaPath string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".meta.json") {
+			metaPath = filepath.Join(auditDir, e.Name())
+			break
+		}
+	}
+	if metaPath == "" {
+		t.Fatalf("no .meta.json file found in auditDir %q", auditDir)
+	}
+
+	metaData, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read %q: %v", metaPath, err)
+	}
+
+	var rec AuditRecord
+	if err := json.Unmarshal(metaData, &rec); err != nil {
+		t.Fatalf("unmarshal %q: %v", metaPath, err)
+	}
+
+	// ExitCode must be the actual non-zero exit (1 in this case).
+	if rec.ExitCode != 1 {
+		t.Errorf("ExitCode = %d, want 1 (actual spawn exit code)", rec.ExitCode)
+	}
+
+	// ResponseBytes should be non-zero (we output an envelope).
+	if rec.ResponseBytes == 0 {
+		t.Errorf("ResponseBytes = %d, want > 0 (spawn produced output)", rec.ResponseBytes)
 	}
 }

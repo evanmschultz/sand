@@ -104,6 +104,46 @@ func selectClaudeNativeTier(role string, tiers []chains.Tier) (chains.Tier, int,
 // deterministic; production keeps it pointed at time.Now.
 var nowFn = time.Now
 
+// writeAttemptAudit writes audit files for a non-success attempt in the dispatch
+// chain loop. Called for each failure-path chain-append to persist per-tier audit
+// metadata even when the dispatch ultimately fails.
+//
+// For pre-spawn failures (slot_timeout, slot-acquire-unknown, unsupported_backend),
+// result is nil and exitCode is -1; WriteAuditFiles creates empty .out/.err files.
+// For post-spawn failures (ctx-cancel, plumbing, retry_on, rate_limit/auth/network/timeout,
+// crash/unknown), result is non-nil and exitCode is the actual spawn exit code;
+// WriteAuditFiles captures the spawn's stdout/stderr.
+//
+// Audit-write errors are logged to os.Stderr but do not abort the dispatch.
+// argvShape is nil for v0 (deferred to drop_015+).
+func writeAttemptAudit(auditDir, runID, role, backend, model string, tier int, exitCode int, result *backends.SpawnResult, argvShape []string) {
+	var stdout, stderr []byte
+	if result != nil {
+		stdout = result.Stdout
+		stderr = result.Stderr
+	}
+	rec := AuditRecord{
+		RunID:          runID,
+		Role:           role,
+		Backend:        backend,
+		Model:          model,
+		Tier:           tier,
+		StartedAt:      time.Time{}, // v0 deferral per NIT-D
+		EndedAt:        time.Time{}, // v0 deferral per NIT-D
+		ExitCode:       exitCode,
+		ArgvShape:      argvShape, // v0: nil per NIT-C/F3
+		PromptBytes:    0,         // not available at failure-path audit call sites
+		ResponseBytes:  len(stdout),
+		ToolsUsedCount: 0, // v0 deferral per NIT-B
+		MCPCallsCount:  0, // v0 deferral per NIT-B
+		Stdout:         stdout,
+		Stderr:         stderr,
+	}
+	if _, err := WriteAuditFiles(auditDir, rec, stdout, stderr); err != nil {
+		fmt.Fprintf(os.Stderr, "sand-dispatch: audit write failed: %v\n", err)
+	}
+}
+
 // Dispatch is the public entry point for sand's `sand.dispatch` MCP tool.
 //
 // Per SAND-SPEC §1.4, Dispatch walks the role's fallback chain tier-by-tier:
@@ -224,6 +264,8 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 
 	// Wet-run path: loop over tiers, recording an Attempt per iteration.
 	chain := make([]Attempt, 0, len(tiers))
+	runID := MintRunID()
+	auditDir := filepath.Join(params.CWD, ".claude", "agent-runs")
 	for i, tier := range tiers {
 		tierIdx := i + 1
 		attempt := Attempt{
@@ -246,11 +288,13 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 					attempt.Outcome = "slot_timeout"
 					attempt.Reason = fmt.Sprintf("all %d slots busy for %s", tier.Slots, waitMax)
 					chain = append(chain, attempt)
+					writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, -1, nil, nil)
 					continue
 				}
 				attempt.Outcome = "unknown"
 				attempt.Reason = slotErr.Error()
 				chain = append(chain, attempt)
+				writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, -1, nil, nil)
 				return Response{FallbackChain: chain}, fmt.Errorf("dispatch: acquire slot for tier %d (%s:%s): %w", tierIdx, tier.Backend, tier.Model, slotErr)
 			}
 			slot = s
@@ -275,6 +319,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			attempt.Outcome = "unsupported_backend"
 			attempt.Reason = resolveErr.Error()
 			chain = append(chain, attempt)
+			writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, -1, nil, nil)
 			continue
 		}
 
@@ -305,12 +350,14 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 				attempt.Outcome = ErrClassTimeout.String()
 				attempt.Reason = runErr.Error()
 				chain = append(chain, attempt)
+				writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, -1, nil, nil)
 				return Response{FallbackChain: chain}, fmt.Errorf("dispatch: tier %d spawn cancelled: %w", tierIdx, runErr)
 			}
 			// Unrecoverable spawn plumbing failure — halt chain.
 			attempt.Outcome = ErrClassUnknown.String()
 			attempt.Reason = runErr.Error()
 			chain = append(chain, attempt)
+			writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, -1, nil, nil)
 			return Response{FallbackChain: chain}, fmt.Errorf("dispatch: spawn tier %d (%s:%s): %w", tierIdx, tier.Backend, tier.Model, runErr)
 		}
 
@@ -321,7 +368,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 		if class == ErrClassSuccess {
 			attempt.Outcome = class.String()
 			chain = append(chain, attempt)
-			return buildSuccessResponse(params, backend, tier, spawnModel, tierIdx, spawnResult, chain)
+			return buildSuccessResponse(params, backend, tier, spawnModel, tierIdx, spawnResult, chain, runID, auditDir, spawnResult.Stdout, spawnResult.Stderr)
 		}
 
 		// drop_009 user-configurable retry policy: when the tier opts in
@@ -336,6 +383,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			attempt.Outcome = outcomeStr
 			attempt.Reason = summarizeStderr(spawnResult.Stderr)
 			chain = append(chain, attempt)
+			writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, spawnResult.ExitCode, &spawnResult, nil)
 			if advance {
 				continue
 			}
@@ -347,6 +395,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			attempt.Outcome = class.String()
 			attempt.Reason = summarizeStderr(spawnResult.Stderr)
 			chain = append(chain, attempt)
+			writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, spawnResult.ExitCode, &spawnResult, nil)
 			continue
 		default:
 			// ErrClassCrash / ErrClassUnknown — unrecoverable per
@@ -355,6 +404,7 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 			attempt.Outcome = class.String()
 			attempt.Reason = summarizeStderr(spawnResult.Stderr)
 			chain = append(chain, attempt)
+			writeAttemptAudit(auditDir, runID, params.Role, tier.Backend, tier.Model, tierIdx, spawnResult.ExitCode, &spawnResult, nil)
 			return Response{FallbackChain: chain}, fmt.Errorf("dispatch: tier %d (%s:%s) %s: exit %d", tierIdx, tier.Backend, tier.Model, class.String(), spawnResult.ExitCode)
 		}
 	}
@@ -395,13 +445,18 @@ func buildSpawnRequest(params Params, p persona.Persona, model, mcpConfigPath st
 // backend actually used). tier.Model is preserved unchanged in the
 // FallbackChain rows per amendment A6.
 //
+// runID, auditDir, stdout, stderr are passed for audit-file capture (drop_014
+// area7). WriteAuditFiles is called before the success Response is returned;
+// audit-write failure does not abort the dispatch but logs to stderr with the
+// "sand-dispatch: audit write failed:" prefix.
+//
 // Parser routing per drop_005 L3 amendment B3: backend.EnvelopeFormat()
 // selects the envelope decoder. "claude_json" (and the empty-string default
 // for backward compat) calls ParseEnvelope; "codex_stream" calls
 // ParseCodexEnvelope. Any other value is a programming error — the switch
 // returns a wrapped ErrUnknownEnvelopeFormat so the dispatch boundary fails
 // loudly rather than silently mis-parsing a new backend's stream.
-func buildSuccessResponse(params Params, backend backends.Backend, tier chains.Tier, servedModel string, tierIdx int, result backends.SpawnResult, chain []Attempt) (Response, error) {
+func buildSuccessResponse(params Params, backend backends.Backend, tier chains.Tier, servedModel string, tierIdx int, result backends.SpawnResult, chain []Attempt, runID, auditDir string, stdout, stderr []byte) (Response, error) {
 	var (
 		env Envelope
 		err error
@@ -426,6 +481,31 @@ func buildSuccessResponse(params Params, backend backends.Backend, tier chains.T
 		durationMs = result.Duration.Milliseconds()
 	}
 
+	// Write audit files (drop_014 area7). On failure, log to stderr with the
+	// exact prefix but do not abort the dispatch.
+	logPath := ""
+	auditRec := AuditRecord{
+		RunID:          runID,
+		Role:           params.Role,
+		Backend:        tier.Backend,
+		Model:          tier.Model,
+		Tier:           tierIdx,
+		StartedAt:      time.Time{}, // v0 deferral per NIT-D
+		EndedAt:        time.Time{}, // v0 deferral per NIT-D
+		ExitCode:       result.ExitCode,
+		ArgvShape:      nil, // v0 deferral per NIT-C/F3
+		PromptBytes:    len(params.Prompt),
+		ResponseBytes:  len(result.Stdout),
+		ToolsUsedCount: 0, // v0 deferral per NIT-B
+		MCPCallsCount:  0, // v0 deferral per NIT-B
+	}
+	metaPath, auditErr := WriteAuditFiles(auditDir, auditRec, stdout, stderr)
+	if auditErr != nil {
+		fmt.Fprintf(os.Stderr, "sand-dispatch: audit write failed: %v\n", auditErr)
+	} else {
+		logPath = metaPath
+	}
+
 	return Response{
 		Result:            env.Result,
 		ServedBy:          tier.Backend + ":" + servedModel,
@@ -438,6 +518,7 @@ func buildSuccessResponse(params Params, backend backends.Backend, tier chains.T
 		PermissionDenials: permissionDenialsFromMap(env.PermissionDenials),
 		ToolCalls:         toolCallsFromOrdered(env.ToolCallsOrdered),
 		FallbackChain:     chain,
+		LogPath:           logPath,
 	}, nil
 }
 
@@ -603,9 +684,10 @@ type Params struct {
 //     tool invocations. drop_007 wires it from the full envelope stream;
 //     drop_008 introduces the field on Response so downstream TOON encoders
 //     can shape the row layout now.
-//   - LogPath is the absolute path to the per-dispatch log file in
-//     /tmp/sand-dispatch/log/<uuid>.json; the file is the source of truth for
-//     deep inspection.
+//   - LogPath is the absolute path to the per-dispatch audit metadata file
+//     <project_dir>/.claude/agent-runs/<run-id>.tier<N>.<backend>.meta.json
+//     (drop_014 area7 audit-capture). Empty when audit-write fails; the
+//     dispatch still succeeds and returns its normal Response.
 type Response struct {
 	Result            string
 	ServedBy          string

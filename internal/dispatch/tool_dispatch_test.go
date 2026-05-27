@@ -239,6 +239,8 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 		"1,Read,12,false",
 		"2,mcp__ta__get,89,false",
 		"3,Bash,234,true",
+		"tools_used_count: 12",
+		"tool_calls_count: 3",
 		"log_path: /tmp/sand-dispatch/log/abc123.json",
 	} {
 		if !strings.Contains(text, want) {
@@ -248,7 +250,8 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 
 	// Pin field order per SAND-SPEC §4: result, served_by, tier,
 	// fallback, duration_ms, cost_usd, tokens, fallback_chain[N],
-	// tools_used[N], permission_denials[N], tool_calls[N], log_path.
+	// tools_used[N], permission_denials[N], tool_calls[N],
+	// tools_used_count, tool_calls_count, log_path.
 	wantOrder := []string{
 		"served_by:",
 		"tier:",
@@ -260,6 +263,8 @@ func TestDispatchHandlerHappyPath(t *testing.T) {
 		"tools_used[",
 		"permission_denials[",
 		"tool_calls[",
+		"tools_used_count:",
+		"tool_calls_count:",
 		"log_path:",
 	}
 	prev := 0
@@ -327,10 +332,99 @@ func TestDispatchHandlerHappyPathEmptyAuditArrays(t *testing.T) {
 		"fallback_chain[1]{tier,backend,model,attempted_at,outcome,reason}:",
 		`1,claude-native,haiku,2026-05-22T01:30:15Z,success,""`,
 		"tool_calls[0]{idx,name,duration_ms,is_error}:",
+		"tools_used_count: 0",
+		"tool_calls_count: 0",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("TOON output missing %q; got:\n%s", want, text)
 		}
+	}
+}
+
+// TestDispatchHandlerInvariantToolCountsBalance pins the OQ-2 semantic
+// contract from drop_014.drop.a7_envelope_counts: every Response.ToolCalls
+// entry is EITHER a successful tool invocation (incrementing a matching
+// ToolsUsed.Count) OR a permission denial (incrementing a matching
+// PermissionDenials.Count). Therefore len(ToolCalls) ==
+// sum(ToolUse.Count) + sum(PermissionDenial.Count) MUST hold.
+func TestDispatchHandlerInvariantToolCountsBalance(t *testing.T) {
+	// No t.Parallel(): mutates package-level dispatchFn.
+	t1 := time.Date(2026, 5, 22, 1, 30, 20, 0, time.UTC)
+	stubResp := Response{
+		Result:   "ok",
+		ServedBy: "claude-native:opus",
+		Tier:     1,
+		ToolsUsed: []ToolUse{
+			{Name: "Read", Count: 2},
+			{Name: "Bash", Count: 1},
+		}, // sum = 3
+		PermissionDenials: []PermissionDenial{
+			{Tool: "Write", Count: 1},
+		}, // sum = 1
+		ToolCalls: []ToolCall{
+			{Index: 1, Name: "Read", DurationMs: 5, IsError: false},
+			{Index: 2, Name: "Read", DurationMs: 7, IsError: false},
+			{Index: 3, Name: "Bash", DurationMs: 12, IsError: false},
+			{Index: 4, Name: "Write", DurationMs: 0, IsError: true}, // permission_denial
+		}, // len = 4
+		FallbackChain: []Attempt{
+			{Tier: 1, Backend: "claude-native", Model: "opus", AttemptedAt: t1, Outcome: "success"},
+		},
+		LogPath: "/tmp/sand-dispatch/log/inv01.json",
+	}
+
+	// Pre-dispatch invariant guard: compute the sums and assert the
+	// invariant BEFORE running through the dispatch handler. This catches
+	// fixture drift at test-write time, not at assertion time.
+	var sumUses int
+	for _, u := range stubResp.ToolsUsed {
+		sumUses += u.Count
+	} // 3
+	var sumDenials int
+	for _, d := range stubResp.PermissionDenials {
+		sumDenials += d.Count
+	} // 1
+	if got, want := len(stubResp.ToolCalls), sumUses+sumDenials; got != want {
+		t.Fatalf("fixture invariant violated: len(ToolCalls)=%d, want sum(ToolsUsed.Count)+sum(PermissionDenials.Count)=%d+%d=%d",
+			got, sumUses, sumDenials, want)
+	}
+
+	withDispatchFn(t, func(ctx context.Context, p Params) (Response, error) {
+		return stubResp, nil
+	})
+
+	req := callToolRequest(map[string]any{
+		"role":   "ta-go-builder",
+		"prompt": "do the thing",
+	})
+
+	result, err := DispatchHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("DispatchHandler returned Go error = %v; want nil", err)
+	}
+	if result == nil {
+		t.Fatalf("result is nil; expected populated CallToolResult")
+	}
+	if result.IsError {
+		t.Fatalf("result.IsError = true; want false on happy path; text=%q", resultText(t, result))
+	}
+
+	text := resultText(t, result)
+	// Assert the two count scalars that pin the invariant.
+	for _, want := range []string{
+		"tools_used_count: 3",
+		"tool_calls_count: 4",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("TOON output missing %q; got:\n%s", want, text)
+		}
+	}
+	// Assert the permission_denials row matches the fixture.
+	if !strings.Contains(text, "permission_denials[1]{tool,count}:") {
+		t.Errorf("TOON output missing permission_denials table header; got:\n%s", text)
+	}
+	if !strings.Contains(text, "Write,1") {
+		t.Errorf("TOON output missing permission_denials row Write,1; got:\n%s", text)
 	}
 }
 

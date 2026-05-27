@@ -224,8 +224,14 @@ func parseGateArg(raw any) (*gate.Allowlist, error) {
 //
 //	result, served_by, tier, fallback, duration_ms, cost_usd, tokens,
 //	fallback_chain[N], tools_used[N], permission_denials[N], tool_calls[N],
-//	log_path.
+//	tools_used_count, tool_calls_count, log_path.
 func responseToTOON(r Response) toon.Object {
+	toolsUsedCount := 0
+	for _, tu := range r.ToolsUsed {
+		toolsUsedCount += tu.Count
+	}
+	toolCallsCount := len(r.ToolCalls)
+
 	return toon.Object{
 		{Key: "result", Value: toon.Block(r.Result)},
 		{Key: "served_by", Value: r.ServedBy},
@@ -243,6 +249,8 @@ func responseToTOON(r Response) toon.Object {
 		{Key: "tools_used", Value: toolsUsedTabular(r.ToolsUsed)},
 		{Key: "permission_denials", Value: permissionDenialsTabular(r.PermissionDenials)},
 		{Key: "tool_calls", Value: toolCallsTabular(r.ToolCalls)},
+		{Key: "tools_used_count", Value: toolsUsedCount},
+		{Key: "tool_calls_count", Value: toolCallsCount},
 		{Key: "log_path", Value: r.LogPath},
 	}
 }

@@ -9,6 +9,20 @@
 // optional --mcp-config + --allowedTools conditional appending, and
 // non-zero-exit-is-data semantics all carry over unchanged.
 //
+// [DUAL-PATH AUTHENTICATION MODEL]
+//
+// Sand supports two distinct authentication paths:
+//
+//   - Built-in Agent tool (OAuth): Dispatches routed through the native
+//     Agent tool inherit the parent session's OAuth context automatically.
+//     No explicit ANTHROPIC_API_KEY is required; auth is ambient.
+//   - Sand-spawned claude -p --bare (explicit API key): When sand dispatches
+//     a role via `claude -p --bare`, the spawned process runs outside the
+//     parent's OAuth context. It requires ANTHROPIC_API_KEY to be present
+//     in the subprocess environment, drawn from either the host environment
+//     passthrough or BackendConfig.Env template entries. See requireAPIKey
+//     for the enforcement contract and ErrAPIKeyRequired for the sentinel.
+//
 // Construction is driven by BackendConfig (loaded by Resolve in
 // backend.go); the templating engine in template.go renders Args / Env /
 // AllowedToolsCSVTemplate entries against the per-dispatch TemplateData.
@@ -27,6 +41,17 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrAPIKeyRequired signals that ANTHROPIC_API_KEY is missing from the
+// rendered subprocess environment when a sand-spawned claude -p --bare
+// dispatch attempts to execute. This sentinel is scoped to the explicit-key
+// path only: OAuth routes (such as dispatch through the built-in Agent tool)
+// flow through the parent's OAuth context and do NOT trigger this error.
+// When sand invokes claude -p --bare for a dispatch, requireAPIKey scans the
+// rendered environment before exec; if the key is absent or whitespace-only,
+// this error is wrapped and returned. Callers should match it via errors.Is
+// so wrapping with %w stays transparent.
+var ErrAPIKeyRequired = errors.New("backends: ANTHROPIC_API_KEY required for non-OAuth claude -p --bare dispatch")
 
 // antiRecursionSuffix is appended to the persona body before it becomes
 // the spawned agent's --append-system-prompt argument. Copied verbatim
@@ -91,6 +116,11 @@ func (b *claudeNativeBackend) EnvelopeFormat() string { return "claude_json" }
 //   - BackendConfig.Env entries are then appended; each `KEY=VALUE` is
 //     rendered through the template engine so `{{env "VAR"}}` inside
 //     VALUE works for forwarding selected host env vars.
+//   - After renderEnv completes, requireAPIKey scans the rendered env slice
+//     for ANTHROPIC_API_KEY; if absent or whitespace-only, an error wrapping
+//     ErrAPIKeyRequired is returned and exec never occurs. (Note: OAuth routes
+//     dispatched via the built-in Agent tool inherit the parent's auth context
+//     and do NOT reach this check; this sentinel guards explicit-key paths only.)
 //
 // Prompt handling: when BackendConfig.StdinPrompt is true, req.Prompt is
 // piped to the child's stdin via a strings.Reader. When false, callers
@@ -120,6 +150,10 @@ func (b *claudeNativeBackend) Spawn(ctx context.Context, req SpawnRequest) (Spaw
 
 	envOut, err := b.renderEnv(td)
 	if err != nil {
+		return SpawnResult{}, err
+	}
+
+	if err := requireAPIKey(envOut); err != nil {
 		return SpawnResult{}, err
 	}
 
@@ -421,6 +455,30 @@ func (b *claudeNativeBackend) renderEnv(td TemplateData) ([]string, error) {
 		return nil, fmt.Errorf("backends: render env: %w", err)
 	}
 	return append(envOut, rendered...), nil
+}
+
+// requireAPIKey scans the env slice for an ANTHROPIC_API_KEY entry and
+// returns ErrAPIKeyRequired (wrapped via fmt.Errorf) if the key is absent
+// or its value is whitespace-only. The helper enforces the explicit-key
+// contract for sand-spawned claude -p --bare processes: env is checked for
+// "ANTHROPIC_API_KEY=" prefix; if found with a non-empty value, requireAPIKey
+// returns nil. If the key is missing or whitespace-only, it returns an error.
+// The key's value typically comes from the host environment passthrough or
+// from BackendConfig.Env template entries (which may forward selected host
+// vars via {{env "VAR"}} expressions).
+func requireAPIKey(env []string) error {
+	for _, kv := range env {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if parts[0] == "ANTHROPIC_API_KEY" {
+			if strings.TrimSpace(parts[1]) != "" {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%w: check that ANTHROPIC_API_KEY is set in the host environment or in BackendConfig.Env", ErrAPIKeyRequired)
 }
 
 // isFlag reports whether a token looks like a CLI flag (starts with

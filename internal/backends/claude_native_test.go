@@ -173,6 +173,7 @@ func findArgAfter(argv []string, flag string) string {
 func TestClaudeNativeBackend_HappyPath(t *testing.T) {
 	argvFile, stdinFile, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	ctx := context.Background()
 	req := SpawnRequest{
@@ -263,6 +264,7 @@ func TestClaudeNativeBackend_HappyPath(t *testing.T) {
 func TestClaudeNativeBackend_ModelHonored(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:        "ta-go-builder",
@@ -288,6 +290,7 @@ func TestClaudeNativeBackend_ModelHonored(t *testing.T) {
 func TestClaudeNativeBackend_OmitsMCPConfigWhenEmpty(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:            "ta-go-builder",
@@ -313,6 +316,7 @@ func TestClaudeNativeBackend_OmitsMCPConfigWhenEmpty(t *testing.T) {
 func TestClaudeNativeBackend_OmitsAllowedToolsWhenEmpty(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:        "ta-go-builder",
@@ -356,6 +360,7 @@ func TestClaudeNativeBackend_MissingBinaryReturnsError(t *testing.T) {
 func TestClaudeNativeBackend_ContextCancellation(t *testing.T) {
 	installFakeClaude(t, "fake-claude-sleep")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -384,6 +389,7 @@ func TestClaudeNativeBackend_ContextCancellation(t *testing.T) {
 func TestClaudeNativeBackend_NonZeroExitNotAnError(t *testing.T) {
 	installFakeClaude(t, "fake-claude-fail")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{Role: "ta-go-builder", Prompt: "x", Model: "haiku", PersonaBody: "B"}
 	result, err := cn.Spawn(context.Background(), req)
@@ -406,6 +412,7 @@ func TestClaudeNativeBackend_EnvFilteredAndPassedThrough(t *testing.T) {
 	_, _, envFile := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
 
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://example.test/ollama")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sentinel-token")
 	t.Setenv("SAND_BACKENDS_TEST_PASSTHROUGH", "passthrough-ok")
@@ -432,6 +439,9 @@ func TestClaudeNativeBackend_EnvFilteredAndPassedThrough(t *testing.T) {
 	}
 	if !strings.Contains(envText, "FAKE_CLAUDE_ARGV_OUT=") {
 		t.Errorf("fake-CLI recorder var should pass through; got:\n%s", envText)
+	}
+	if !strings.Contains(envText, "ANTHROPIC_API_KEY=sentinel-token") {
+		t.Errorf("ANTHROPIC_API_KEY should pass through to child env; got:\n%s", envText)
 	}
 }
 
@@ -516,6 +526,7 @@ func TestClaudeNativeBackend_PreviewOmitsConditionalFlags(t *testing.T) {
 // with empty Env.
 func TestClaudeNativeBackend_BackendConfigEnvAppended(t *testing.T) {
 	_, _, envFile := installFakeClaude(t, "fake-claude-happy")
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	// Seed a project rung fixture with a populated Env list (one literal,
 	// one templated via {{env "..."}}).
@@ -578,6 +589,7 @@ mcp_injection = ""
 func TestClaudeNativeSpawn_GateEditScoped(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	editFiles := []string{
 		"/abs/project/internal/foo/foo.go",
@@ -684,6 +696,7 @@ func TestClaudeNativeSpawn_GateEditScoped(t *testing.T) {
 func TestClaudeNativeSpawn_GateEditPresentEmptyList(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:        "ta-go-builder",
@@ -723,6 +736,7 @@ func TestClaudeNativeSpawn_GateEditPresentEmptyList(t *testing.T) {
 func TestClaudeNativeSpawn_GateBashDenyOnly(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:        "ta-go-builder",
@@ -764,6 +778,7 @@ func TestClaudeNativeSpawn_GateBashDenyOnly(t *testing.T) {
 func TestClaudeNativeSpawn_NilGateUnchanged(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:            "ta-go-builder",
@@ -861,6 +876,7 @@ func TestClaudeNativePreview_GateEditScoped(t *testing.T) {
 func TestClaudeNativeSpawn_GatePreservesPersonaBaseTools(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:            "ta-go-builder",
@@ -925,6 +941,7 @@ func TestClaudeNativeSpawn_GatePreservesPersonaBaseTools(t *testing.T) {
 func TestClaudeNativeSpawn_GatePersonaCSVEmpty(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:            "ta-go-builder",
@@ -965,6 +982,7 @@ func TestClaudeNativeSpawn_GatePersonaCSVEmpty(t *testing.T) {
 func TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	req := SpawnRequest{
 		Role:            "ta-go-builder",
@@ -996,5 +1014,140 @@ func TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit(t *testing.T) {
 	// Should equal just the persona CSV, no scoped entries (because EditPresent=false).
 	if allowedToolsVal != "Read,Glob" {
 		t.Errorf("--allowedTools with EditPresent=false should be persona-only; got %q", allowedToolsVal)
+	}
+}
+
+// TestClaudeNativeBackend_RefusesWithoutAPIKey verifies that Spawn returns
+// ErrAPIKeyRequired (wrapped) when ANTHROPIC_API_KEY is absent from the
+// rendered environment, and that no subprocess is spawned.
+func TestClaudeNativeBackend_RefusesWithoutAPIKey(t *testing.T) {
+	// Install fake claude to verify no subprocess was spawned. The gate fires
+	// before exec.CommandContext, so the recorder files won't be created.
+	// We install the fake to confirm it's never invoked (which would be caught
+	// by the gate firing before PATH lookup creates the recorder env vars).
+	installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "haiku",
+		PersonaBody: "B",
+	}
+
+	result, err := cn.Spawn(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error when ANTHROPIC_API_KEY is absent, got nil")
+	}
+	if !errors.Is(err, ErrAPIKeyRequired) {
+		t.Errorf("error should wrap ErrAPIKeyRequired; got %v", err)
+	}
+
+	// result should be zero-valued (no subprocess ran)
+	if result.ExitCode != 0 || len(result.Stdout) != 0 || len(result.Stderr) != 0 {
+		t.Errorf("SpawnResult should be zero-valued on refusal; got %+v", result)
+	}
+}
+
+// TestClaudeNativeBackend_AcceptsAPIKeyFromProcessEnv verifies that Spawn
+// succeeds when ANTHROPIC_API_KEY is set via t.Setenv (process environment
+// passthrough), and the spawned subprocess receives the key.
+func TestClaudeNativeBackend_AcceptsAPIKeyFromProcessEnv(t *testing.T) {
+	argvFile, _, envFile := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "haiku",
+		PersonaBody: "B",
+	}
+
+	result, err := cn.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	// argv should be recorded (subprocess was spawned)
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+	if len(argv) == 0 {
+		t.Fatal("argv should be recorded when Spawn succeeds")
+	}
+
+	// env should contain ANTHROPIC_API_KEY=sentinel-token
+	envBytes, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("read env recorder: %v", err)
+	}
+	envText := string(envBytes)
+	if !strings.Contains(envText, "ANTHROPIC_API_KEY=sentinel-token") {
+		t.Errorf("env should contain ANTHROPIC_API_KEY=sentinel-token; got:\n%s", envText)
+	}
+}
+
+// TestClaudeNativeBackend_AcceptsAPIKeyFromBackendConfigEnv verifies that
+// Spawn succeeds when ANTHROPIC_API_KEY is supplied via BackendConfig.Env
+// templating (e.g., {{env "FAKE_HOST_API_KEY"}}), even when the process
+// environment ANTHROPIC_API_KEY is unset.
+func TestClaudeNativeBackend_AcceptsAPIKeyFromBackendConfigEnv(t *testing.T) {
+	_, _, envFile := installFakeClaude(t, "fake-claude-happy")
+
+	// Seed a project-rung fixture with BackendConfig.Env containing a templated
+	// ANTHROPIC_API_KEY entry that pulls from a host env var.
+	const tomlWithTemplatedKey = `
+[backends.claude-native]
+command = "claude"
+args = ["-p", "--model", "{{.Model}}"]
+env = ["ANTHROPIC_API_KEY={{env \"FAKE_HOST_API_KEY\"}}"]
+mcp_config_arg = ""
+allowed_tools_arg = ""
+allowed_tools_csv_template = ""
+slots_default = 0
+envelope_format = "claude_json"
+stdin_prompt = true
+mcp_injection = ""
+`
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, ".claude", "sand-backends.toml"), tomlWithTemplatedKey)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", homeDir)
+	t.Setenv("FAKE_HOST_API_KEY", "templated-sentinel")
+	// Explicitly unset process ANTHROPIC_API_KEY to verify the template is
+	// the source of truth, not process env passthrough.
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	b, err := Resolve(projectDir, "claude-native")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	cn := b.(*claudeNativeBackend)
+
+	req := SpawnRequest{Role: "ta-go-builder", Prompt: "x", Model: "haiku", PersonaBody: "B"}
+	result, err := cn.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	// env recorder should contain the templated key
+	envBytes, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("read env recorder: %v", err)
+	}
+	envText := string(envBytes)
+	if !strings.Contains(envText, "ANTHROPIC_API_KEY=templated-sentinel") {
+		t.Errorf("env should contain templated ANTHROPIC_API_KEY=templated-sentinel; got:\n%s", envText)
 	}
 }

@@ -1916,6 +1916,216 @@ db_name = 'cascade'
 type = 'droplet'
 updated = 2026-05-27T00:23:38.081365Z
 
+[drop_014.drop.a6_doc_explicit_api_key]
+created = 2026-05-27T03:02:21.033377Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:33:48.944255Z
+
+[drop_014.drop.a6_doc_explicit_api_key_qa_falsification]
+created = 2026-05-27T03:03:47.786675Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.359079Z
+
+[drop_014.drop.a6_doc_explicit_api_key_qa_proof]
+created = 2026-05-27T03:03:47.773704Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.341949Z
+
+[drop_014.drop.a6_refusal_sentinel]
+created = 2026-05-27T03:02:21.009627Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:19:12.014864Z
+
+[drop_014.drop.a6_refusal_sentinel_qa_falsification]
+created = 2026-05-27T03:03:47.723821Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.258912Z
+
+[drop_014.drop.a6_refusal_sentinel_qa_proof]
+created = 2026-05-27T03:03:47.703676Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.242586Z
+
+[drop_014.drop.a6_refusal_test_fixtures]
+created = 2026-05-27T03:17:59.43856Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:30:47.705005Z
+
+[drop_014.drop.a6_refusal_test_fixtures_qa_falsification]
+created = 2026-05-27T03:17:59.464624Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.325063Z
+
+[drop_014.drop.a6_refusal_test_fixtures_qa_proof]
+created = 2026-05-27T03:17:59.452387Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.308088Z
+
+[drop_014.drop.a6_refusal_tests]
+created = 2026-05-27T03:02:21.021473Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:42:41.747592Z
+
+[drop_014.drop.a6_refusal_tests_qa_falsification]
+created = 2026-05-27T03:03:47.760703Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.292001Z
+
+[drop_014.drop.a6_refusal_tests_qa_proof]
+created = 2026-05-27T03:03:47.747416Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.27577Z
+
+[drop_014.drop.a7_audit_persist]
+created = 2026-05-27T03:01:45.238777Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-27T04:53:38.555912Z
+
+[drop_014.drop.a7_audit_persist_plan_qa_falsification]
+created = 2026-05-27T03:27:36.694568Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:14:03.45124Z
+
+[drop_014.drop.a7_audit_persist_plan_qa_proof]
+created = 2026-05-27T03:27:36.679186Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T03:31:55.187066Z
+
+[drop_014.drop.a7_audit_writer_helper]
+created = 2026-05-27T03:22:19.744802Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:24:11.692681Z
+
+[drop_014.drop.a7_audit_writer_helper_qa_falsification]
+created = 2026-05-27T03:23:56.408624Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.391951Z
+
+[drop_014.drop.a7_audit_writer_helper_qa_proof]
+created = 2026-05-27T03:23:56.389068Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.375044Z
+
+[drop_014.drop.a7_counts_emit]
+created = 2026-05-27T03:23:48.378058Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:27:10.521125Z
+
+[drop_014.drop.a7_counts_emit_qa_falsification]
+created = 2026-05-27T03:23:48.644334Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.492182Z
+
+[drop_014.drop.a7_counts_emit_qa_proof]
+created = 2026-05-27T03:23:48.633528Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.474825Z
+
+[drop_014.drop.a7_counts_invariant]
+created = 2026-05-27T03:23:48.620488Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:39:38.578346Z
+
+[drop_014.drop.a7_counts_invariant_qa_falsification]
+created = 2026-05-27T03:23:48.672634Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.524161Z
+
+[drop_014.drop.a7_counts_invariant_qa_proof]
+created = 2026-05-27T03:23:48.661464Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.507878Z
+
+[drop_014.drop.a7_dispatch_wire_failures]
+created = 2026-05-27T03:22:19.776577Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:51:23.988637Z
+
+[drop_014.drop.a7_dispatch_wire_failures_qa_falsification]
+created = 2026-05-27T03:23:56.464161Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.45776Z
+
+[drop_014.drop.a7_dispatch_wire_failures_qa_proof]
+created = 2026-05-27T03:23:56.450309Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.441007Z
+
+[drop_014.drop.a7_dispatch_wire_success]
+created = 2026-05-27T03:22:19.763171Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T04:37:18.146754Z
+
+[drop_014.drop.a7_dispatch_wire_success_qa_falsification]
+created = 2026-05-27T03:23:56.435425Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T04:53:38.425033Z
+
+[drop_014.drop.a7_dispatch_wire_success_qa_proof]
+created = 2026-05-27T03:23:56.422466Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T04:53:38.408097Z
+
+[drop_014.drop.a7_envelope_counts]
+created = 2026-05-27T03:01:45.256404Z
+db_name = 'cascade'
+type = 'planner'
+updated = 2026-05-27T04:53:38.571887Z
+
+[drop_014.drop.a7_envelope_counts_plan_qa_falsification]
+created = 2026-05-27T03:27:36.728896Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T03:31:31.727673Z
+
+[drop_014.drop.a7_envelope_counts_plan_qa_proof]
+created = 2026-05-27T03:27:36.717536Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T03:31:15.45717Z
+
+[drop_014.drop.a7_plan_qa_falsification]
+created = 2026-05-27T03:02:06.356672Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T03:07:26.08367Z
+
+[drop_014.drop.a7_plan_qa_proof]
+created = 2026-05-27T03:02:06.34328Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T03:07:26.061728Z
+
 [drop_014.drop.area3_codex_hermetic]
 created = 2026-05-26T19:05:42.365678Z
 db_name = 'cascade'
@@ -1974,37 +2184,37 @@ updated = 2026-05-27T00:01:50.71251Z
 created = 2026-05-26T19:05:42.406388Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-26T19:20:10.915375Z
+updated = 2026-05-27T04:53:38.539992Z
 
 [drop_014.drop.area6_plan_qa_falsification]
 created = 2026-05-26T19:07:03.433928Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T19:07:03.433928Z
+updated = 2026-05-27T03:13:48.858723Z
 
 [drop_014.drop.area6_plan_qa_proof]
 created = 2026-05-26T19:07:03.420029Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T19:07:03.420029Z
+updated = 2026-05-27T03:09:28.025289Z
 
 [drop_014.drop.area7_audit_capture]
 created = 2026-05-26T19:05:42.418674Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-26T19:05:42.418674Z
+updated = 2026-05-27T04:53:38.589049Z
 
 [drop_014.drop.area7_plan_qa_falsification]
 created = 2026-05-26T19:07:03.459518Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-26T19:07:03.459518Z
+updated = 2026-05-27T03:10:45.05591Z
 
 [drop_014.drop.area7_plan_qa_proof]
 created = 2026-05-26T19:07:03.446363Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-26T19:07:03.446363Z
+updated = 2026-05-27T03:11:28.594231Z
 
 [drop_014.drop.plan_qa_falsification]
 created = 2026-05-26T19:05:42.351067Z

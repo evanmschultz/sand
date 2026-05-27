@@ -345,23 +345,32 @@ All three route through the claude CLI with `ANTHROPIC_BASE_URL` set to the prov
 ### 8.3 codex-exec
 
 ```
-codex exec \
-  --ephemeral \
-  --ignore-rules \
+CODEX_HOME=<hermetic_dir> codex exec \
   --skip-git-repo-check \
+  --ignore-user-config \
   -C <CWD> \
   -m <model> \
+  -c approval_policy="never" \
+  -c web_search="live" \
+  -c project_doc_max_bytes=0 \
+  -c skills.bundled.enabled=false \
   -c "mcp_servers.<server>={command=\"...\",args=[...],tools={\"<tool>\"={approval_mode=\"approve\"},...}}" \
-  ... (one -c per declared MCP server)
+  ... (one -c per role-injected MCP server)
   <<< <TASK_PROMPT>
 ```
 
 CRITICAL:
-- Do NOT pass `--ignore-user-config` (strips `~/.codex/config.toml` MCPs).
-- DO probe each declared MCP server's `tools/list` via JSON-RPC at dispatch time (5s timeout per server) to discover canonical tool names.
-- DO set per-tool `approval_mode = "approve"` for every discovered tool. Codex's default `prompt` mode auto-cancels in `--ephemeral` mode.
-- Construct the `-c` TOML inline table from a Go struct via `strconv.Quote` for key escaping (handles dots in tool names like `hylla.search.vector`). NEVER hand-build the escape-laden string.
-- See `~/.claude/codex-mcp-dispatch-tool-conversion.md` for the canonical translation rules.
+- Pass `--ignore-user-config` (suppresses project AGENTS.md, skills, ambient-suggestions, memories — the persona body + injected MCP servers are the agent's entire world).
+- `--ignore-rules` is NOT used. Per-dispatch rule enforcement happens via the hermetic `CODEX_HOME=<dir>/rules/default.rules` execpolicy file (one `prefix_rule(...,decision="forbidden")` per git-mutation verb + caller-supplied `bash_deny` patterns).
+- Hermetic CODEX_HOME (`internal/backends/codex_hermetic.go newHermeticCodexHome`): per-dispatch temp dir containing (a) symlinks to `~/.codex/{auth.json,version.json,installation_id,models_cache.json}` for identity passthrough, (b) `rules/default.rules` forbidding 28 git-mutation verbs (`commit/push/add/reset/rebase/merge/checkout/branch/tag/stash/restore/cherry-pick/am/clean/switch/rm/mv/update-ref/gc/prune/worktree/submodule/init/clone/fetch/pull/remote/apply`) plus any caller `bash_deny` patterns; `defer cleanup()` removes the dir on Spawn return.
+- The 4 hermetic `-c` flags are appended unconditionally after the TOML-defined args in `codexExecBackend.renderArgs`:
+  - `approval_policy="never"` — required to make `workspace-write` sandbox non-interactive under `--sandbox`; `codex exec` has no `-a` flag.
+  - `web_search="live"` — re-enables web search at dispatch (HOME config value is suppressed by `--ignore-user-config`).
+  - `project_doc_max_bytes=0` — caps `AGENTS.md` / project-doc instruction budget to zero bytes.
+  - `skills.bundled.enabled=false` — disables runtime-bundled codex skills so the agent's world is only persona + injected MCP.
+- MCP injection: STATIC role-conditional via `RenderRoleConditionalMCPFlags(role, cwd)` in `internal/backends/mcp_inject.go`. No JSON-RPC `tools/list` probe at dispatch time — the per-tool `approval_mode = "approve"` map is materialized from the backend's declared tool list per role (ta always, hylla/context7/gopls non-build-qa, gopls go-only cwd=, playwright fe-only, build-qa = ta-only).
+- Construct the `-c` TOML inline table via Go struct + `strconv.Quote` for key escaping (handles dots in tool names like `hylla.search.vector`). NEVER hand-build the escape-laden string.
+- See `~/.claude/codex-mcp-dispatch-tool-conversion.md` for the canonical name-format translation rules.
 
 ### 8.4 ANTI_RECURSION constant
 
@@ -495,7 +504,7 @@ Rotation: reboot-volatile (`/tmp`). No retention policy needed. The TOON respons
 - 13.3 Sand RESPECTS persona `tools:` allowlists. Pass them as `--allowedTools` to claude / via per-tool `approval_mode = "approve"` for codex. NEVER expand a persona's tool surface from sand.
 - 13.4 Sand does NOT edit persona files. Read-only. Mutations go through `mcp__ta__update` on `claude_agents.agent` records.
 - 13.5 Sand SHELLS OUT to claude CLI + codex CLI. Does NOT bundle a new Anthropic/OpenAI SDK. Inherits auth from those CLIs.
-- 13.6 Sand RESPECTS the `--ignore-rules` + `--skip-git-repo-check` flags for codex. Do NOT add `--ignore-user-config` — it strips MCP servers.
+- 13.6 Sand passes `--skip-git-repo-check` + `--ignore-user-config` to codex. `--ignore-user-config` suppresses project AGENTS.md / skills / ambient-suggestions / memories so the persona body + injected MCP servers are the agent's entire world. `--ignore-rules` is NOT used — per-dispatch rule enforcement is via hermetic `CODEX_HOME=<dir>/rules/default.rules` execpolicy (28 git-mutation verbs + caller `bash_deny`). MCP servers are STATICALLY injected per role via `RenderRoleConditionalMCPFlags`, not via JSON-RPC `tools/list` probe — `--ignore-user-config` does not strip them because they were never read from `~/.codex/config.toml`.
 - 13.7 Sand RUNS multiple dispatches in parallel via goroutines. Flock-based slot caps cap any tier with `slots > 0`; `slots = 0` is unlimited.
 - 13.8 NO semver phrasing in sand's own docs, commits, or cascade records — work units are named by drop / cascade slug, not by version number.
 - 13.9 If a needed capability is missing (e.g. MCP framework gap, codex CLI option absent), REPORT to dev and PAUSE. Do NOT silently work around.
