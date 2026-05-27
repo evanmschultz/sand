@@ -2180,6 +2180,18 @@ db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-05-27T00:01:50.71251Z
 
+[drop_014.drop.area6_build_qa_falsification]
+created = 2026-05-27T04:55:39.375238Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T05:02:44.52173Z
+
+[drop_014.drop.area6_build_qa_proof]
+created = 2026-05-27T04:55:39.358746Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T05:00:09.74752Z
+
 [drop_014.drop.area6_claude_p_tier]
 created = 2026-05-26T19:05:42.406388Z
 db_name = 'cascade'
@@ -2203,6 +2215,18 @@ created = 2026-05-26T19:05:42.418674Z
 db_name = 'cascade'
 type = 'planner'
 updated = 2026-05-27T04:53:38.589049Z
+
+[drop_014.drop.area7_build_qa_falsification]
+created = 2026-05-27T04:55:39.402641Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-05-27T05:02:31.974116Z
+
+[drop_014.drop.area7_build_qa_proof]
+created = 2026-05-27T04:55:39.388738Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-05-27T05:00:58.939207Z
 
 [drop_014.drop.area7_plan_qa_falsification]
 created = 2026-05-26T19:07:03.459518Z
@@ -2232,7 +2256,7 @@ updated = 2026-05-26T19:12:14.605722Z
 created = 2026-05-26T18:58:34.598998Z
 db_name = 'cascade'
 type = 'drop'
-updated = 2026-05-26T19:07:29.924557Z
+updated = 2026-05-27T05:04:11.495079Z
 
 [ta-closeout]
 created = 2026-05-21T04:59:59.072717Z
