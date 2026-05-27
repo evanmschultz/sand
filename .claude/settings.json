@@ -7,7 +7,24 @@
       "mcp__ta__list_sections",
       "mcp__ta__get",
       "mcp__ta__search",
-      "mcp__ta__delete"
+      "mcp__ta__delete",
+      "Bash(go:*)",
+      "Bash(mage:*)"
+    ],
+    "deny": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go run:*)",
+      "Bash(go install:*)",
+      "Bash(go fmt:*)",
+      "Bash(go tool:*)",
+      "Bash(go generate:*)",
+      "Bash(go get:*)",
+      "Bash(go work:*)",
+      "Bash(gofmt:*)",
+      "Bash(gofumpt:*)",
+      "Bash(gopls:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
