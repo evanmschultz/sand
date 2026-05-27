@@ -126,6 +126,14 @@ func (b *codexExecBackend) Spawn(ctx context.Context, req SpawnRequest) (SpawnRe
 		return SpawnResult{}, err
 	}
 
+	// CF-1 fix: when the gate carries writable_dirs, narrow req.CWD to the
+	// first writable dir so codex -C and gopls cwd both see the narrowed root.
+	// Matches bin/agent-dispatch.sh dispatch_codex (codex_cwd = GATE_WRITABLE_DIRS[0])
+	// and AGENT_SANDBOX_SPEC.md:74. nil-Gate path unchanged.
+	if req.Gate != nil && len(req.Gate.WritableDirs) > 0 {
+		req.CWD = req.Gate.WritableDirs[0]
+	}
+
 	args, td, err := b.renderArgs(req)
 	if err != nil {
 		return SpawnResult{}, err

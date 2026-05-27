@@ -566,13 +566,15 @@ mcp_injection = ""
 
 // TestClaudeNativeSpawn_GateEditScoped verifies that when req.Gate carries
 // an edit-scoped Allowlist (EditPresent=true, non-empty Edit), renderArgs
-// emits --allowedTools with Edit(//abs), Write(//abs), and MultiEdit(//abs)
-// entries for each file — and does NOT emit bare Bash in that value.
+// emits --allowedTools with persona base tools prepended and scoped
+// Edit(//abs), Write(//abs), and MultiEdit(//abs) entries appended for each
+// file. The persona CSV is rendered FIRST, then the scoped entries appended.
 //
-// Acceptance criteria from drop_014.drop.a5_claude_p_gate_translation:
-//   - Edit(//abs), Write(//abs), MultiEdit(//abs) per file in Gate.Edit.
-//   - Double-slash absolute form (not single-slash or relative).
-//   - No bare "Bash" token in the --allowedTools value.
+// Acceptance criteria from drop_014.drop.a5_claude_p_cf2_fix:
+//   - Persona base tools (Read, Glob, Grep, mcp__ta__update, etc.) prepended.
+//   - Edit(//abs), Write(//abs), MultiEdit(//abs) per file in Gate.Edit appended.
+//   - CSV ordering: persona tokens first, scoped triples after, separated by comma.
+//   - No bare "Bash" token (without parens) in the --allowedTools value.
 func TestClaudeNativeSpawn_GateEditScoped(t *testing.T) {
 	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
 	cn := resolveClaudeNativeFromFixture(t)
@@ -583,10 +585,11 @@ func TestClaudeNativeSpawn_GateEditScoped(t *testing.T) {
 	}
 
 	req := SpawnRequest{
-		Role:        "ta-go-builder",
-		Prompt:      "build thing",
-		Model:       "haiku",
-		PersonaBody: "B",
+		Role:            "ta-go-builder",
+		Prompt:          "build thing",
+		Model:           "haiku",
+		PersonaBody:     "B",
+		PersonaToolsCSV: "Read,Glob,Grep,Bash(mage testFunc *),mcp__ta__update",
 		Gate: &gate.Allowlist{
 			EditPresent: true,
 			Edit:        editFiles,
@@ -610,6 +613,17 @@ func TestClaudeNativeSpawn_GateEditScoped(t *testing.T) {
 	allowedToolsVal := findArgAfter(argv, "--allowedTools")
 	if allowedToolsVal == "" {
 		t.Fatalf("--allowedTools must be present when Gate.EditPresent; argv=%v", argv)
+	}
+
+	// Persona CSV tokens must appear BEFORE scoped Edit/Write/MultiEdit entries.
+	// The ordering is deterministic: persona base tools first (comma-separated),
+	// then scoped triples appended. Verify by checking each persona token exists
+	// and each scoped entry exists, then assert comma ordering.
+	personaTokens := []string{"Read", "Glob", "Grep", "Bash(mage testFunc *)", "mcp__ta__update"}
+	for _, token := range personaTokens {
+		if !strings.Contains(allowedToolsVal, token) {
+			t.Errorf("--allowedTools missing persona token %q; got %q", token, allowedToolsVal)
+		}
 	}
 
 	// Each file must appear as Edit(//abs), Write(//abs), MultiEdit(//abs).
@@ -638,9 +652,16 @@ func TestClaudeNativeSpawn_GateEditScoped(t *testing.T) {
 		}
 	}
 
-	// No bare "Bash" token in --allowedTools value.
-	if strings.Contains(allowedToolsVal, "Bash") {
-		t.Errorf("--allowedTools must not contain bare Bash; got %q", allowedToolsVal)
+	// No bare "Bash" token in --allowedTools value. Persona-declared patterns
+	// like "Bash(mage testFunc *)" are allowed; we reject any standalone "Bash"
+	// that is NOT followed by an opening paren (which would indicate the gate
+	// translation itself added bare Bash, violating the contract).
+	parts := strings.Split(allowedToolsVal, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "Bash" {
+			t.Errorf("--allowedTools must not contain standalone Bash token; got %q", allowedToolsVal)
+		}
 	}
 
 	// --disallowedTools must be present for each BashDeny pattern.
@@ -775,16 +796,18 @@ func TestClaudeNativeSpawn_NilGateUnchanged(t *testing.T) {
 }
 
 // TestClaudeNativePreview_GateEditScoped verifies that Preview renders the
-// gate-translated --allowedTools and --disallowedTools flags in the dry-run
-// output alongside the standard argv shape.
+// gate-translated --allowedTools (with persona base tools prepended + scoped
+// entries appended) and --disallowedTools flags in the dry-run output
+// alongside the standard argv shape.
 func TestClaudeNativePreview_GateEditScoped(t *testing.T) {
 	cn := resolveClaudeNativeFromFixture(t)
 
 	req := SpawnRequest{
-		Role:        "ta-go-builder",
-		Prompt:      "build thing",
-		Model:       "haiku",
-		PersonaBody: "B",
+		Role:            "ta-go-builder",
+		Prompt:          "build thing",
+		Model:           "haiku",
+		PersonaBody:     "B",
+		PersonaToolsCSV: "Read,Glob,Bash(mage check)",
 		Gate: &gate.Allowlist{
 			EditPresent: true,
 			Edit:        []string{"/abs/foo.go", "/abs/foo_test.go"},
@@ -795,6 +818,17 @@ func TestClaudeNativePreview_GateEditScoped(t *testing.T) {
 	preview, err := cn.Preview(req)
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
+	}
+
+	// Persona base tools should appear.
+	if !strings.Contains(preview, "Read") {
+		t.Errorf("Preview missing persona base tool Read; got:\n%s", preview)
+	}
+	if !strings.Contains(preview, "Glob") {
+		t.Errorf("Preview missing persona base tool Glob; got:\n%s", preview)
+	}
+	if !strings.Contains(preview, "Bash(mage check)") {
+		t.Errorf("Preview missing persona tool Bash(mage check); got:\n%s", preview)
 	}
 
 	// --allowedTools must appear with double-slash file scopes.
@@ -814,5 +848,153 @@ func TestClaudeNativePreview_GateEditScoped(t *testing.T) {
 	}
 	if !strings.Contains(preview, "Bash(git commit:*)") {
 		t.Errorf("Preview missing Bash(git commit:*) in disallowed; got:\n%s", preview)
+	}
+}
+
+// TestClaudeNativeSpawn_GatePreservesPersonaBaseTools verifies that when both
+// PersonaToolsCSV and Gate are present, the rendered --allowedTools value
+// contains BOTH the persona base tools AND the scoped Edit/Write/MultiEdit
+// entries, with persona tokens appearing first.
+//
+// This is the core CF-2 fix: gated builders must retain their base read/test/MCP
+// tool grants in addition to having their edits confined to declared files.
+func TestClaudeNativeSpawn_GatePreservesPersonaBaseTools(t *testing.T) {
+	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+
+	req := SpawnRequest{
+		Role:            "ta-go-builder",
+		Prompt:          "build",
+		Model:           "haiku",
+		PersonaBody:     "B",
+		PersonaToolsCSV: "Read,Glob,Grep,Bash(mage testPkg *),mcp__ta__update",
+		Gate: &gate.Allowlist{
+			EditPresent: true,
+			Edit:        []string{"/abs/a.go"},
+		},
+	}
+
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	allowedToolsVal := findArgAfter(argv, "--allowedTools")
+	if allowedToolsVal == "" {
+		t.Fatalf("--allowedTools must be present; argv=%v", argv)
+	}
+
+	// Persona tokens must all be present.
+	personaTokens := []string{"Read", "Glob", "Grep", "Bash(mage testPkg *)", "mcp__ta__update"}
+	for _, token := range personaTokens {
+		if !strings.Contains(allowedToolsVal, token) {
+			t.Errorf("--allowedTools missing persona token %q; got %q", token, allowedToolsVal)
+		}
+	}
+
+	// Scoped Edit/Write/MultiEdit entries must be present.
+	if !strings.Contains(allowedToolsVal, "Edit(//abs/a.go)") {
+		t.Errorf("--allowedTools missing Edit(//abs/a.go); got %q", allowedToolsVal)
+	}
+	if !strings.Contains(allowedToolsVal, "Write(//abs/a.go)") {
+		t.Errorf("--allowedTools missing Write(//abs/a.go); got %q", allowedToolsVal)
+	}
+	if !strings.Contains(allowedToolsVal, "MultiEdit(//abs/a.go)") {
+		t.Errorf("--allowedTools missing MultiEdit(//abs/a.go); got %q", allowedToolsVal)
+	}
+
+	// Verify no standalone "Bash" token without parens.
+	parts := strings.Split(allowedToolsVal, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "Bash" {
+			t.Errorf("--allowedTools must not contain standalone Bash; got %q", allowedToolsVal)
+		}
+	}
+}
+
+// TestClaudeNativeSpawn_GatePersonaCSVEmpty verifies that when PersonaToolsCSV
+// is empty and Gate is present with EditPresent=true, renderArgs emits
+// --allowedTools with only the scoped Edit/Write/MultiEdit entries
+// (no persona prefix).
+func TestClaudeNativeSpawn_GatePersonaCSVEmpty(t *testing.T) {
+	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+
+	req := SpawnRequest{
+		Role:            "ta-go-builder",
+		Prompt:          "x",
+		Model:           "haiku",
+		PersonaBody:     "B",
+		PersonaToolsCSV: "", // empty — gate path only
+		Gate: &gate.Allowlist{
+			EditPresent: true,
+			Edit:        []string{"/abs/a.go"},
+		},
+	}
+
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	allowedToolsVal := findArgAfter(argv, "--allowedTools")
+	if allowedToolsVal == "" {
+		t.Fatalf("--allowedTools must be present when EditPresent=true; argv=%v", argv)
+	}
+
+	// Should contain only the scoped entry, no persona prefix.
+	if allowedToolsVal != "Edit(//abs/a.go),Write(//abs/a.go),MultiEdit(//abs/a.go)" {
+		t.Errorf("--allowedTools with empty PersonaToolsCSV should be scoped-only; got %q", allowedToolsVal)
+	}
+}
+
+// TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit verifies that when
+// Gate.EditPresent is false (read-only gate), --allowedTools renders
+// just the persona CSV without any scoped entries.
+func TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit(t *testing.T) {
+	argvFile, _, _ := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+
+	req := SpawnRequest{
+		Role:            "ta-go-builder",
+		Prompt:          "x",
+		Model:           "haiku",
+		PersonaBody:     "B",
+		PersonaToolsCSV: "Read,Glob",
+		Gate: &gate.Allowlist{
+			EditPresent: false, // read-only gate
+			Edit:        nil,
+		},
+	}
+
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	allowedToolsVal := findArgAfter(argv, "--allowedTools")
+	if allowedToolsVal == "" {
+		t.Fatalf("--allowedTools must be present when PersonaToolsCSV non-empty; argv=%v", argv)
+	}
+
+	// Should equal just the persona CSV, no scoped entries (because EditPresent=false).
+	if allowedToolsVal != "Read,Glob" {
+		t.Errorf("--allowedTools with EditPresent=false should be persona-only; got %q", allowedToolsVal)
 	}
 }

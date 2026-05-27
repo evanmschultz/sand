@@ -1872,19 +1872,31 @@ updated = 2026-05-26T23:09:10.050159Z
 created = 2026-05-26T23:57:33.528678Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-05-27T01:13:57.718778Z
+updated = 2026-05-27T02:42:55.52322Z
 
 [drop_014.drop.a5_build_qa_proof]
 created = 2026-05-26T23:57:33.517003Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-05-27T01:13:57.703253Z
+updated = 2026-05-27T02:37:20.426933Z
+
+[drop_014.drop.a5_claude_p_cf2_fix]
+created = 2026-05-27T02:22:25.699282Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T02:31:42.13125Z
 
 [drop_014.drop.a5_claude_p_gate_translation]
 created = 2026-05-26T23:57:33.505038Z
 db_name = 'cascade'
 type = 'droplet'
 updated = 2026-05-27T01:13:57.761843Z
+
+[drop_014.drop.a5_codex_cf1_fix]
+created = 2026-05-27T02:22:25.685854Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-05-27T02:26:25.038507Z
 
 [drop_014.drop.a5_codex_gate_translation]
 created = 2026-05-26T23:57:33.49302Z
@@ -1944,7 +1956,7 @@ updated = 2026-05-26T23:43:02.290361Z
 created = 2026-05-26T19:05:42.392855Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-05-27T01:13:57.733538Z
+updated = 2026-05-27T02:45:50.415329Z
 
 [drop_014.drop.area5_plan_qa_falsification]
 created = 2026-05-26T19:07:03.407516Z

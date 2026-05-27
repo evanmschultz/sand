@@ -281,24 +281,47 @@ func (b *claudeNativeBackend) renderArgs(req SpawnRequest) ([]string, TemplateDa
 	// claude -p tool flags per AGENT_SANDBOX_SPEC.md §3 + the bin oracle
 	// (bin/agent-dispatch.sh dispatch_ollama).
 	//
-	// When Gate.EditPresent is true, emit --allowedTools with a comma-separated
+	// When a Gate is present, the --allowedTools value is built by prepending the
+	// persona's base tools (rendered from PersonaToolsCSV) and appending scoped
+	// Edit/Write/MultiEdit entries for each file in Gate.Edit. This ensures gated
+	// builders retain their base read/test/MCP tool grants while having edit scope
+	// confined to the declared files.
+	//
+	// When Gate.EditPresent is true, scoped entries are appended: a comma-separated
 	// list of Edit(//abs), Write(//abs), MultiEdit(//abs) entries for each file
 	// in Gate.Edit. The double-slash absolute form is required: single-slash
 	// denies every edit. The oracle derives this as "//" + path-without-leading-slash
 	// (${ef#/} in bash), so "/abs/foo.go" becomes "Edit(//abs/foo.go)".
 	//
-	// Bare "Bash" is intentionally never added to --allowedTools — it would let the
-	// agent bypass the per-file edit gate via shell writes.
+	// Bare "Bash" (without parens) is never added by the gate translation itself —
+	// it would let the agent bypass the per-file edit gate via shell writes. However,
+	// persona-declared Bash patterns like Bash(mage *) are preserved in the prepended
+	// base tools.
 	//
 	// When Gate.BashDeny is non-empty, emit one --disallowedTools flag with a
-	// space-separated list of Bash(<deny>:*) entries; --disallow wins over
+	// comma-separated list of Bash(<deny>:*) entries; --disallow wins over
 	// --allowedTools so this blocks even persona-granted Bash patterns.
 	//
 	// Nil Gate falls through to the PersonaToolsCSV path (ungated requests keep
 	// their current behavior unchanged).
 	if req.Gate != nil && b.cfg.AllowedToolsArg != "" {
+		var parts []string
+		if req.PersonaToolsCSV != "" {
+			csv, csvErr := b.renderAllowedToolsCSV(req)
+			if csvErr != nil {
+				return nil, td, csvErr
+			}
+			if csv != "" {
+				parts = append(parts, csv)
+			}
+		}
 		if req.Gate.EditPresent {
-			args = append(args, b.cfg.AllowedToolsArg, gateAllowedToolsCSV(req.Gate.Edit))
+			if scoped := gateAllowedToolsCSV(req.Gate.Edit); scoped != "" {
+				parts = append(parts, scoped)
+			}
+		}
+		if len(parts) > 0 {
+			args = append(args, b.cfg.AllowedToolsArg, strings.Join(parts, ","))
 		}
 		if len(req.Gate.BashDeny) > 0 {
 			args = append(args, "--disallowedTools", gateBashDisallowedCSV(req.Gate.BashDeny))

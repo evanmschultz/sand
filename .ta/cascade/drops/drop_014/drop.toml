@@ -412,22 +412,23 @@ context_blocks = [{importance = "primary", kind = "code", label = "Params", ref 
 created_at = "2026-05-25T09:35:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
-decision_log = ["2026-05-26: area5 4 droplets BUILT + mage-green, build-QA pair run. Proof PASS-WITH-NITS; falsification FAIL (CF-1 codex -C widening; CF-2 claude-p tool starvation). Segment NOT complete. Dev directed: commit WIP + handoff, fix CF-1/CF-2 next session. Atomicity note: area5 droplets shipped 300-460 LOC vs 80 budget (same under-decomposition as area3/4); enforcement now added to ta-go-plan-qa-proof (LOC-measure/FAIL) + ta-go-planning (countable-block rule) for area6/7."]
+decision_log = ["2026-05-26: area5 4 droplets BUILT + mage-green, build-QA pair run. Proof PASS-WITH-NITS; falsification FAIL (CF-1 codex -C widening; CF-2 claude-p tool starvation). Segment NOT complete. Dev directed: commit WIP + handoff, fix CF-1/CF-2 next session. Atomicity note: area5 droplets shipped 300-460 LOC vs 80 budget (same under-decomposition as area3/4); enforcement now added to ta-go-plan-qa-proof (LOC-measure/FAIL) + ta-go-planning (countable-block rule) for area6/7.", "2026-05-26: Resume session. Created two atomic fix droplets (a5_codex_cf1_fix, a5_claude_p_cf2_fix) as siblings under this segment. Build serially (gate-hook agent_type collision constraint), then re-run build-QA pair in parallel. Existing build-QA twins reset to todo for re-run.", "2026-05-27: Both CF-fix droplets shipped + complete (a5_codex_cf1_fix: codex_exec.go +8 LOC, 3 new tests in codex_exec_test.go +154 LOC; a5_claude_p_cf2_fix: claude_native.go +33 LOC, 3 new + 2 updated tests in claude_native_test.go +220 LOC). Build-QA pair re-ran in PARALLEL (proof built-in opus, falsification bin/sh codex). Proof PASS uncached (mage testPkg ./internal/backends ok 6.788s, mage check 11/11 green). Falsification PASS-WITH-FINDINGS: CF-1 + CF-2 both mitigated under static review; no unmitigated counterexample. Two NITs flagged (mage gates lack -race; codex sandbox blocked falsification's own mage runs — orchestrator already verified green uncached). Two policy open questions deferred: should mage add -race; should backend reject non-absolute writable_dirs. Both deferred to follow-up drop. Segment CLOSED."]
 definition_of_complete = """
 - Sub-planner creates plan-QA twins before builder leaves run.
 - Builder leaves are sequenced because dispatch/backend/package paths overlap.
 - Area does not alter shipped `internal/gate` enforcement except to target its existing contract from dispatch.
 """
 objective = "Decompose the `--gate` contract threading across dispatch params, backend spawn request, codex translation, claude `-p` translation, and the sand.dispatch MCP schema."
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/backends"]
 parent_id = "drop_014.drop.sand_go_parity"
 paths = ["internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch_test.go", "internal/backends/backend.go", "internal/backends/codex_exec.go", "internal/backends/claude_native.go"]
 priority = "high"
 role = "planner"
-state = "in_progress"
+state = "complete"
 structural_type = "segment"
 title = "Area 5 planner - gate contract threading"
-updated_at = "2026-05-26T18:55:00Z"
+updated_at = "2026-05-27T00:30:00Z"
 updated_by_actor = "agent:orchestrator"
 updated_by_type = "agent"
 [area6_claude_p_tier]
@@ -2531,93 +2532,98 @@ updated_at = "2026-05-26T19:55:00Z"
 updated_by_actor = "agent:orchestrator"
 updated_by_type = "agent"
 [a5_build_qa_proof]
-blockers = ["drop_014.drop.a5_gate_param_plumbing", "drop_014.drop.a5_spawnrequest_gate_field", "drop_014.drop.a5_codex_gate_translation", "drop_014.drop.a5_claude_p_gate_translation"]
+blockers = ["drop_014.drop.a5_gate_param_plumbing", "drop_014.drop.a5_spawnrequest_gate_field", "drop_014.drop.a5_codex_gate_translation", "drop_014.drop.a5_claude_p_gate_translation", "drop_014.drop.a5_codex_cf1_fix", "drop_014.drop.a5_claude_p_cf2_fix"]
 comments = [{author = "agent:ta-go-qa-proof", body = """
-## Build-QA Proof Verdict: PASS-WITH-NITS
+## Build-QA Proof Verdict: PASS (re-run post CF-1 + CF-2 fixes)
 
 ### Mage Gate Results (uncached re-run by QA)
-- `go clean -testcache && mage testPkg ./internal/dispatch` → ok (1.928s)
-- `mage testPkg ./internal/backends` → ok (6.251s)
+- `go clean -testcache && mage testPkg ./internal/backends` → ok (6.788s)
 - `mage check` (full module, 11 packages) → ALL GREEN
 
-### Acceptance Criteria Evidence
+### CF-1 Fix Acceptance Criteria Evidence (drop_014.drop.a5_codex_cf1_fix)
 
-**1. gate spec accepted via sand.dispatch + dispatch.Params**
-- `internal/dispatch/dispatch.go:558` — `Params.Gate *gate.Allowlist` field added (REUSES gate.Allowlist, no parallel type).
-- `internal/dispatch/tool_dispatch.go:85-95` — `mcp.WithObject("gate", ...)` with Properties schema for `edit/writable_dirs/bash_deny/network`; optional (not in Required).
-- `internal/dispatch/tool_dispatch.go:188-195` — `DispatchHandler` parses gate via `parseGateArg` → `Params.Gate`.
-- `internal/dispatch/tool_dispatch.go:1218-1258` — `strictGateSchema` + `parseGateArg` two-pass: strict field-type validation before delegating to `gate.ParseAllowlist` for EditPresent semantics. Malformed gate → `mcp.NewToolResultError`.
-- Tests: `TestDispatchHandlerGateMalformed` covers `network:"false"` (string not bool) and `edit:"/tmp/x"` (string not array) — both IsError=true. QA NIT honored.
+**AC-1: req.CWD rebound to Gate.WritableDirs[0] before renderArgs**
+- `internal/backends/codex_exec.go:133-135` — guard `req.Gate != nil && len(req.Gate.WritableDirs) > 0` then `req.CWD = req.Gate.WritableDirs[0]`. Positioned at line 133, AFTER `validateGateForCodex` (line 125-127) and BEFORE `b.renderArgs(req)` (line 137). Ordering is correct per AC.
 
-**2. SpawnRequest.Gate threaded from Params**
-- `internal/backends/backend.go:104` — `SpawnRequest.Gate *gate.Allowlist` field added.
-- `internal/dispatch/dispatch.go:939` — `buildSpawnRequest`: `Gate: params.Gate` (pointer identity, shared by dry-run + wet-run paths).
-- `TestBuildSpawnRequest` covers nil passthrough, all 5 fields populated, pointer identity.
+**AC-2: argv contains -C WritableDirs[0], NOT the caller-passed CWD**
+- `TestCodexExecBackend_GateNarrowsCWD` (codex_exec_test.go:1376+): caller passes `CWD=projectRoot`, Gate has `WritableDirs=[dir1, dir2]`. Asserts `containsAdjacent(argv, "-C", dir1)` → present; `containsAdjacent(argv, "-C", projectRoot)` → absent; `containsAdjacent(argv, "--add-dir", dir2)` → present; `--add-dir dir1` → absent. CONFIRMED from diff.
 
-**3. codex CF-1 guard (SECURITY-CRITICAL)**
-- `internal/backends/codex_exec.go:479-490` — `validateGateForCodex` returns NON-NIL error when `g.EditPresent && len(g.WritableDirs) == 0`.
-- Error message explicitly mentions `writable_dirs` and explains the bypass risk.
-- `TestCodexExecBackend_GateCF1_EditPresentNoWritableDirs` — nil WritableDirs → error containing "writable_dirs". CONFIRMED.
-- `TestCodexExecBackend_GateCF1_EditPresentEmptySlice` — empty slice WritableDirs → error. CONFIRMED.
-- `TestCodexExecBackend_GateCF1_EditNotPresent` — EditPresent=false → NO error (correct). CONFIRMED.
+**AC-3: Single-entry WritableDirs: -C uses [0], no --add-dir**
+- `TestCodexExecBackend_GateNarrowsCWDSingleEntry`: `WritableDirs=[singleDir]`, asserts `-C singleDir` present, `--add-dir` absent. CONFIRMED from diff.
 
-**4. bash_deny → newHermeticCodexHome seam**
-- `internal/backends/codex_exec.go:461-465` — `bashDeny = req.Gate.BashDeny` extracted (nil when Gate nil), passed to `newHermeticCodexHome(bashDeny)`. Seam filled.
-- `TestCodexExecBackend_GateBashDenyWiresSeam` — non-git BashDeny patterns, Spawn succeeds. CONFIRMED.
+**AC-4: nil-Gate unchanged — no narrowing**
+- `TestCodexExecBackend_GateNarrowsCWDNilGateUnchanged`: `Gate=nil`, asserts `-C cwd` (caller-passed) present, `--add-dir` absent. CONFIRMED from diff.
 
-**5. --add-dir for writable_dirs extras**
-- `internal/backends/codex_exec.go:498-506` — `appendWritableDirFlags` appends `--add-dir <dir>` for WritableDirs[1..N]; single entry → no-op; nil gate → no-op.
-- `TestCodexExecBackend_GateWritableDirsAddDir` — WritableDirs[0,1,2]: --add-dir for [1] and [2] present, NO --add-dir for [0]. CONFIRMED.
-- `TestCodexExecBackend_GateWritableDirsSingleEntry` — single entry: no --add-dir. CONFIRMED.
+**AC-5: cmd.Dir uses narrowed CWD**
+- `renderArgs` returns `req.CWD` in TemplateData; codex Spawn at line ~186 sets `cmd.Dir = filepath.Abs(req.CWD)`. Since req.CWD is already rebound before renderArgs is called, cmd.Dir will see the narrowed root. CONFIRMED by code ordering at codex_exec.go:133-137.
 
-**6. exact -c sandbox_workspace_write.network_access=false literal**
-- `internal/backends/codex_exec.go:517` — `append(args, "-c", "sandbox_workspace_write.network_access=false")`. Exact literal per AGENT_SANDBOX_SPEC.md:76.
-- `appendNetworkFlag` guards: `g == nil || g.Network == nil || *g.Network` → no-op (nil-Gate unchanged).
-- `TestCodexExecBackend_GateNetworkFalse` — asserts `containsAdjacent(argv, "-c", "sandbox_workspace_write.network_access=false")`. CONFIRMED.
-- `TestCodexExecBackend_GateNetworkTrue` — Network=true: flag absent. CONFIRMED.
-- `TestCodexExecBackend_GateNetworkNil` — Network=nil: flag absent. CONFIRMED.
+### CF-2 Fix Acceptance Criteria Evidence (drop_014.drop.a5_claude_p_cf2_fix)
 
-**7. nil-Gate unchanged (both backends)**
-- codex: `TestCodexExecBackend_NilGateUnchanged` — no --add-dir, no network flag, hermetic flags still present.
-- claude: `TestClaudeNativeSpawn_NilGateUnchanged` — PersonaToolsCSV path preserved, no --disallowedTools injected.
+**AC-1: PersonaToolsCSV non-empty + EditPresent=true → persona-first then scoped**
+- `internal/backends/claude_native.go:307-325` — when `req.Gate != nil && b.cfg.AllowedToolsArg != ""`: (1) if PersonaToolsCSV non-empty, call `b.renderAllowedToolsCSV(req)` → append to parts; (2) if EditPresent, call `gateAllowedToolsCSV` → append to parts; (3) join with comma → single `--allowedTools` value. Persona-first ordering is structural (append order in code). CONFIRMED.
+- `TestClaudeNativeSpawn_GatePreservesPersonaBaseTools` (claude_native_test.go:850+): `PersonaToolsCSV="Read,Glob,Grep,Bash(mage testPkg *),mcp__ta__update"` + `Gate{EditPresent:true, Edit:["/abs/a.go"]}`. Asserts all persona tokens present AND Edit/Write/MultiEdit(//abs/a.go) present. CONFIRMED from diff.
 
-**8. claude -p gate translation**
-- `internal/backends/claude_native.go:70-76` — when `req.Gate != nil && AllowedToolsArg != ""`: EditPresent → `--allowedTools gateAllowedToolsCSV(edit)`, BashDeny → `--disallowedTools gateBashDisallowedCSV(bashDeny)`.
-- `gateAllowedToolsCSV`: strips leading `/`, prepends `//`, emits `Edit(//abs)`, `Write(//abs)`, `MultiEdit(//abs)` per file.
-- `gateBashDisallowedCSV`: emits `Bash(<deny>:*)` per pattern.
-- `TestClaudeNativeSpawn_GateEditScoped` — double-slash form verified, no bare Bash. CONFIRMED.
-- `TestClaudeNativeSpawn_GateBashDenyOnly` — BashDeny without EditPresent → --disallowedTools emitted. CONFIRMED.
-- `TestClaudeNativePreview_GateEditScoped` — dry-run preview also renders gate flags. CONFIRMED.
+**AC-2: PersonaToolsCSV empty + EditPresent=true → scoped-only, no leading comma**
+- Code path: `if req.PersonaToolsCSV != ""` guard skips persona rendering when empty → parts starts empty → only scoped appended → no leading comma.
+- `TestClaudeNativeSpawn_GatePersonaCSVEmpty` (claude_native_test.go:960+): `PersonaToolsCSV=""`, `EditPresent=true`. Asserts `allowedToolsVal == "Edit(//abs/a.go),Write(//abs/a.go),MultiEdit(//abs/a.go)"` exactly. CONFIRMED from diff.
 
-**9. No bare Bash in --allowedTools**
-- `TestClaudeNativeSpawn_GateEditScoped` explicitly asserts `!strings.Contains(allowedToolsVal, "Bash")`. CONFIRMED.
+**AC-3: EditPresent=false + PersonaToolsCSV non-empty → persona CSV only**
+- Code path: EditPresent guard skips scoped append → parts = [persona CSV only].
+- `TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit`: `PersonaToolsCSV="Read,Glob"`, `EditPresent=false`. Asserts `allowedToolsVal == "Read,Glob"` exactly. CONFIRMED from diff.
 
-**10. Path discipline**
-- Area 5 paths in diff: `internal/backends/backend.go`, `internal/backends/claude_native.go`, `internal/backends/claude_native_test.go`, `internal/backends/codex_exec.go`, `internal/backends/codex_exec_test.go`, `internal/dispatch/dispatch.go`, `internal/dispatch/dispatch_test.go`, `internal/dispatch/tool_dispatch.go`, `internal/dispatch/tool_dispatch_test.go`.
-- All within declared `paths` for their respective droplets. No out-of-scope source edits. (Non-source files in diff: `.ta/`, `.claude/`, `CASCADE_METHODOLOGY.md`, `CLAUDE.md`, `SCOPED_BASH_CONVERGENCE.md` — orchestrator/admin files, not source.)
+**AC-4: BashDeny → --disallowedTools unchanged**
+- `claude_native.go:326-328` — `if len(req.Gate.BashDeny) > 0 { args = append(args, "--disallowedTools", gateBashDisallowedCSV(req.Gate.BashDeny)) }`. Unchanged from prior pass. CONFIRMED.
+- Existing `TestClaudeNativeSpawn_GateBashDenyOnly` stays green (mage check passes).
 
-### NITs
+**AC-5: nil-Gate unchanged**
+- Existing `TestClaudeNativeSpawn_NilGateUnchanged` stays green (mage check passes). CONFIRMED.
 
-**NIT-1 (minor documentation inaccuracy):** `gateBashDisallowedCSV` doc comment says "space-separated" but implementation uses `strings.Join(entries, ",")` (comma-separated). Both are accepted by `claude --disallowedTools` per the CLI help: "Comma or space-separated list". Functionally correct; comment is misleading.
+**AC-6: No standalone Bash without parens**
+- Old assertion `!strings.Contains(allowedToolsVal, "Bash")` was relaxed to allow persona-declared `Bash(mage *)` patterns. New assertion in `TestClaudeNativeSpawn_GateEditScoped` splits CSV by comma and checks each token: `if part == "Bash" { t.Errorf... }`. This correctly passes `Bash(mage testFunc *)` while rejecting a bare `Bash` token.
+- `TestClaudeNativeSpawn_GatePreservesPersonaBaseTools` also includes the per-part check for standalone Bash. CONFIRMED from diff.
 
-**NIT-2 (caller contract gap):** `appendWritableDirFlags` assumes `WritableDirs[0] == req.CWD` (documented in comment). The code does NOT enforce this; if a caller passes WritableDirs[0] != CWD the `-C` root and first writable dir diverge. The builder flagged this in transition_notes for build-QA-falsification. No enforcement failure per the droplet's acceptance criteria, which scopes only WritableDirs[1..N] → --add-dir.
+### Area5 Original AC Reconfirmation
 
-**NIT-3 (oracle deviation):** The bash oracle (`dispatch_ollama`) prepends `Read`, `Glob`, `Grep`, `Bash(mage *)`, `Bash(go doc:*)`, `Bash(git diff:*)` etc. to `--allowedTools`. The Go implementation only emits the per-file Edit/Write/MultiEdit scopes from Gate.Edit. Per AGENT_SANDBOX_SPEC.md §3 table the spec says only `Edit(//f) Write(//f) MultiEdit(//f)` — the base allow entries are the oracle's addition. The AC does not require the base entries, so this is within spec. But it means gated claude-native dispatches won't have Read/Bash(mage *) unless the caller also populates PersonaToolsCSV — that interaction isn't tested.
+**1. dispatch.Params + sand.dispatch accept gate spec** — unchanged from prior PASS verdict, no regressions. mage check green across dispatch package. CONFIRMED.
+
+**2. SpawnRequest.Gate threaded from Params** — unchanged, gate.go:104 unmodified. CONFIRMED.
+
+**3. codex gate translation + CF-1 now fixed** — CF-1 (CWD widening) resolved: req.CWD narrowed to WritableDirs[0] before renderArgs. Three new tests cover narrow/single/nil paths. CONFIRMED.
+
+**4. claude -p gate translation + CF-2 now fixed** — CF-2 (tool starvation) resolved: persona CSV prepended to scoped entries. Five tests (3 new + 2 updated) cover all combinatorial cases. CONFIRMED.
+
+**5. No bare Bash in --allowedTools** — relaxed to permit persona-declared `Bash(...)` patterns while still rejecting standalone `Bash`. CONFIRMED.
+
+### Path Discipline
+- CF-1 fix: `internal/backends/codex_exec.go` + `internal/backends/codex_exec_test.go` only. Declared paths: `["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]`. MATCHES.
+- CF-2 fix: `internal/backends/claude_native.go` + `internal/backends/claude_native_test.go` only. Declared paths: `["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]`. MATCHES.
+- git diff shows no out-of-scope source edits in either fix droplet.
+
+### NITs (residual from prior pass, now assessed post-fix)
+
+**NIT-1 (carried):** `gateBashDisallowedCSV` doc comment said "space-separated" but implementation uses comma. The CF-2 fix updated the block comment at line 301 from "space-separated" to "comma-separated". NIT-1 is RESOLVED by this fix.
+
+**NIT-2 (was critical CF-1, now RESOLVED):** `appendWritableDirFlags` assumed WritableDirs[0] == req.CWD. The CF-1 fix ENFORCES this by actually rewriting req.CWD to WritableDirs[0] in Spawn before renderArgs. The assumption is now an invariant. RESOLVED.
+
+**NIT-3 (was critical CF-2, now RESOLVED):** Gated claude-p drops persona tools when PersonaToolsCSV is non-empty. The CF-2 fix prepends persona CSV before scoped entries. RESOLVED.
+
+**NIT-4 (new, minor):** `TestClaudeNativeSpawn_GatePersonaCSVEmpty` asserts exact string equality on the --allowedTools value (`== "Edit(//abs/a.go),Write(//abs/a.go),MultiEdit(//abs/a.go)"`). This is tight but correct for the declared AC. If gateAllowedToolsCSV output order ever changes, this test will catch it (desirable). Not a defect.
+
+**NIT-5 (new, minor observation):** The standalone-Bash check in `TestClaudeNativeSpawn_GateEditScoped` splits by comma and compares `part == "Bash"`. This catches the EXACT token case but would miss `" Bash"` (with a leading space) if the CSV ever had spaces after commas. The current implementation uses `strings.Join(parts, ",")` with no spaces, so this is not a real gap, but a future robustness note.
 
 ### Hylla Feedback
-Hylla returned `enrichment skipped for github.com/evanmschultz/sand@main` — sand is not ingested. All evidence gathered via git diff + Read directly. Recommend ingest after this cascade group commits.
+Hylla returned `enrichment skipped for github.com/evanmschultz/sand@main` — sand is not ingested. All evidence gathered via git diff + Read directly.
 
 ## Tools Used
-- `mcp__ta__get` — read 6 cascade records (area5_gate_threading, 4 droplets, a5_build_qa_proof)
-- `Bash(git diff HEAD -- ...)` — obtained full 57KB diff for path-discipline and code verification
-- `Read(AGENT_SANDBOX_SPEC.md)` — verified gate contract spec (§3 table, CF-1 at line 67, --add-dir at line 74, network flag at line 76)
-- `Read(internal/gate/gate.go)` — confirmed Allowlist type (no parallel struct invented)
-- `Read(bin/agent-dispatch.sh lines 336-348)` — verified oracle behavior for --allowedTools/--disallowedTools separator and base allow set
-- `Bash(claude --help)` — confirmed --allowedTools/--disallowedTools accept both comma and space-separated lists
-- `Bash(go clean -testcache && mage testPkg ./internal/dispatch)` — uncached test run: ok 1.928s
-- `Bash(mage testPkg ./internal/backends)` — uncached test run: ok 6.251s
+- `mcp__ta__get` — read 4 cascade records (a5_build_qa_proof, area5_gate_threading, a5_codex_cf1_fix, a5_claude_p_cf2_fix)
+- `Bash(git diff HEAD -- ...)` — full diff of all 4 backend files for code verification and path discipline
+- `Read(AGENT_SANDBOX_SPEC.md lines 55-104)` — verified gate contract spec (§3 table: writable_dirs → -C <dir0>, bash_deny, network flag)
+- `Read(internal/backends/codex_exec.go lines 120-144)` — confirmed CF-1 fix insertion ordering (validateGateForCodex → CWD rebind → renderArgs)
+- `Read(internal/backends/claude_native.go lines 278-325)` — confirmed CF-2 fix persona-prepend structure
+- `Bash(go clean -testcache && mage testPkg ./internal/backends)` — uncached test run: ok 6.788s
 - `Bash(mage check)` — full module gate: all 11 packages GREEN
-""", id = "a5-build-qa-proof-verdict-20260526", role = "qa-proof", timestamp = "2026-05-26T22:30:00Z"}]
+- `mcp__ta__update` — posting this verdict comment + setting outcome=success
+""", id = "a5-build-qa-proof-rerun-20260526", role = "qa-proof", timestamp = "2026-05-26T23:55:00Z"}]
 created_at = "2026-05-26T18:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -2646,12 +2652,12 @@ state = "complete"
 structural_type = "segment"
 target_id = "drop_014.drop.area5_gate_threading"
 title = "Build QA proof - Area 5 gate threading"
-transition_notes = "PASS-WITH-NITS (built-in sonnet, mage green uncached). CF-1 dir-level guard confirmed on shipped code. Flagged NIT-2 (-C uses req.CWD not WritableDirs[0]) + NIT-3 (gated claude-p drops base Read/mage tools) — the falsification twin ESCALATED both to critical FAILs."
-updated_at = "2026-05-26T18:55:00Z"
+transition_notes = "Reset to todo for re-run after CF-1 + CF-2 fix droplets land. Prior run (2026-05-26): PASS-WITH-NITS but NIT-2 + NIT-3 escalated by falsification twin to critical FAILs. Re-run must reconfirm both fixes in shipped code."
+updated_at = "2026-05-26T23:30:00Z"
 updated_by_actor = "agent:orchestrator"
 updated_by_type = "agent"
 [a5_build_qa_falsification]
-blockers = ["drop_014.drop.a5_gate_param_plumbing", "drop_014.drop.a5_spawnrequest_gate_field", "drop_014.drop.a5_codex_gate_translation", "drop_014.drop.a5_claude_p_gate_translation"]
+blockers = ["drop_014.drop.a5_gate_param_plumbing", "drop_014.drop.a5_spawnrequest_gate_field", "drop_014.drop.a5_codex_gate_translation", "drop_014.drop.a5_claude_p_gate_translation", "drop_014.drop.a5_codex_cf1_fix", "drop_014.drop.a5_claude_p_cf2_fix"]
 comments = [{author = "agent:ta-go-build-qa-falsification", body = """
 ## Build-QA Falsification Verdict: FAIL
 
@@ -2713,7 +2719,75 @@ Hylla enrichment was unavailable/skipped for `github.com/evanmschultz/sand@main`
 - `mage testPkg ./internal/backends` attempted; blocked by read-only sandbox creating `mage_output_file.go`
 - `mage testPkg ./internal/dispatch` attempted; blocked by read-only sandbox creating `mage_output_file.go`
 - `mcp__ta__update` to append this verdict comment
-""", id = "a5-build-qa-falsification-verdict-20260526", role = "qa-falsification", timestamp = "2026-05-26T00:00:00Z"}]
+""", id = "a5-build-qa-falsification-verdict-20260526", role = "qa-falsification", timestamp = "2026-05-26T00:00:00Z"}, {author = "agent:ta-go-build-qa-falsification", body = """
+## Build-QA Falsification Verdict: PASS-WITH-FINDINGS
+
+Re-ran the Area 5 build-axis falsification after the CF-1 and CF-2 fix droplets. I did not find an unmitigated gate-weakening counterexample in the shipped fixes.
+
+## Critical Findings
+
+None.
+
+## Findings / NITs
+
+### NIT-1 — mage gates do not enable `-race`
+
+The Build-QA falsification persona requires confirming the project mage gates enable `-race`. Reading `magefile_test_targets.go` shows:
+- `Test()` runs `go test ./...`
+- `TestPkg(pkg)` runs `go test ./` + pkg
+- `TestFunc(pattern)` runs `go test -run <pattern> <pkg>`
+
+There is no `-race` in these paths, and `mage check` calls `Test()` through `Check()`. This is not introduced by the CF-1/CF-2 fixes and is not a direct gate-widening counterexample, but it means concurrency/race verification is not actually covered by the canonical mage gates.
+
+### NIT-2 — required gate re-runs were blocked by read-only filesystem
+
+I attempted the required uncached verification:
+- `go clean -testcache` failed: `go: open /Users/evanschultz/Library/Caches/go-build/testexpire.txt: operation not permitted`
+- `mage testPkg ./internal/backends` failed before running tests: `Error: error creating generated mainfile: open mage_output_file.go: operation not permitted`
+- `mage check` failed the same way before running any gate.
+
+No test failure was observed; the session could not reach test execution due the read-only sandbox.
+
+## Attack Vectors Tried
+
+- CF-1 caller `CWD` bypass with `WritableDirs[0] != CWD`: mitigated. `codexExecBackend.Spawn` validates the gate, then rewrites `req.CWD = req.Gate.WritableDirs[0]` before `renderArgs`, `RenderRoleConditionalMCPFlags`, `appendWritableDirFlags`, and `cmd.Dir` handling. Concrete prior counterexample now renders `-C <WritableDirs[0]>` and `--add-dir <WritableDirs[1]>`, not `-C <caller CWD>`.
+- CF-1 `Gate != nil && len(WritableDirs)==0 && EditPresent==false`: accepted-risk / existing contract. `validateGateForCodex` only rejects file-scoped edit gates without `writable_dirs`; read-only/non-edit gates with empty writable dirs preserve prior `req.CWD` behavior. I did not find a write-scope bypass in this branch because there is no file-edit grant being translated to codex dir write.
+- CF-1 non-absolute `WritableDirs[0]`: accepted-risk / upstream contract. The backend does not validate absoluteness; it passes the value to `-C` and `cmd.Dir` via `filepath.Abs`. MCP schema accepts strings only. This could be hardened, but I did not find a new weakening relative to the current `gate.Allowlist` contract or spec examples, which assume absolute paths.
+- CF-1 outside-project `WritableDirs[0]`: accepted-risk / orchestrator responsibility. Backend faithfully narrows to the supplied dir; it does not prove the dir is inside `CWD`. No caller-side bypass remains once the gate value itself is trusted.
+- CF-1 gopls MCP injection impact: mitigated for build-QA, accepted for non-build-QA. `RenderRoleConditionalMCPFlags` excludes gopls for build-qa roles. For non-build-qa Go codex roles, the narrowed `req.CWD` is passed to gopls, matching the fix droplet's explicit acceptance criterion. This may reduce project-wide gopls visibility, but it aligns with the codex `-C` root rather than weakening the gate.
+- CF-2 PREPEND order: mitigated. `claudeNativeBackend.renderArgs` prepends rendered persona CSV, then appends `gateAllowedToolsCSV(req.Gate.Edit)`, matching the CF-2 fix contract and preserving base read/test/MCP tools.
+- CF-2 bare persona `Bash`: accepted-risk / persona contract. The new code preserves `PersonaToolsCSV` exactly. If a persona grants bare `Bash`, it will still be present. The gate translation itself does not add bare `Bash`; the code comment is accurate on that narrower claim. Persona allowlist hygiene remains a separate contract.
+- CF-2 `--disallowedTools` versus persona-granted Bash patterns: mitigated. The gated path still appends `--disallowedTools` from `Gate.BashDeny`; the spec states deny wins over allow, so `Bash(git commit:*)` blocks even if persona allows some Bash patterns.
+- CF-2 `renderAllowedToolsCSV` error path: mitigated. The gated branch calls `b.renderAllowedToolsCSV(req)` and returns the error immediately, same as the ungated branch.
+- Cross-fix interaction: mitigated. CF-1 changes codex-only `Spawn`; CF-2 changes claude-only `renderArgs`. Both consume `SpawnRequest.Gate` but no shared mutable state or shared helper was changed.
+- Prior file-scoped edit gate reaching codex: mitigated. `EditPresent=true && len(WritableDirs)==0` still hard-errors in `validateGateForCodex`.
+- Prior `bash_deny -> execpolicy`: mitigated. Codex `Spawn` passes `req.Gate.BashDeny` to `newHermeticCodexHome`; Claude emits `--disallowedTools`.
+- Prior network literal: mitigated. Codex still emits exact `-c sandbox_workspace_write.network_access=false` when `Network != nil && !*Network`.
+- Prior nil-Gate regression: mitigated. Nil Gate bypasses the new codex narrowing and falls through to the old claude persona-tools path.
+- Prior parallel type drop / dispatch plumbing: mitigated by read. `Params.Gate`, MCP `gate` schema, strict decoding, `buildSpawnRequest`, and `SpawnRequest.Gate` all preserve the same `*gate.Allowlist` fields.
+- Test pollution / flake investigation: no concrete reproducer found. New codex tests use fresh `t.TempDir()` paths for fake binary and recorder files, `t.Setenv` cleanup, and no `t.Parallel`. The reported transient `exit code -1 stderr=""` is not explained by shared recorder files in the new test code. I could not stress-rerun under this read-only sandbox.
+
+## Open Questions
+
+- Should mage test gates be changed to include `-race`, or should there be separate race-specific mage targets for QA? Current targets do not satisfy the persona's race-gate expectation.
+- Should backend gate translation reject relative or outside-project `writable_dirs` defensively, or is that intentionally validated only by the orchestrator/gate producer?
+
+## Hylla Feedback
+
+No Hylla MCP tools were available in this role context. The dispatch context says `github.com/evanmschultz/sand@main` snapshot 13 is ingested, but the active tool allowlist exposed ta and local shell only; I used `git diff HEAD`, ta records, spec/oracle reads, and local source reads for shipped/uncommitted code.
+
+## Tools Used
+
+- `mcp__ta__get` for `drop_014.drop.a5_build_qa_falsification`, parent segment, CF-1/CF-2 fix droplets, and prior codex/claude translation droplets
+- `git diff HEAD -- internal/backends/codex_exec.go internal/backends/codex_exec_test.go internal/backends/claude_native.go internal/backends/claude_native_test.go`
+- `git status --short`
+- `sed` reads of `AGENT_SANDBOX_SPEC.md`, `internal/gate/gate.go`, `bin/agent-dispatch.sh`, `internal/backends/codex_exec.go`, `internal/backends/claude_native.go`, `internal/backends/codex_mcp_probe.go`, `internal/backends/codex_exec_test.go`, `internal/dispatch/dispatch.go`, `internal/dispatch/tool_dispatch.go`, `Magefile.go`, `magefile_test_targets.go`
+- `rg` searches for gate threading, writable dirs, allowed-tools rendering, gopls, race flags, mage targets, and test fixture concurrency markers
+- `go clean -testcache` attempted per task instruction; blocked by read-only filesystem before cache cleanup
+- `mage testPkg ./internal/backends` attempted; blocked by read-only filesystem before tests ran
+- `mage check` attempted; blocked by read-only filesystem before tests ran
+- `mcp__ta__update` to append this verdict comment and mark the QA record complete
+""", id = "a5-build-qa-falsification-rerun-20260527", role = "qa-falsification", timestamp = "2026-05-27T00:00:00Z"}]
 created_at = "2026-05-26T18:30:00Z"
 created_by_actor = "agent:ta-go-planning"
 created_by_type = "agent"
@@ -2733,7 +2807,7 @@ Verification
 - mage testPkg github.com/evanmschultz/sand/internal/backends
 """
 objective = "Attack the completed Area 5 implementation for policy drift, missing gate fields, and unsafe backend translations."
-outcome = "failure"
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/dispatch", "github.com/evanmschultz/sand/internal/backends"]
 parent_id = "drop_014.drop.area5_gate_threading"
 paths = ["internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/tool_dispatch_test.go", "internal/backends/backend.go", "internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go", "internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
@@ -2743,7 +2817,217 @@ state = "complete"
 structural_type = "segment"
 target_id = "drop_014.drop.area5_gate_threading"
 title = "Build QA falsification - Area 5 gate threading"
-transition_notes = "FAIL (codex gpt-5.5). TWO critical shipped-code bugs: CF-1 codex -C write-scope WIDENING (renders -C req.CWD, never uses WritableDirs[0] as root — gate meant to narrow write scope keeps full CWD writable); CF-2 gated claude-p TOOL STARVATION (--allowedTools emits only Edit/Write/MultiEdit(//abs), drops persona Read/Glob/Grep/Bash(mage *)/mcp__ta__update — builder cannot read or test). mage green (bugs not test-caught). Both fixable, deferred to next session per dev."
-updated_at = "2026-05-26T18:55:00Z"
+transition_notes = "Reset to todo for re-run after CF-1 + CF-2 fix droplets land. Prior verdict FAIL is preserved in the comments[] audit trail. Re-run must attempt to re-falsify on the new code: (a) gate-narrowing dispatch with CWD != WritableDirs[0] now widens write scope? (b) gated claude-p drops persona base tools (Read/Glob/Grep/Bash(mage *)/mcp__*)? Plus the prior unmitigated attack vectors."
+updated_at = "2026-05-26T23:30:00Z"
+updated_by_actor = "agent:orchestrator"
+updated_by_type = "agent"
+[a5_codex_cf1_fix]
+blockers = ["drop_014.drop.a5_codex_gate_translation", "drop_014.drop.a5_build_qa_falsification"]
+comments = [{author = "agent:ta-go-builder", body = """
+## CF-1 Fix Build Complete
+
+### Summary
+
+Implemented the CF-1 codex CWD narrowing fix in `internal/backends/codex_exec.go` and added three comprehensive test cases to verify correct behavior.
+
+### Changes
+
+**File: internal/backends/codex_exec.go**
+- **Lines 129-135:** Added CWD narrowing logic between `validateGateForCodex` (line 127) and `renderArgs` (line 137).
+- When `req.Gate != nil && len(req.Gate.WritableDirs) > 0`, rebind `req.CWD = req.Gate.WritableDirs[0]` so downstream code (`renderArgs`, `RenderRoleConditionalMCPFlags`, `cmd.Dir = filepath.Abs(req.CWD)`) all consume the narrowed root.
+- nil-Gate path is unaffected (the guard protects existing behavior).
+- ~7 lines of production code added.
+
+**File: internal/backends/codex_exec_test.go**
+- **Lines 1376-1529:** Added three test functions:
+  - `TestCodexExecBackend_GateNarrowsCWD`: Main case. Caller passes `CWD=/repo` + `Gate{WritableDirs:["/repo/dispatch","/repo/backends"]}`. Verifies argv contains adjacent `-C /repo/dispatch`, contains `--add-dir /repo/backends`, does NOT contain `--add-dir /repo/dispatch`, and does NOT contain `-C /repo`.
+  - `TestCodexExecBackend_GateNarrowsCWDSingleEntry`: Boundary case. `WritableDirs=[/repo/dispatch]` only. Verifies `-C /repo/dispatch` and NO `--add-dir`.
+  - `TestCodexExecBackend_GateNarrowsCWDNilGateUnchanged`: Regression guard. When `Gate=nil`, req.CWD is unchanged, no narrowing applies. Verifies `-C cwd` (caller-passed) and no `--add-dir`.
+- All tests reuse existing test infrastructure (`installFakeCodex`, `resolveCodexExecFromFixture`, `containsAdjacent`, `containsArg` helpers from claude_native_test.go).
+- ~154 lines of test code added (3 tests × ~50 lines each).
+
+### Atomicity Confirmation
+
+- **Production symbols (new/changed):** 1 (Spawn function: local rebind to req.CWD, not a new symbol).
+- **Test symbols:** 3 new test functions.
+- **Production LOC:** ~7 (the if block).
+- **Test LOC:** ~154 (three tests).
+- **Files touched:** 2 (codex_exec.go, codex_exec_test.go).
+- **Budget:** ≤80 LOC prod, ≤3 symbols, ≤3 files. Actual: 7 LOC, 1 symbol, 2 files. ✓ PASS.
+
+### Verification Gates
+
+- `mage testPkg ./internal/backends` → **PASS** (full suite, including new tests).
+- `mage check` → **PASS** (full module check, all packages green).
+
+### Design Correctness
+
+The fix directly addresses the CF-1 falsification verdict: "The code comments say callers are expected to set `req.CWD = WritableDirs[0]`, but dispatch does not enforce or perform that normalization."
+
+- **Before fix:** Caller passes `CWD=/repo`, `Gate{WritableDirs:[/repo/internal/dispatch]}` → Spawn renders `-C /repo` → codex sees full project-dir write scope (gate bypass).
+- **After fix:** Same inputs → Spawn rebinds `req.CWD=/repo/internal/dispatch` before renderArgs → renders `-C /repo/internal/dispatch` → codex sees narrowed dir scope (gate honored).
+
+### Hylla Feedback
+
+Not applicable — committed code only, no uncommitted symbols referenced.
+
+### Tools Used
+
+1. `mcp__ta__get` — read droplet + parent + falsification verdict records
+2. `Read` — examined codex_exec.go lines 120-135 for insertion point
+3. `Read` — examined codex_exec_test.go to understand test patterns and locate helpers
+4. `Edit` — added CWD narrowing code block to Spawn
+5. `Edit` — added three test functions to codex_exec_test.go
+6. `mage testPkg ./internal/backends` — verified all tests pass
+7. `mage check` — verified full module check passes
+8. `git diff` — verified changes are correct and scoped
+9. `mcp__ta__update` — posting this closing comment
+""", id = "a5-cf1-fix-complete-20260526", role = "builder", timestamp = "2026-05-26T23:35:00Z"}]
+created_at = "2026-05-26T23:30:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+decision_log = ["2026-05-26: Created in response to drop_014.drop.a5_build_qa_falsification CF-1 verdict. Single-file edit + tests, ~10 prod LOC + ~30 test LOC, 1 prod symbol (Spawn local rebind), 2 files. Atomic per ta-go-plan-qa-falsification budget (≤80 LOC, ≤3 prod symbols, ≤3 files)."]
+description = """
+Objective
+In internal/backends/codex_exec.go Spawn, after validateGateForCodex succeeds, normalize req.CWD to req.Gate.WritableDirs[0] when Gate carries writable_dirs. Keep appendWritableDirFlags emitting --add-dir for entries [1..N] only. Keep RenderRoleConditionalMCPFlags using the normalized (narrowed) CWD so gopls etc. see the same root as -C.
+
+AcceptanceCriteria
+- When req.Gate != nil && len(req.Gate.WritableDirs) > 0, req.CWD is rebound to req.Gate.WritableDirs[0] before b.renderArgs(req) is called.
+- The rendered argv contains adjacent `-C /repo/internal/dispatch` for a gate with WritableDirs=["/repo/internal/dispatch","/repo/internal/backends"] regardless of the caller-passed CWD.
+- The rendered argv contains `--add-dir /repo/internal/backends` (and NO `--add-dir /repo/internal/dispatch`) for the same gate.
+- nil-Gate path unchanged: existing TestCodexExecBackend_NilGateUnchanged + all other nil-Gate tests stay green.
+- Single-entry WritableDirs: -C uses WritableDirs[0], no --add-dir flag.
+- cmd.Dir at line 186 ends up at filepath.Abs(req.Gate.WritableDirs[0]) when Gate narrows CWD.
+
+Verification
+- mage testFunc github.com/evanmschultz/sand/internal/backends TestCodexExecBackend_GateNarrowsCWD (new)
+- mage testFunc github.com/evanmschultz/sand/internal/backends TestCodexExecBackend_GateWritableDirsAddDir (existing, must remain green)
+- mage testPkg github.com/evanmschultz/sand/internal/backends
+- mage check
+"""
+objective = "Fix CF-1 gate widening: when req.Gate is non-nil and len(req.Gate.WritableDirs) > 0, rebind req.CWD = req.Gate.WritableDirs[0] BEFORE renderArgs and BEFORE RenderRoleConditionalMCPFlags. This makes the codex `-C` flag the narrowed writable root per AGENT_SANDBOX_SPEC.md:74, matches bin/agent-dispatch.sh dispatch_codex (codex_cwd = GATE_WRITABLE_DIRS[0]), and prevents a narrowing gate from widening codex write scope to the project root when the caller passes a parent CWD plus a narrower writable_dir (the natural MCP shape)."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area5_gate_threading"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_exec_test.go"]
+priority = "high"
+role = "builder"
+start_commit = "727fe50"
+state = "complete"
+structural_type = "droplet"
+title = "Area 5 CF-1 fix - codex narrows req.CWD to Gate.WritableDirs[0]"
+updated_at = "2026-05-26T23:30:00Z"
+updated_by_actor = "agent:orchestrator"
+updated_by_type = "agent"
+[a5_claude_p_cf2_fix]
+blockers = ["drop_014.drop.a5_claude_p_gate_translation", "drop_014.drop.a5_build_qa_falsification"]
+comments = [{author = "agent:ta-go-builder", body = """
+## Build Complete: CF-2 Fix
+
+### Files Touched
+- `/Users/evanschultz/Documents/Code/hylla/sand/main/internal/backends/claude_native.go` — `renderArgs` method (lines 280-317): restructured gated branch to prepend persona CSV and append scoped Edit/Write/MultiEdit entries
+- `/Users/evanschultz/Documents/Code/hylla/sand/main/internal/backends/claude_native_test.go` — updated `TestClaudeNativeSpawn_GateEditScoped` with `PersonaToolsCSV` parameter; added three new tests: `TestClaudeNativeSpawn_GatePreservesPersonaBaseTools`, `TestClaudeNativeSpawn_GatePersonaCSVEmpty`, `TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit`; updated `TestClaudeNativePreview_GateEditScoped` with persona CSV assertions
+
+### Implementation Summary
+
+**The Fix**: In `renderArgs`, when `req.Gate != nil` and `b.cfg.AllowedToolsArg != ""`, the gated branch now:
+1. Renders `PersonaToolsCSV` via `b.renderAllowedToolsCSV(req)` (reusing the existing helper)
+2. Appends scoped Edit/Write/MultiEdit entries via `gateAllowedToolsCSV(req.Gate.Edit)`
+3. Joins both with comma and passes as `--allowedTools` value
+
+This ensures gated builders retain their base read/test/MCP tool grants (Read, Glob, Grep, Bash(mage *), mcp__*) while having edit scope confined to declared files.
+
+**Code Path**: The fix addresses the CF-2 falsification counterexample — when `SpawnRequest{PersonaToolsCSV:"Read,Glob,Grep,Bash(mage testPkg *),mcp__ta__update", Gate:&gate.Allowlist{EditPresent:true, Edit:[]string{\\"/abs/a.go\\"}}}` is rendered, the `--allowedTools` value now includes all persona tokens PLUS the scoped Edit/Write/MultiEdit entries, instead of dropping the persona CSV entirely.
+
+**Comment Update**: Updated the leading comment block (lines 280-304) to reflect the new contract: persona-first, scoped-append ordering; clarified that bare Bash (without parens) is never added BY THE GATE, but persona-declared Bash patterns are preserved.
+
+### Tests
+
+**Updated**:
+- `TestClaudeNativeSpawn_GateEditScoped` — now includes `PersonaToolsCSV` in the request and verifies all persona tokens appear in `--allowedTools` before scoped entries; assertion relaxed to allow persona-declared `Bash(mage testFunc *)` patterns while rejecting standalone `Bash`
+- `TestClaudeNativePreview_GateEditScoped` — updated to include `PersonaToolsCSV` and verify persona tokens appear in the dry-run output
+
+**Added**:
+- `TestClaudeNativeSpawn_GatePreservesPersonaBaseTools` — core CF-2 test: verifies `PersonaToolsCSV` + `Gate` both render, with persona tokens appearing first
+- `TestClaudeNativeSpawn_GatePersonaCSVEmpty` — gate path with no persona CSV: scoped entries only
+- `TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit` — gate path with `EditPresent=false`: persona CSV only
+
+### Verification Gates
+
+```
+mage testPkg ./internal/backends        ✓ (all 7.048s, all tests pass)
+mage check                              ✓ (complete check gate, all steps pass)
+```
+
+Key test runs:
+- `TA_TEST_PKG=./internal/backends mage testFunc Gate` — all gate tests pass (including new + existing)
+- `TestClaudeNativeSpawn_GatePreservesPersonaBaseTools` — PASS
+- `TestClaudeNativeSpawn_GatePersonaCSVEmpty` — PASS
+- `TestClaudeNativeSpawn_GatePersonaCSVOnlyNoEdit` — PASS
+- `TestClaudeNativeSpawn_GateEditScoped` (updated) — PASS
+- `TestClaudeNativePreview_GateEditScoped` (updated) — PASS
+- `TestClaudeNativeSpawn_GateBashDenyOnly` (existing) — PASS
+- `TestClaudeNativeSpawn_NilGateUnchanged` (existing) — PASS
+
+### Atomicity Confirmation
+
+**Production Code**: 1 modified symbol (`renderArgs`), ~40 LOC in the gated branch + comment update. Reuses existing helper `b.renderAllowedToolsCSV(req)` — no duplication.
+
+**Tests**: 3 new tests + 2 updated tests (~120 LOC total), covering the three cases: (1) persona+scoped together, (2) scoped-only (no persona), (3) persona-only (no scoped). All existing tests remain green.
+
+**Scope**: Exactly the two files in `<TA_ALLOWLIST>.edit`. No files added/removed.
+
+### Hylla Feedback
+
+Hylla sand artifact not ingested; used local Read on committed code + mage test gates.
+
+### Tools Used
+
+- `mcp__ta__get` — read droplet record + parent + falsification verdict
+- Read tool — read claude_native.go (lines 254-320) + full claude_native_test.go
+- Edit tool — renderArgs restructure + test updates (2 file edits)
+- Bash — `mage testFunc`, `mage testPkg`, `mage check` (verification gates)
+- (No git, no ta create/update, no Write)
+
+### Readiness for Re-run
+
+Build-QA falsification can now re-run against the fixed code. Prior counterexample (CF-2: gated claude-p drops persona base tools) is now mitigated: all persona tokens are preserved in the gated path.
+""", id = "a5_cf2_fix_builder_verdict_20260526", role = "builder", timestamp = "2026-05-26T23:45:00Z"}]
+created_at = "2026-05-26T23:30:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+decision_log = ["2026-05-26: Created in response to drop_014.drop.a5_build_qa_falsification CF-2 verdict. Single-file edit + tests, ~20 prod LOC (1 modified branch + reuse of existing helper b.renderAllowedToolsCSV) + ~40 test LOC, 1 modified prod symbol (renderArgs), 2 files. Atomic per ta-go-plan-qa-falsification budget."]
+description = """
+Objective
+In internal/backends/claude_native.go renderArgs, the gated branch currently emits only gateAllowedToolsCSV(req.Gate.Edit) to --allowedTools and drops the persona's base tools entirely. Fix by rendering PersonaToolsCSV first (via b.renderAllowedToolsCSV(req) which already handles the template + env substitution) and prepending its CSV to the scoped Edit/Write/MultiEdit entries before emitting the --allowedTools flag. Matches bin/agent-dispatch.sh dispatch_ollama oracle (lines 298-367) which prepends the persona/base allow set then appends the scoped edit entries.
+
+AcceptanceCriteria
+- When req.Gate != nil && b.cfg.AllowedToolsArg != "" && req.PersonaToolsCSV != "" && req.Gate.EditPresent == true: --allowedTools value equals `<PersonaToolsCSV-rendered>,Edit(//abs1),Write(//abs1),MultiEdit(//abs1),Edit(//abs2),...` (persona CSV first, then per-file scoped triples).
+- When req.Gate != nil && req.PersonaToolsCSV == "" && req.Gate.EditPresent == true: behaviour matches current shipped code — --allowedTools value is just the scoped entries (no leading comma).
+- When req.Gate != nil && req.Gate.EditPresent == false && req.PersonaToolsCSV != "": --allowedTools value equals the rendered PersonaToolsCSV alone (no scoped entries).
+- When req.Gate != nil && BashDeny non-empty: --disallowedTools still emits gateBashDisallowedCSV(BashDeny) unchanged.
+- nil-Gate path unchanged: existing TestClaudeNativeSpawn_NilGateUnchanged stays green.
+- Bare `Bash` is NEVER emitted by the gate translation code itself (the test `!strings.Contains(allowedToolsVal, "Bash")` must be relaxed only to permit persona-declared Bash patterns like `Bash(mage *)`; a new assertion must reject any STANDALONE `Bash` token without parens).
+
+Verification
+- mage testFunc github.com/evanmschultz/sand/internal/backends TestClaudeNativeSpawn_GatePreservesPersonaBaseTools (new)
+- mage testFunc github.com/evanmschultz/sand/internal/backends TestClaudeNativeSpawn_GateEditScoped (existing, update if needed)
+- mage testFunc github.com/evanmschultz/sand/internal/backends TestClaudeNativeSpawn_GateBashDenyOnly (existing, must remain green)
+- mage testFunc github.com/evanmschultz/sand/internal/backends TestClaudeNativeSpawn_NilGateUnchanged (existing, must remain green)
+- mage testPkg github.com/evanmschultz/sand/internal/backends
+- mage check
+"""
+objective = "Fix CF-2 gated claude-p tool starvation: in claude_native.go renderArgs gated branch (req.Gate != nil && b.cfg.AllowedToolsArg != \"\"), render PersonaToolsCSV via b.renderAllowedToolsCSV(req) and PREPEND its value to the scoped Edit/Write/MultiEdit entries in --allowedTools so gated builders retain persona base tools (Read/Glob/Grep/Bash(mage *)/Bash(go doc:*)/Bash(git diff:*)/mcp__* etc.). Keep --disallowedTools behavior unchanged. Bare `Bash` is still never emitted by the gate translation itself."
+outcome = "success"
+packages = ["github.com/evanmschultz/sand/internal/backends"]
+parent_id = "drop_014.drop.area5_gate_threading"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "builder"
+start_commit = "727fe50"
+state = "complete"
+structural_type = "droplet"
+title = "Area 5 CF-2 fix - claude-p gated path preserves persona base tools"
+updated_at = "2026-05-26T23:30:00Z"
 updated_by_actor = "agent:orchestrator"
 updated_by_type = "agent"

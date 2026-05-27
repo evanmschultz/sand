@@ -1373,6 +1373,160 @@ func TestCodexExecBackend_NilGateUnchanged(t *testing.T) {
 	}
 }
 
+// TestCodexExecBackend_GateNarrowsCWD verifies CF-1 fix: when req.Gate is
+// non-nil and len(req.Gate.WritableDirs) > 0, req.CWD is narrowed to
+// WritableDirs[0] before renderArgs and RenderRoleConditionalMCPFlags.
+// This makes the codex `-C` flag the narrowed writable root per
+// AGENT_SANDBOX_SPEC.md:74 and matches bin/agent-dispatch.sh dispatch_codex.
+func TestCodexExecBackend_GateNarrowsCWD(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	projectRoot := t.TempDir()
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	// Caller passes CWD = projectRoot (the natural dispatch root) but
+	// Gate.WritableDirs = [dir1, dir2]. The narrowing must rebind
+	// req.CWD to dir1 before renderArgs so -C points to dir1, not projectRoot.
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         projectRoot,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  true,
+			WritableDirs: []string{dir1, dir2},
+			BashDeny:     nil,
+			Network:      nil,
+		},
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with Gate.WritableDirs narrowing: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// argv must contain -C dir1 (WritableDirs[0], the narrowed root).
+	if !containsAdjacent(argv, "-C", dir1) {
+		t.Errorf("argv missing -C %s (WritableDirs[0]); argv=%v", dir1, argv)
+	}
+	// argv must contain --add-dir dir2 (WritableDirs[1]).
+	if !containsAdjacent(argv, "--add-dir", dir2) {
+		t.Errorf("argv missing --add-dir %s (WritableDirs[1]); argv=%v", dir2, argv)
+	}
+	// argv must NOT contain -C projectRoot (the caller-passed CWD should be
+	// narrowed away).
+	if containsAdjacent(argv, "-C", projectRoot) {
+		t.Errorf("argv must NOT contain -C %s (should be narrowed to WritableDirs[0]); argv=%v", projectRoot, argv)
+	}
+	// argv must NOT contain --add-dir dir1 (it maps to -C, not --add-dir).
+	for i := 0; i < len(argv)-1; i++ {
+		if argv[i] == "--add-dir" && argv[i+1] == dir1 {
+			t.Errorf("argv must NOT contain --add-dir %s for WritableDirs[0]; argv=%v", dir1, argv)
+		}
+	}
+}
+
+// TestCodexExecBackend_GateNarrowsCWDSingleEntry verifies the boundary case:
+// when WritableDirs contains exactly ONE entry, no --add-dir is emitted
+// and -C uses that single entry (even if it differs from caller-passed CWD).
+func TestCodexExecBackend_GateNarrowsCWDSingleEntry(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	projectRoot := t.TempDir()
+	singleDir := t.TempDir()
+
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "x",
+		Model:       "gpt-5.4",
+		CWD:         projectRoot,
+		PersonaBody: "B",
+		Gate: &gate.Allowlist{
+			EditPresent:  true,
+			WritableDirs: []string{singleDir}, // only one entry
+			BashDeny:     nil,
+			Network:      nil,
+		},
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with single WritableDirs: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// argv must contain -C singleDir (the narrowed and only entry).
+	if !containsAdjacent(argv, "-C", singleDir) {
+		t.Errorf("argv missing -C %s (WritableDirs[0]); argv=%v", singleDir, argv)
+	}
+	// argv must NOT contain any --add-dir (single entry only).
+	if containsArg(argv, "--add-dir") {
+		t.Errorf("argv must NOT contain --add-dir when WritableDirs has exactly 1 entry; argv=%v", argv)
+	}
+}
+
+// TestCodexExecBackend_GateNarrowsCWDNilGateUnchanged verifies that
+// the CWD narrowing only applies when Gate != nil. Existing nil-Gate
+// behavior is unchanged.
+func TestCodexExecBackend_GateNarrowsCWDNilGateUnchanged(t *testing.T) {
+	argvFile, _, _ := installFakeCodex(t, "fake-codex-happy")
+	ce := resolveCodexExecFromFixture(t)
+
+	cwd := t.TempDir()
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "nil gate test",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+		Gate:        nil, // explicitly nil — no narrowing
+	}
+
+	result, err := ce.Spawn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Spawn with nil Gate: unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit code: got %d want 0; stderr=%q", result.ExitCode, string(result.Stderr))
+	}
+
+	argvBytes, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv recorder: %v", err)
+	}
+	argv := splitArgv(argvBytes)
+
+	// argv must contain -C cwd (caller-passed CWD, no narrowing).
+	if !containsAdjacent(argv, "-C", cwd) {
+		t.Errorf("nil Gate: argv missing -C %s; argv=%v", cwd, argv)
+	}
+	// argv must NOT contain any --add-dir (no gate, no writable_dirs).
+	if containsArg(argv, "--add-dir") {
+		t.Errorf("nil Gate: argv must NOT contain --add-dir; argv=%v", argv)
+	}
+}
+
 // assertArgvContainsMCPServer is a test helper that fails if no `-c`
 // flag in argv has a value starting with the given mcp_servers prefix.
 func assertArgvContainsMCPServer(t *testing.T, argv []string, prefix string) {
