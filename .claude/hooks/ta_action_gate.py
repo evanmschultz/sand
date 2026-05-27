@@ -230,6 +230,61 @@ def _git_mutation(command):
     return None
 
 
+# 2026-05-27 mage-only-discipline baseline. A scoped subagent NEVER runs raw
+# `go <verb>` for: test, build, vet, run, install, fmt, mod, tool, generate,
+# get, work, env. These MUST go through mage targets (test-func, format-file,
+# vet-pkg, etc.) per `feedback_subagent_scope_tightening.md`. Read-only verbs
+# (doc, list, version, help) stay allowed.
+_RAW_GO_FORBIDDEN_VERBS = frozenset({
+    "test", "build", "vet", "run", "install", "fmt", "mod", "tool",
+    "generate", "get", "work",
+})
+
+
+def _raw_go(command):
+    """HARDCODED BASELINE (orch-independent): return the forbidden `go <verb>`
+    string if any shell segment invokes one, else None. Detects `go test`,
+    `go build`, `go vet`, `go run`, `go install`, `go fmt`, `go mod`, `go tool`,
+    `go generate`, `go get`, `go work`. Path-prefixed (`/usr/local/go/bin/go
+    test`) and env-prefixed (`GOFLAGS=... go test`) variants are caught. Pairs
+    with `gofmt`/`gofumpt` block in `_raw_fmt`. Read-only verbs (`go doc`,
+    `go list`, `go env`, `go version`, `go help`) are NOT in this set and pass."""
+    cmd = command or ""
+    for seg in re.split(r"[;&|\n]+", cmd):
+        tokens = seg.split()
+        n = len(tokens)
+        i = 0
+        while i < n and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
+            i += 1  # skip env assignments
+        if i < n and tokens[i].rsplit("/", 1)[-1] == "go" and i + 1 < n:
+            verb = tokens[i + 1]
+            if verb in _RAW_GO_FORBIDDEN_VERBS:
+                return "go " + verb
+    return None
+
+
+_RAW_FMT_BINS = frozenset({"gofmt", "gofumpt"})
+
+
+def _raw_fmt(command):
+    """HARDCODED BASELINE (orch-independent): return the forbidden fmt-binary
+    name if any shell segment invokes one, else None. Detects bare `gofmt` /
+    `gofumpt` (with optional path prefix). All formatting MUST go through
+    `mage format` / `mage format-file` per `feedback_subagent_scope_tightening.md`."""
+    cmd = command or ""
+    for seg in re.split(r"[;&|\n]+", cmd):
+        tokens = seg.split()
+        n = len(tokens)
+        i = 0
+        while i < n and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
+            i += 1  # skip env assignments
+        if i < n:
+            bin_name = tokens[i].rsplit("/", 1)[-1]
+            if bin_name in _RAW_FMT_BINS:
+                return bin_name
+    return None
+
+
 def _bash_forbidden(command, deny_patterns):
     cmd = command or ""
     # Derive the git verbs the gate forbids (e.g. "git commit" -> "commit") so we
@@ -349,9 +404,10 @@ def main():
         deny = allowlist.get("bash_deny", [])
         if not isinstance(deny, list):
             deny = []
-        # Baseline first: git mutation is ORCHESTRATOR-ONLY for every scoped
-        # agent, independent of bash_deny. Then the orch-supplied bash_deny.
-        hit = _git_mutation(cmd) or _bash_forbidden(cmd, deny)
+        # Baseline first: git mutation + raw `go <verb>` + raw gofmt/gofumpt are
+        # ORCHESTRATOR-ONLY for every scoped agent, independent of bash_deny.
+        # Then the orch-supplied bash_deny.
+        hit = _git_mutation(cmd) or _raw_go(cmd) or _raw_fmt(cmd) or _bash_forbidden(cmd, deny)
         if hit:
             decision = "deny"
             reason = (
