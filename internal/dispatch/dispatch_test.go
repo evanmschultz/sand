@@ -766,6 +766,8 @@ func installFakeClaudeEnvelope(t *testing.T, envelopeFixture string) {
 // multi-tool fixture (different aggregation pattern from the canonical
 // happy fixture).
 func TestDispatchHappyPath(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
+
 	t.Run("happy multi tool aggregation", func(t *testing.T) {
 		installFakeClaudeEnvelope(t, "claude-envelope-happy.json")
 
@@ -1018,6 +1020,8 @@ const failoverChainsTOML = `
 // installFakeClaudeSequence so the fake CLI returns different outcomes on
 // consecutive invocations within a single Dispatch call.
 func TestDispatchFailoverChain(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
+
 	t.Run("rate_limit_advances_to_next_tier", func(t *testing.T) {
 		installFakeClaudeSequence(t, "rate-limit,success")
 
@@ -1228,6 +1232,8 @@ func TestDispatchFailoverChain(t *testing.T) {
 //     to the next tier and the second tier succeeds. The recorded
 //     FallbackChain pins both attempts.
 func TestDispatchFailoverChainRetryOn(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
+
 	// retryOnAdvanceChainsTOML opts tier 1 into retry_on=["rate_limit"];
 	// tier 2 is the default-policy fallthrough so the override only fires
 	// on the first tier. Both tiers use claude-native + slots=0 (unlimited)
@@ -1566,6 +1572,7 @@ func TestResponseV02Fields(t *testing.T) {
 // absolute path (drop_014 area7).
 func TestDispatch_SuccessPathWritesAuditFiles(t *testing.T) {
 	// Cannot t.Parallel: installFakeClaudeEnvelope calls t.Setenv.
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 	installFakeClaudeEnvelope(t, "claude-envelope-happy.json")
 
 	cwd := t.TempDir()
@@ -1683,6 +1690,7 @@ func TestDispatch_SuccessPathWritesAuditFiles(t *testing.T) {
 // with the exact "sand-dispatch: audit write failed:" prefix (drop_014 area7).
 func TestDispatch_AuditWriteFailureDoesNotAbort(t *testing.T) {
 	// Cannot t.Parallel: installFakeClaudeEnvelope calls t.Setenv.
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 	installFakeClaudeEnvelope(t, "claude-envelope-happy.json")
 
 	cwd := t.TempDir()
@@ -1748,6 +1756,7 @@ func TestDispatch_AuditWriteFailureDoesNotAbort(t *testing.T) {
 // files with ExitCode=-1 and empty .out/.err (drop_014 area7 failure paths).
 func TestDispatch_PreSpawnExhaustionWritesAuditFiles(t *testing.T) {
 	// Cannot t.Parallel: writeBackendsConfig calls t.Setenv (via fake-claude install).
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 	cwd := t.TempDir()
 	writePersona(t, cwd, "test-role", "BODY", []string{}, "haiku")
 
@@ -1852,6 +1861,7 @@ test-role = [
 func TestDispatch_PostSpawnFailureWritesAuditFiles(t *testing.T) {
 	// Cannot t.Parallel: installFakeClaudeEnvelope calls t.Setenv.
 	// Use a fake-claude that returns a non-zero exit (simulating a post-spawn failure).
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
 
 	cwd := t.TempDir()
 	writePersona(t, cwd, "test-role", "BODY", []string{}, "haiku")
