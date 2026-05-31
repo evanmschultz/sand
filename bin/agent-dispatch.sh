@@ -297,61 +297,33 @@ release_ollama_slot() {
 
 dispatch_ollama() {
   local model=$1
-  # Role-appropriate sandbox for ollama-routed inference:
-  #   --bare                  — skip CLAUDE.md auto-discovery, hooks, LSP, auto-memory,
-  #                             keychain, plugin sync. Saves ~30K input tokens per call.
-  #                             Strict ANTHROPIC_API_KEY auth (we set it to "ollama").
-  #   --mcp-config <project>/.mcp.json — explicitly load the project's MCP servers
-  #                             (ta, hylla, context7). --bare suppresses auto-discovery,
-  #                             so we re-enable them here for the role's MCP needs.
-  #   --allowedTools "<list>"  — RESTRICT tools to the persona's `tools:` line.
-  #                             Each role gets a role-appropriate allowlist (planners
-  #                             get ta create/update + read tools; builders get
-  #                             Edit/Write/Read/Bash + ta-read; QA gets read-only +
-  #                             git diff). The persona file IS the sandbox spec.
-  #   --append-system-prompt   — persona body + ANTI_RECURSION suffix.
-  # The spawned model DOES have role-appropriate tool access. The persona's
-  # `tools:` allowlist is what limits what it can do, not a blanket disable.
+  # `claude -p` against a local ollama endpoint. `--bare` retired 2026-05-27
+  # (see AGENT_SANDBOX_SPEC.md §12) — plain `-p` gets full default context
+  # (CLAUDE.md auto-load, plugins, hooks, project .mcp.json) matching what
+  # built-in Agent gets. Parity > clean-context strip.
+  #
+  # Per-persona tool surface is gated by `--settings <persona-settings.json>`
+  # (claude code applies permissions.allow/deny natively for the `-p` path) +
+  # the project-level PreToolUse hook (ta_action_gate.py) for baseline safety.
+  # Per-dispatch edit-path scope is DEFERRED — see
+  # EDIT_PATH_SCOPE_GATING_DEFERRED.md.
+  local persona_settings="${PERSONA_DIR}/${ROLE}/settings.json"
+  if [[ ! -f "${persona_settings}" ]]; then
+    echo "[disp] ERROR: persona settings.json missing at ${persona_settings}" >&2
+    echo "[disp]   Each persona must have <project>/.claude/agents/<persona>/settings.json with permissions.allow/deny." >&2
+    return 2
+  fi
   local cmd=( claude -p
-    --bare
     --model "${model}"
-    --output-format json
+    --output-format stream-json
+    --verbose
     --no-session-persistence
+    --settings "${persona_settings}"
     --append-system-prompt "${PERSONA_BODY}${ANTI_RECURSION}"
   )
-  # NON-OAuth `-p` path (ollama via ANTHROPIC_BASE_URL below). `--bare` strips
-  # plugins (Playwright) + LSP (gopls), so to be TOOL-COMPLETE this must inject
-  # the role's tools via --mcp-config, mirroring dispatch_codex's
-  # role-conditional set: ta always; hylla(read-only) for planning/plan-qa;
-  # context7 always; @playwright/mcp for *-fe-*; a gopls MCP for *-go-*;
-  # WebSearch via --allowedTools. TODO(ollama-return): build a per-role
-  # mcp-config JSON. Ollama is currently REMOVED from the chains, so this path
-  # is dormant; today it loads only the project .mcp.json (ta + hylla).
-  [[ -f "${REPO_ROOT}/.mcp.json" ]] && cmd+=( --mcp-config "${REPO_ROOT}/.mcp.json" )
-  # GATE (consensus 2026-05-25, hylla T2 / sand E2 / ta R1 / tillsyn C-2): `--bare` disables hooks,
-  # so the gate on this path is `--allowedTools` + `--disallowedTools`. Per-file edit-scope DOES work
-  # with the `//` DOUBLE-SLASH absolute form (single-slash denies everything). Scope the FULL edit-tool
-  # set per file (models pick Edit vs Write vs MultiEdit inconsistently), omit bare `Bash` (else an
-  # agent's `echo > forbidden` bypasses the Edit gate), keep the persona's MCP tools, and deny the
-  # gate's bash_deny patterns. `--bare` gives the clean small-model context for free.
-  if [[ "${#GATE_EDIT_FILES[@]}" -gt 0 || "${#GATE_BASH_DENY[@]}" -gt 0 ]]; then
-    local allow=( Read Glob Grep "Bash(mage *)" "Bash(go doc:*)" "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)" )
-    local ef mt
-    for ef in "${GATE_EDIT_FILES[@]:-}"; do
-      [[ -z "${ef}" ]] && continue
-      allow+=( "Edit(//${ef#/})" "Write(//${ef#/})" "MultiEdit(//${ef#/})" )
-    done
-    while IFS= read -r mt; do [[ -n "${mt}" ]] && allow+=( "${mt}" ); done < <(printf '%s' "${TOOLS_LINE}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep '^mcp__' || true)
-    cmd+=( --allowedTools "${allow[@]}" )
-    local deny=() bp
-    for bp in "${GATE_BASH_DENY[@]:-}"; do [[ -n "${bp}" ]] && deny+=( "Bash(${bp}:*)" ); done
-    [[ "${#deny[@]}" -gt 0 ]] && cmd+=( --disallowedTools "${deny[@]}" )
-  else
-    [[ -n "${TOOLS_LINE}" ]] && cmd+=( --allowedTools "${TOOLS_LINE}" )
-  fi
 
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    printf '  ANTHROPIC_BASE_URL=http://localhost:11434 ANTHROPIC_API_KEY=ollama \\\n' >&2
+    printf '  TILL_PERSONA=%q ANTHROPIC_BASE_URL=http://localhost:11434 ANTHROPIC_API_KEY=ollama \\\n' "${ROLE}" >&2
     printf '  cd %q && \\\n' "${CWD}" >&2
     printf '  ' >&2
     printf '%q ' "${cmd[@]}" >&2
@@ -359,8 +331,18 @@ dispatch_ollama() {
     return 0
   fi
 
-  # ANTHROPIC_API_KEY (not AUTH_TOKEN) — --bare enforces strict key-based auth.
-  # Ollama accepts any value and doesn't validate.
+  # ANTHROPIC_BASE_URL routes inference to local ollama. ANTHROPIC_API_KEY=ollama
+  # satisfies claude code's auth layer (ollama accepts any value). No
+  # CLAUDE_CODE_DISABLE_* env vars (parity with built-in: we WANT CLAUDE.md +
+  # auto-memory + git-instructions auto-loaded so the persona sees the same
+  # context a built-in Agent dispatch would see).
+  #
+  # TILL_PERSONA tells ta_action_gate.py (PreToolUse Bash hook) which persona
+  # settings.json to read for permissions.deny. Empirically verified
+  # 2026-05-27: claude code does NOT enforce --settings <file>'s
+  # permissions.deny in headless `-p` mode without --bare; the hook is the
+  # only universal per-persona enforcement layer.
+  TILL_PERSONA="${ROLE}" \
   ANTHROPIC_BASE_URL="http://localhost:11434" \
   ANTHROPIC_API_KEY="ollama" \
     "${cmd[@]}" <<<"${TASK_PROMPT}"
@@ -547,21 +529,46 @@ ${TASK_PROMPT}"
 }
 
 dispatch_claude_native() {
-  # RETIRED / FORBIDDEN (dev directive 2026-05-24). `claude -p` must NEVER run
-  # against OAuth/subscription auth. OAuth claude-native roles (builder,
-  # qa-proof, closeout) are dispatched EXCLUSIVELY via Claude Code's built-in
-  # Agent tool (Agent subagent_type=<role>) by the orchestrator — that path
-  # keeps billing on the subscription and applies the persona `tools:`
-  # allowlist as the isolation boundary (the subagent still has the orch's
-  # plugins like Playwright, but can only call allowlisted tools). `claude -p`
-  # is reserved for NON-OAuth endpoints ONLY (ollama via ANTHROPIC_BASE_URL, or
-  # an explicit API key) — see dispatch_ollama, which injects the role's tools
-  # via --mcp-config since --bare strips plugins + LSP. We refuse loudly here
-  # so a misroute can NEVER silently run `-p` against the OAuth subscription.
-  echo "[disp] REFUSED: claude-native (OAuth) role '${ROLE}' cannot dispatch via bin/agent-dispatch.sh." >&2
-  echo "[disp]   OAuth claude-native roles MUST use the built-in Agent tool: Agent(subagent_type=${ROLE}, model=<tier>)." >&2
-  echo "[disp]   '-p' is reserved for NON-OAuth endpoints (ollama / API-key); see dispatch_ollama." >&2
-  return 1
+  local model=$1
+  # `claude -p` against the real Anthropic API. UN-RETIRED 2026-05-27 (see
+  # AGENT_SANDBOX_SPEC.md §12). Earlier directive forbade `-p` on OAuth, but
+  # with --bare retired, plain `-p` is the canonical headless OAuth path —
+  # same flag shape as dispatch_ollama minus the ollama routing env vars.
+  # Hooks fire, plugins auto-load, CLAUDE.md auto-loads, project .mcp.json
+  # auto-loads. Per-persona settings.json carries permissions.allow/deny.
+  # Auth: OAuth via keychain, or ANTHROPIC_API_KEY env if the caller exports
+  # one (Anthropic real API key path). Claude code picks whichever it finds.
+  # Per-dispatch edit-path scope is DEFERRED — see
+  # EDIT_PATH_SCOPE_GATING_DEFERRED.md.
+  local persona_settings="${PERSONA_DIR}/${ROLE}/settings.json"
+  if [[ ! -f "${persona_settings}" ]]; then
+    echo "[disp] ERROR: persona settings.json missing at ${persona_settings}" >&2
+    echo "[disp]   Each persona must have <project>/.claude/agents/<persona>/settings.json with permissions.allow/deny." >&2
+    return 2
+  fi
+  local cmd=( claude -p
+    --model "${model}"
+    --output-format stream-json
+    --verbose
+    --no-session-persistence
+    --settings "${persona_settings}"
+    --append-system-prompt "${PERSONA_BODY}${ANTI_RECURSION}"
+  )
+
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    printf '  TILL_PERSONA=%q \\\n' "${ROLE}" >&2
+    printf '  cd %q && \\\n' "${CWD}" >&2
+    printf '  ' >&2
+    printf '%q ' "${cmd[@]}" >&2
+    printf '\n  <<< <stdin task prompt>\n' >&2
+    return 0
+  fi
+
+  # TILL_PERSONA tells ta_action_gate.py (PreToolUse Bash hook) which persona
+  # settings.json to read for permissions.deny. Same env-var contract as
+  # dispatch_ollama; auth differs (OAuth via keychain instead of ollama).
+  TILL_PERSONA="${ROLE}" \
+    "${cmd[@]}" <<<"${TASK_PROMPT}"
 }
 
 # --- Chain walk -----------------------------------------------------------

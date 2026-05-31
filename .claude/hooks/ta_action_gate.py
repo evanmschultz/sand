@@ -1,49 +1,35 @@
 #!/usr/bin/env python3
-"""ta_action_gate — PreToolUse gate that confines a dispatched subagent to the
-allowlist the orchestrator passed AT DISPATCH TIME, regardless of what the
-agent's prompt tells it to do.
+"""ta_action_gate — PreToolUse gate for built-in Agent subagents.
 
-How the allowlist reaches the hook
-----------------------------------
-A PreToolUse hook fired by a SUBAGENT receives:
-  * agent_id      — unique per subagent instance (present ONLY for subagents)
-  * agent_type    — the persona name, e.g. "ta-go-builder"
-  * transcript_path — the PARENT (orchestrator) transcript, NOT the subagent's
-  * tool_name / tool_input / cwd
+Architecture (locked 2026-05-27 — no --bare):
 
-(Empirically verified 2026-05-24: subagents have no separate transcript file;
-transcript_path is always the parent.)
+  * For TOP-LEVEL sessions (orchestrator, `claude -p` headless subprocess): no
+    `agent_id` in hook input. DEFER to claude code's normal permission flow.
+    For `-p`, the dispatcher passes `--settings <persona-settings.json>` so
+    claude code applies the per-persona permissions natively.
 
-The orchestrator embeds, at the top of every scoped spawn prompt:
+  * For BUILT-IN AGENT subagents: `agent_id` present. `--settings` does NOT
+    apply per-dispatch on this path (Agent tool spawns subagents in-process).
+    This hook reads `<project>/.claude/agents/<agent_type>/settings.json` and
+    applies `permissions.deny` patterns against the current Bash command,
+    plus the orch-independent baselines below.
 
-    <TA_ALLOWLIST>
-    {"edit": ["/abs/fileA", "/abs/fileB"],
-     "bash_deny": ["git commit", "git push", "git add", "mage install", ...]}
-    </TA_ALLOWLIST>
+Hardcoded baselines (always apply to subagents):
+  * git mutation verbs (commit/push/add/etc.) — orchestrator is sole committer.
+  * raw go verbs (test/build/vet/run/install/fmt/mod/tool/generate/get/work) —
+    must use mage.
+  * gofmt / gofumpt — must use mage format.
 
-That spawn prompt is recorded in the PARENT transcript as the `Agent`/`Task`
-tool_use's `input.prompt`, with `input.subagent_type` == the persona name —
-written at dispatch time, before the subagent runs. So the hook resolves the
-allowlist by scanning the parent transcript for the most-recent dispatch whose
-`subagent_type` matches this `agent_type` and whose prompt carries the block.
+Non-Bash tool surface (Read / Edit / Write / MultiEdit / Grep / Glob / mcp__*) is
+restricted by the persona's `tools:` frontmatter — claude code enforces it
+natively for built-in Agent before this hook even runs. The hook focuses on
+Bash gate, where commands are dynamic and need pattern-based matching.
 
-Enforcement
------------
-  * No agent_id            -> orchestrator / main session -> ALLOW (never gated).
-  * agent_id but no block  -> un-scoped dispatch          -> ALLOW.
-  * block present:
-      - Edit/Write/MultiEdit/NotebookEdit: target file MUST be in `edit`,
-        else DENY (+ reason so the agent reports the prompt-vs-allowlist
-        contradiction).
-      - Bash: git-mutation verbs (commit/push/add/fetch/pull/…) are DENIED for
-        EVERY scoped agent as a hardcoded baseline (orchestrator is sole
-        committer), independent of bash_deny; additionally the command MUST NOT
-        match any orch-supplied `bash_deny` pattern (mage install / go get / …),
-        else DENY. Read-only git + go doc + mage stay allowed.
+Per-dispatch edit-path scope is DEFERRED — see
+EDIT_PATH_SCOPE_GATING_DEFERRED.md.
 
-Concurrency: same-role scoped dispatches MUST be serialized (the resolver keys
-on agent_type and takes the most-recent matching dispatch). Different-role
-parallel dispatches are disambiguated by agent_type and are safe.
+PROJECT-LEVEL HOOK. Byte-identical cp across sibling projects (tillsyn / ta /
+valv / sand / hylla-poly) once the architecture is proven in tillsyn.
 
 Fails OPEN on any internal error (a hook bug must never brick a tool call).
 """
@@ -52,126 +38,10 @@ import json
 import os
 import re
 import sys
-from fnmatch import fnmatch
-from typing import NoReturn, Optional
-
-ALLOWLIST_RE = re.compile(r"<TA_ALLOWLIST>\s*(\{.*?\})\s*</TA_ALLOWLIST>", re.DOTALL)
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-DISPATCH_TOOLS = {"Agent", "Task"}
+from typing import NoReturn
 
 
-def _defer_and_exit() -> NoReturn:
-    # exit 0, no output == defer to Claude Code's normal permission flow.
-    # Used ONLY for ungated callers (orchestrator / un-scoped) so the dev keeps
-    # normal control of their own session.
-    sys.exit(0)
-
-
-def _explicit_allow() -> NoReturn:
-    # For a GATED subagent: explicitly approve an in-allowlist action so it runs
-    # WITHOUT prompting the dev. The dispatch allowlist is the sole authority —
-    # the dev never manages a scoped agent's permitted actions.
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-            "permissionDecisionReason": "ta-action-gate: within the dispatch allowlist",
-        }
-    }))
-    sys.exit(0)
-
-
-def _deny(reason) -> NoReturn:
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
-        }
-    }))
-    sys.exit(0)
-
-
-def _env_allowlist() -> Optional[dict]:
-    """Allowlist delivered via env var by the dispatcher (subprocess paths:
-    `claude -p --bare` / ollama). Those sessions have their own transcript and
-    no agent_id, so the parent-transcript correlation doesn't apply — the
-    dispatcher exports TA_GATE_ALLOWLIST=<json> for the whole subprocess."""
-    raw = os.environ.get("TA_GATE_ALLOWLIST", "")
-    if not raw.strip():
-        return None
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _resolve_allowlist(transcript_path, agent_type) -> Optional[dict]:
-    """Return the allowlist dict for the most-recent dispatch of `agent_type`
-    that carried a <TA_ALLOWLIST> block, scanning the parent transcript."""
-    if not transcript_path or not agent_type or not os.path.exists(transcript_path):
-        return None
-    found = None
-    try:
-        with open(transcript_path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                # cheap pre-filter: only parse lines that could carry the block
-                if "TA_ALLOWLIST" not in line:
-                    continue
-                try:
-                    evt = json.loads(line)
-                except Exception:
-                    continue
-                msg = evt.get("message") if isinstance(evt, dict) else None
-                content = msg.get("content") if isinstance(msg, dict) else None
-                if not isinstance(content, list):
-                    continue
-                for blk in content:
-                    if not isinstance(blk, dict) or blk.get("type") != "tool_use":
-                        continue
-                    if blk.get("name") not in DISPATCH_TOOLS:
-                        continue
-                    inp = blk.get("input", {}) or {}
-                    if inp.get("subagent_type") != agent_type:
-                        continue
-                    prompt = inp.get("prompt", "")
-                    if not isinstance(prompt, str):
-                        continue
-                    m = ALLOWLIST_RE.search(prompt)
-                    if not m:
-                        continue
-                    try:
-                        data = json.loads(m.group(1))
-                    except Exception:
-                        continue
-                    if isinstance(data, dict):
-                        found = data  # keep scanning → last (most recent) wins
-    except Exception:
-        return None
-    return found
-
-
-def _norm(p, cwd):
-    if not p:
-        return ""
-    if not os.path.isabs(p):
-        p = os.path.join(cwd, p)
-    return os.path.normpath(p)
-
-
-def _edit_allowed(file_path, allowed, cwd):
-    target = _norm(file_path, cwd)
-    for entry in allowed:
-        if not isinstance(entry, str):
-            continue
-        norm_entry = _norm(entry, cwd)
-        if target == norm_entry:
-            return True
-        if fnmatch(target, norm_entry) or fnmatch(file_path, entry):
-            return True
-    return False
-
+# --- Hardcoded baselines (orch-independent — every subagent is blocked) ---
 
 _GIT_GLOBAL_OPT_WITH_ARG = {
     "-C", "--git-dir", "--work-tree", "--namespace", "-c", "--exec-path",
@@ -214,14 +84,9 @@ _GIT_MUTATION_VERBS = frozenset({
 
 
 def _git_mutation(command):
-    """HARDCODED BASELINE (orch-independent): return the git-mutation verb if any
-    shell segment invokes one, else None. A scoped agent may NEVER mutate git —
-    committing/pushing/staging/syncing is ORCHESTRATOR-ONLY — and this fires for
-    EVERY scoped agent regardless of the passed bash_deny (so an orchestrator that
-    forgets to list git in bash_deny still cannot let an agent commit). Pairs with
-    the codex execpolicy git-block on the codex channel. Read-only git
-    (diff/status/log/show/blame/rev-parse/...) is NOT in _GIT_MUTATION_VERBS and
-    stays allowed; so do go doc / mage / other non-git read-only commands."""
+    """Return the git-mutation verb (e.g. 'git commit') if any shell segment
+    invokes one, else None. Read-only git (diff/status/log/show/blame/...) is
+    NOT in _GIT_MUTATION_VERBS and stays allowed."""
     cmd = command or ""
     for seg in re.split(r"[;&|\n]+", cmd):
         sub = _git_subcommand(seg.split())
@@ -230,11 +95,6 @@ def _git_mutation(command):
     return None
 
 
-# 2026-05-27 mage-only-discipline baseline. A scoped subagent NEVER runs raw
-# `go <verb>` for: test, build, vet, run, install, fmt, mod, tool, generate,
-# get, work, env. These MUST go through mage targets (test-func, format-file,
-# vet-pkg, etc.) per `feedback_subagent_scope_tightening.md`. Read-only verbs
-# (doc, list, version, help) stay allowed.
 _RAW_GO_FORBIDDEN_VERBS = frozenset({
     "test", "build", "vet", "run", "install", "fmt", "mod", "tool",
     "generate", "get", "work",
@@ -242,20 +102,17 @@ _RAW_GO_FORBIDDEN_VERBS = frozenset({
 
 
 def _raw_go(command):
-    """HARDCODED BASELINE (orch-independent): return the forbidden `go <verb>`
-    string if any shell segment invokes one, else None. Detects `go test`,
-    `go build`, `go vet`, `go run`, `go install`, `go fmt`, `go mod`, `go tool`,
-    `go generate`, `go get`, `go work`. Path-prefixed (`/usr/local/go/bin/go
-    test`) and env-prefixed (`GOFLAGS=... go test`) variants are caught. Pairs
-    with `gofmt`/`gofumpt` block in `_raw_fmt`. Read-only verbs (`go doc`,
-    `go list`, `go env`, `go version`, `go help`) are NOT in this set and pass."""
+    """Return the forbidden `go <verb>` string if any shell segment invokes
+    one. Path-prefixed (`/usr/local/go/bin/go test`) and env-prefixed
+    (`GOFLAGS=... go test`) variants are caught. Read-only verbs (`go doc`,
+    `go list`, `go env`, `go version`, `go help`) are NOT in this set."""
     cmd = command or ""
     for seg in re.split(r"[;&|\n]+", cmd):
         tokens = seg.split()
         n = len(tokens)
         i = 0
         while i < n and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
-            i += 1  # skip env assignments
+            i += 1
         if i < n and tokens[i].rsplit("/", 1)[-1] == "go" and i + 1 < n:
             verb = tokens[i + 1]
             if verb in _RAW_GO_FORBIDDEN_VERBS:
@@ -267,17 +124,16 @@ _RAW_FMT_BINS = frozenset({"gofmt", "gofumpt"})
 
 
 def _raw_fmt(command):
-    """HARDCODED BASELINE (orch-independent): return the forbidden fmt-binary
-    name if any shell segment invokes one, else None. Detects bare `gofmt` /
-    `gofumpt` (with optional path prefix). All formatting MUST go through
-    `mage format` / `mage format-file` per `feedback_subagent_scope_tightening.md`."""
+    """Return the forbidden fmt-binary name (gofmt/gofumpt) if any shell
+    segment invokes one. All formatting MUST go through mage format /
+    mage format-file."""
     cmd = command or ""
     for seg in re.split(r"[;&|\n]+", cmd):
         tokens = seg.split()
         n = len(tokens)
         i = 0
         while i < n and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
-            i += 1  # skip env assignments
+            i += 1
         if i < n:
             bin_name = tokens[i].rsplit("/", 1)[-1]
             if bin_name in _RAW_FMT_BINS:
@@ -285,60 +141,85 @@ def _raw_fmt(command):
     return None
 
 
-def _bash_forbidden(command, deny_patterns):
-    cmd = command or ""
-    # Derive the git verbs the gate forbids (e.g. "git commit" -> "commit") so we
-    # can catch them past intervening global flags, not just as a literal
-    # "git commit" substring (the `git -C dir commit` evasion).
-    git_verbs = set()
-    for pat in deny_patterns:
-        if isinstance(pat, str):
-            m = re.match(r"^git\s+(\S+)$", pat.strip())
-            if m:
-                git_verbs.add(m.group(1))
-    if git_verbs:
+# --- Per-persona settings.json ---
+
+_BASH_PATTERN_RE = re.compile(r"^Bash\((.+?)(:\*)?\)$")
+
+
+def _bash_pattern_from(p):
+    """Extract bash-command pattern from 'Bash(<pattern>:*)' or 'Bash(<pattern>)'.
+    Returns the inner pattern (e.g. 'git commit' from 'Bash(git commit:*)') or
+    None if not a Bash() pattern."""
+    if not isinstance(p, str):
+        return None
+    m = _BASH_PATTERN_RE.match(p.strip())
+    return m.group(1) if m else None
+
+
+def _bash_pattern_matches(cmd, bash_pat):
+    """Return True if a bash-command pattern matches the command. Handles
+    git-verb-aware matching (catches `git -C dir commit`) AND generic word-
+    boundary matching."""
+    # Git verb-aware: extract 'commit' from 'git commit' and check via
+    # _git_subcommand (defeats `git -C dir commit`).
+    git_verb_m = re.match(r"^git\s+(\S+)$", bash_pat.strip())
+    if git_verb_m:
+        verb = git_verb_m.group(1)
         for seg in re.split(r"[;&|\n]+", cmd):
             sub = _git_subcommand(seg.split())
-            if sub is not None and sub in git_verbs:
-                return "git " + sub
-    # Generic word-boundary pass for the remaining (non-git) patterns:
-    # "mage install", "go get", "go mod", etc.
-    for pat in deny_patterns:
-        if not isinstance(pat, str) or not pat.strip():
+            if sub is not None and sub == verb:
+                return True
+        return False
+    # Generic word-boundary match for 'mage ci', 'go get', 'rm -rf', etc.
+    return bool(re.search(r"(?<![\w-])" + re.escape(bash_pat) + r"(?![\w-])", cmd))
+
+
+def _read_persona_settings(agent_type, project_dir):
+    """Read .claude/agents/<agent_type>/settings.json from the project. Return
+    parsed dict or None if missing / unreadable."""
+    if not agent_type or not project_dir:
+        return None
+    path = os.path.join(project_dir, ".claude", "agents", agent_type, "settings.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _persona_deny_for_bash(cmd, deny_patterns):
+    """Return the first Bash-style deny pattern (e.g. 'Bash(git commit:*)')
+    that matches the command, else None."""
+    if not isinstance(deny_patterns, list):
+        return None
+    for p in deny_patterns:
+        bash_pat = _bash_pattern_from(p)
+        if bash_pat is None:
             continue
-        if re.search(r"(?<![\w-])" + re.escape(pat) + r"(?![\w-])", cmd):
-            return pat
+        if _bash_pattern_matches(cmd, bash_pat):
+            return p
     return None
 
 
-# Shell file-write / file-mutation vectors. A SCOPED agent edits ONLY via the
-# Edit/Write tools (per-file gated above); it must NOT mutate files through the
-# shell — the cat>/python/sed -i/tee/cp bypass. Reads (cat/grep/ls) and build
-# commands (mage/go doc/git-read) carry none of these, so they pass.
-# Command names are matched basename-aware: a name counts if it sits at the
-# start, or right after whitespace / a path slash / a segment separator
-# (| ; & ( ` $( ), so `/usr/bin/python3`, `foo && cp`, `a|tee` are all caught.
-_CMD = r"(?:^|[\s/|;&(`])"
-_WRITE_VECTORS = [
-    (re.compile(r">>?\s*(?!&|/dev/null\b)\S"), "output redirection (> / >>)"),
-    (re.compile(_CMD + r"tee(?![\w-])"), "tee"),
-    (re.compile(_CMD + r"sed(?![\w-])[^|;&\n]*\s-i"), "sed -i (in-place edit)"),
-    (re.compile(_CMD + r"(?:perl|ruby)(?![\w-])[^|;&\n]*\s-i"), "perl/ruby -i (in-place edit)"),
-    (re.compile(_CMD + r"dd(?![\w-])[^|;&\n]*\bof="), "dd of="),
-    (re.compile(_CMD + r"(?:python3?|node|deno|bun|ruby|perl|osascript|php)(?![\w-])"), "interpreter (can write files)"),
-    (re.compile(_CMD + r"(?:cp|mv|install|ln|truncate|touch|mkdir|rmdir|rm|chmod|chown|dd)(?![\w-])"), "file-mutating command"),
-]
+# --- Result emitters ---
+
+def _defer_and_exit() -> NoReturn:
+    """exit 0 with no output == defer to claude code's normal permission flow."""
+    sys.exit(0)
 
 
-def _bash_write_vector(command):
-    """Return a description of the first shell write/mutation vector in the
-    command, else None. Used to block a scoped agent from editing files via the
-    shell instead of the per-file-gated Edit/Write tools."""
-    cmd = command or ""
-    for rx, desc in _WRITE_VECTORS:
-        if rx.search(cmd):
-            return desc
-    return None
+def _deny(reason) -> NoReturn:
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }))
+    sys.exit(0)
 
 
 def _log(rec):
@@ -357,99 +238,79 @@ def main():
 
     tool = data.get("tool_name", "")
     tinput = data.get("tool_input", {}) or {}
-    cwd = data.get("cwd", "") or os.getcwd()
     agent_id = data.get("agent_id", "")
     agent_type = data.get("agent_type", "")
-    transcript = data.get("transcript_path", "")
 
-    # Allowlist delivery, in precedence order:
-    #   1. TA_GATE_ALLOWLIST env var — subprocess paths (`claude -p` / ollama),
-    #      set by the dispatcher for the whole subprocess.
-    #   2. parent transcript by agent_type — built-in Agent-tool subagents.
-    #   3. neither -> orchestrator / un-scoped -> defer (dev keeps normal control).
-    allowlist = _env_allowlist()
-    if allowlist is None:
-        if not agent_id:
-            _defer_and_exit()  # orchestrator / main session
-        allowlist = _resolve_allowlist(transcript, agent_type)
-
-    if allowlist is None:
-        _log({
-            "agent_id": agent_id, "agent_type": agent_type, "tool": tool,
-            "block_found": False, "decision": "defer",
-            "target": tinput.get("file_path") or tinput.get("command") or "",
-        })
+    # Identify the persona for this tool call:
+    #   1. Built-in Agent subagent: agent_id + agent_type are in hook input
+    #      (claude code passes them automatically for subagent tool calls).
+    #   2. `claude -p` subprocess dispatched via bin/agent-dispatch.sh: the
+    #      dispatcher exports TILL_PERSONA=<role> env var for the subprocess.
+    #      The hook inherits the env. Empirically verified 2026-05-27:
+    #      `--settings <file>` permissions.deny is NOT enforced by claude
+    #      code in headless `-p` mode without `--bare`. The hook is the only
+    #      universal enforcement layer for per-persona deny on `-p`.
+    #   3. Orchestrator / main session: neither present -> defer.
+    persona = agent_type or os.environ.get("TILL_PERSONA", "")
+    if not persona:
         _defer_and_exit()
 
-    # Gated subagent: the dispatch allowlist is the SOLE authority. Every action
-    # is explicitly allowed or denied here so the dev is NEVER prompted.
-    decision = "allow"
-    reason = ""
-    if tool in EDIT_TOOLS:
-        fp = tinput.get("file_path") or tinput.get("notebook_path") or ""
-        allowed = allowlist.get("edit", [])
-        if not isinstance(allowed, list):
-            allowed = []
-        if not _edit_allowed(fp, allowed, cwd):
-            decision = "deny"
-            reason = (
-                "BLOCKED by the dispatch allowlist passed at call time: this "
-                f"agent may only edit {allowed}, but the prompt directed an edit "
-                f"to '{fp}', which is NOT on the allowed list. This is a "
-                "prompt-vs-allowlist contradiction. Do NOT edit this file. STOP "
-                "and report the contradiction to the orchestrator."
+    # Non-Bash tool surface: defer. For built-in Agent, the persona's `tools:`
+    # frontmatter restricts the surface natively. For `-p` subprocess, claude
+    # code's tool-availability logic restricts based on the persona body /
+    # --append-system-prompt. The hook focuses on Bash where commands are
+    # dynamic and need pattern-based deny.
+    if tool != "Bash":
+        _defer_and_exit()
+
+    cmd = tinput.get("command", "") or ""
+
+    # Hardcoded baselines (always apply to scoped tool calls — orch-independent).
+    baseline_hit = _git_mutation(cmd) or _raw_go(cmd) or _raw_fmt(cmd)
+    if baseline_hit:
+        _log({
+            "persona": persona, "agent_id": agent_id, "tool": tool,
+            "decision": "deny", "reason": "baseline", "hit": baseline_hit,
+            "command": cmd[:200],
+        })
+        _deny(
+            f"ta-action-gate baseline: '{baseline_hit}' is orchestrator-only "
+            f"for dispatched agents. Use mage targets (test-func / format / "
+            f"vet-pkg / build) instead of raw `go`. Git mutation routes "
+            f"through the orchestrator. STOP and report to the orchestrator "
+            f"if the spawn prompt directed this."
+        )
+
+    # Per-persona deny patterns from settings.json. SAME source of truth for
+    # built-in Agent AND `-p` subprocess paths.
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if not project_dir:
+        # Fall back to walking up from hook's own location:
+        # .claude/hooks/ta_action_gate.py -> .claude -> <project_dir>
+        project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    settings = _read_persona_settings(persona, project_dir)
+    if settings is not None:
+        deny = settings.get("permissions", {}).get("deny", [])
+        persona_hit = _persona_deny_for_bash(cmd, deny)
+        if persona_hit:
+            _log({
+                "persona": persona, "agent_id": agent_id, "tool": tool,
+                "decision": "deny", "reason": "persona", "hit": persona_hit,
+                "command": cmd[:200],
+            })
+            _deny(
+                f"ta-action-gate persona deny: '{persona_hit}' is not "
+                f"permitted for {persona} (per its settings.json). STOP "
+                f"and report to the orchestrator if the spawn prompt directed "
+                f"this."
             )
-    elif tool == "Bash":
-        cmd = tinput.get("command", "")
-        deny = allowlist.get("bash_deny", [])
-        if not isinstance(deny, list):
-            deny = []
-        # Baseline first: git mutation + raw `go <verb>` + raw gofmt/gofumpt are
-        # ORCHESTRATOR-ONLY for every scoped agent, independent of bash_deny.
-        # Then the orch-supplied bash_deny.
-        hit = _git_mutation(cmd) or _raw_go(cmd) or _raw_fmt(cmd) or _bash_forbidden(cmd, deny)
-        if hit:
-            decision = "deny"
-            reason = (
-                f"BLOCKED by the dispatch allowlist passed at call time: the "
-                f"command matches the forbidden pattern '{hit}' (e.g. git "
-                "mutation / mage install / dependency mutation), which this "
-                "agent is not permitted to run. This is a prompt-vs-allowlist "
-                "contradiction. Do NOT run it. STOP and report the contradiction "
-                "to the orchestrator."
-            )
-        elif "edit" in allowlist:
-            # An edit-scoped agent may mutate files ONLY through the per-file
-            # gated Edit/Write/MultiEdit tools — NEVER through the shell. Block
-            # the cat>/python/sed -i/tee/cp bypass so the per-file scope cannot
-            # be circumvented with a Bash file-write.
-            wv = _bash_write_vector(cmd)
-            if wv is not None:
-                decision = "deny"
-                reason = (
-                    "BLOCKED by the dispatch allowlist passed at call time: this agent's file edits "
-                    f"are confined to {allowlist.get('edit', [])} via the Edit/Write tools, but this "
-                    f"Bash command uses a shell file-write/mutation vector ({wv}) — the "
-                    "cat>/python/sed -i/tee bypass. Shell-based file mutation is NOT permitted for an "
-                    "edit-scoped agent. Do NOT run it. STOP and report the contradiction to the "
-                    "orchestrator."
-                )
-    # All other tools the persona is allowed to call (Read/Grep/Glob/mcp_*/...)
-    # fall through to explicit allow below — gated agents run their permitted
-    # tools without prompting the dev.
 
     _log({
-        "agent_id": agent_id,
-        "agent_type": agent_type,
-        "tool": tool,
-        "block_found": True,
-        "decision": decision,
-        "target": tinput.get("file_path") or tinput.get("command") or "",
+        "persona": persona, "agent_id": agent_id, "tool": tool,
+        "decision": "defer", "command": cmd[:200],
     })
-
-    if decision == "deny":
-        _deny(reason)
-    _explicit_allow()
+    _defer_and_exit()
 
 
 if __name__ == "__main__":

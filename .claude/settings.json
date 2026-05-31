@@ -46,6 +46,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -B \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_tooluse_agent_audit.py\""
+          }
+        ]
+      }
     ]
   }
 }

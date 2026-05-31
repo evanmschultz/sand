@@ -44,9 +44,34 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
+
+// lockedBuffer is a bytes.Buffer guarded by a mutex so it is safe to use as
+// cmd.Stderr — where os/exec's internal copy goroutine writes to it — while
+// the probe's failure-path code reads it via String() BEFORE the deferred
+// cmd.Wait() has synchronized that goroutine. Without the lock, reading
+// stderr on a post-Start error path data-races the live copy goroutine
+// (caught by -race in TestProbeMCPServer_ToolsListError once the Cover gate
+// added the detector).
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // DefaultProbeTimeout is the per-server probe deadline applied by
 // ProbeMCPServer when the caller-provided context has no deadline of its
@@ -179,7 +204,7 @@ func ProbeMCPServer(ctx context.Context, name string, entry MCPServerEntry) (Pro
 			SkipReason: probeFailureReason(name, "stdout pipe", err, &bytes.Buffer{}, hadAmbiguousURL, entry.URL),
 		}, nil
 	}
-	var stderr bytes.Buffer
+	var stderr lockedBuffer
 	cmd.Stderr = &stderr
 
 	if startErr := cmd.Start(); startErr != nil {
@@ -281,7 +306,7 @@ func ProbeMCPServer(ctx context.Context, name string, entry MCPServerEntry) (Pro
 // stage + error + captured stderr + the A5 dual-transport warning. Kept
 // in one place so every failure-path branch produces identically shaped
 // diagnostics.
-func probeFailureReason(name, stage string, err error, stderr *bytes.Buffer, hadAmbiguousURL bool, url string) string {
+func probeFailureReason(name, stage string, err error, stderr interface{ String() string }, hadAmbiguousURL bool, url string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "mcp server %q: %s: %v", name, stage, err)
 	if hadAmbiguousURL {
