@@ -129,7 +129,7 @@ type SpawnResult struct {
 }
 
 // BackendConfig is the TOML shape for a single `[backends.<name>]`
-// table per SAND-SPEC §5.1. All 10 fields are declared verbatim
+// table per SAND-SPEC §5.1. All 13 fields are declared verbatim
 // per the drop_011 L3 planner amendment so future backends
 // (together-ai, openrouter, etc.) can be added without touching Go.
 //
@@ -167,6 +167,13 @@ type SpawnResult struct {
 //     injection mode (special-cased per
 //     `~/.claude/codex-mcp-dispatch-tool-conversion.md`). drop_011
 //     declares the field for round-trip safety; drop_005 consumes it.
+//   - StructuredOutput controls the claude -p output format enforcement
+//     when EnvelopeFormat == "claude_json". Valid values: "auto" (default,
+//     empty string, or unset) injects `--output-format stream-json --verbose`;
+//     "stream-json" injects/upgrades to stream-json + verbose; "json" leaves
+//     `--output-format json` alone (no verbose); "off" disables enforcement
+//     (trace will be empty — operator opts out). The helper ensures idempotent
+//     flag injection so --output-format never duplicates.
 type BackendConfig struct {
 	Command                 string   `toml:"command"`
 	Args                    []string `toml:"args"`
@@ -180,6 +187,7 @@ type BackendConfig struct {
 	EnvelopeFormat          string   `toml:"envelope_format"`
 	StdinPrompt             bool     `toml:"stdin_prompt"`
 	McpInjection            string   `toml:"mcp_injection"`
+	StructuredOutput        string   `toml:"structured_output"`
 }
 
 // backendsFile is the top-level TOML wrapper used solely by the

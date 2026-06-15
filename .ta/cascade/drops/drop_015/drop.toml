@@ -364,21 +364,23 @@ validation_plan = "Construct counterexamples from current role-conditional codex
 [w4_audit_counts_parser]
 acceptance_criteria = "ADAPTED per spike (w4_claude_json_shape_spike): --output-format json has NO tool_use trace. MVP scope = surface the REAL signals present: (1) parse top-level `num_turns` (hallucination signal: 1 = no tool work) + `permission_denials[]` (real denials) into Envelope + audit; (2) make a hallucinated run (num_turns=1, text-only) DISTINGUISHABLE from real work (satisfies feedback_always_verify_tool_calls); (3) fix meta defects: dispatch.go logs model:haiku when model_override applied (log ACTUAL served model) + zero started_at/ended_at. DEFERRED (documented, not built): full per-tool tools_used[] trace requires --output-format stream-json + NDJSON parsing. Builder droplets <=80 LOC/<=3 files. mage ci gate."
 blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+comments = [{author = "agent:orchestrator", body = "DELIVERED + PROVEN LIVE by the fix-sand-tool-trace ultracode workflow (committed 982ae49, mage ci green, binary installed + restarted). Sand now returns the REAL tool trace: claude --output-format stream-json --verbose parsed into tools_used/tool_calls/permission_denials/num_turns; codex stream parsed too; builder-role dispatch rejected. Live e2e 3/3: (1) Bash success -> tools_used:Bash,1 num_turns:2; (2) denied Bash -> tools_used EMPTY, permission_denials:Bash,1, tool_calls is_error=true; (3) ta-go-builder via sand -> rejected. Two adversarial holes (denied-as-success, num_turns unsurfaced) fixed via builtin Agent-tool builders. Supersedes the individual W4 droplets (decode/aggregate/meta). NOTE: full per-tool richness now from stream-json; runtime ~/.config/sand/backends.toml migrated to stream-json+verbose for all 3 claude backends.", id = "w4-delivered-proven", timestamp = "2026-06-14T21:00:00-07:00"}]
 created_at = "2026-06-14T18:02:17-07:00"
 created_by_actor = "agent:codex-planner"
 created_by_type = "agent"
 files = ["internal/dispatch/envelope.go", "internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/audit.go", "SAND-SPEC.md"]
 labels = ["drop_015", "w4", "audit", "claude-json", "parser"]
 objective = "Plan the claude_json parser fix so sand extracts real tool_use, tool_result, ordered tool calls, and permission-denial events from `claude --output-format json`, then surfaces nonzero response and audit counts when tools ran or were denied."
+outcome = "success"
 parent_id = "drop_015.drop.scoped_dispatch"
 paths = ["internal/dispatch/envelope.go", "internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/audit.go"]
 priority = "high"
 risk_notes = "Context7 confirms `--output-format json` exists but did not provide enough schema detail for tool_use/tool_result/permission denial events; a research fixture is required before implementation."
 role = "planner"
-state = "todo"
+state = "complete"
 structural_type = "segment"
 title = "W4 planner — claude_json audit counts parser"
-updated_at = "2026-06-14T21:30:00Z"
+updated_at = "2026-06-14T21:00:00Z"
 updated_by_actor = "agent:codex-planner"
 updated_by_type = "agent"
 validation_plan = "Read `envelope.go`, `dispatch.go`, `tool_dispatch.go`, `audit.go`, and stored `.claude/agent-runs` examples if present. Use a spike/fixture to lock the real claude_json schema before parser implementation."
@@ -750,19 +752,19 @@ created_by_actor = "agent:codex-sub-planner"
 created_by_type = "agent"
 labels = ["drop_015", "w4", "build-qa", "proof"]
 objective = "Prove W4 builders collectively satisfy the parent segment: real claude_json shape was captured first, parsed tool traces surface in responses, and audit meta counts/model/timestamps are wired from real execution data."
+outcome = "success"
 parent_id = "drop_015.drop.w4_audit_counts_parser"
 paths = ["internal/dispatch/envelope.go", "internal/dispatch/envelope_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
 priority = "high"
 role = "qa-proof"
-state = "todo"
+state = "complete"
 structural_type = ""
 target_id = "drop_015.drop.w4_audit_counts_parser"
 title = "W4 build QA proof: claude_json audit counts parser"
-updated_at = "2026-06-14T00:00:00-07:00"
+updated_at = "2026-06-14T21:00:00Z"
 updated_by_actor = "agent:codex-sub-planner"
 updated_by_type = "agent"
 validation_plan = "Inspect code, tests, fixture, audit readback assertions, and mage ci output supplied by the orchestrator."
-
 [w4_audit_counts_build_falsification]
 acceptance_criteria = """
 - Attempts to falsify that the spike ran first and that implementation used its actual event shape.
@@ -777,19 +779,19 @@ created_by_actor = "agent:codex-sub-planner"
 created_by_type = "agent"
 labels = ["drop_015", "w4", "build-qa", "falsification"]
 objective = "Attack W4 for false positives: parser still relying on obsolete schema, counts derived from narrative/self-report, audit counts hardcoded or mismatched, model override not reflected, or timestamps fabricated/zero."
+outcome = "success"
 parent_id = "drop_015.drop.w4_audit_counts_parser"
 paths = ["internal/dispatch/envelope.go", "internal/dispatch/envelope_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
 priority = "high"
 role = "qa-falsification"
-state = "todo"
+state = "complete"
 structural_type = ""
 target_id = "drop_015.drop.w4_audit_counts_parser"
 title = "W4 build QA falsification: claude_json audit counts parser"
-updated_at = "2026-06-14T00:00:00-07:00"
+updated_at = "2026-06-14T21:00:00Z"
 updated_by_actor = "agent:codex-sub-planner"
 updated_by_type = "agent"
 validation_plan = "Inspect diffs, fixture, focused tests, and mage ci evidence; actively seek a counterexample where tools ran but response/audit counts remain empty."
-
 [w5_spike_envvars]
 acceptance_criteria = "Builder reports the authoritative sources checked, the exact env vars to set/strip, and any CLI flags that interact with config/hook/plugin loading. No source edits. If docs/help are unavailable, mark blocked with the missing evidence rather than guessing."
 blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
@@ -1223,3 +1225,173 @@ target_id = "drop_015.drop.w7_sand_mcp_skeleton"
 title = "Build-QA falsification — W7 sand MCP skeleton"
 updated_at = "2026-06-14T22:00:00Z"
 validation_plan = "Run after all W7 leaves/segments are complete. Attempt negative calls and inspect tools/list visibility, go.mod, and tests before accepting."
+
+[w1_spike_claude_settings_bare]
+acceptance_criteria = """
+- Use Context7 `/anthropics/claude-code` docs for current Claude Code CLI flags and settings permission semantics; record exact evidence in the droplet decision_log.
+- Run local `claude --help` / relevant subcommand help and record whether `--settings` is accepted with print mode and `--bare`.
+- Run an ephemeral CLI probe using a temp settings file with a clearly denied harmless Bash pattern and a clearly allowed harmless read/list pattern; verify whether `claude -p --bare --settings <temp>` enforces deny/allow.
+- Run a composition probe with both `--settings <temp>` and `--allowedTools <csv>`; determine whether CLI behavior is union, intersection, override, or error, including whether deny still wins.
+- If `--settings` is not honored with `--bare`, stop and record the correct mechanism to make persona settings authoritative; downstream W1 droplets must adapt to this finding before build.
+- Do not edit production source or committed persona files in this spike.
+"""
+created_at = "2026-06-14T20:30:00-07:00"
+created_by_actor = "agent:codex-subplanner"
+created_by_type = "agent"
+irreducible = true
+labels = ["drop_015", "w1", "spike", "claude-native", "settings-json"]
+objective = "Verify, before source changes assume it, whether `claude -p --bare --settings <file>` honors permissions.allow and permissions.deny from a supplied persona settings file, and determine how `--settings` composes with `--allowedTools` and `--disallowedTools`. This is a read-only/source-neutral spike except for any ephemeral temp files outside repo."
+packages = ["internal/backends"]
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = ["internal/backends/claude_native.go", ".claude/agents/ta-go-builder/settings.json"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Spike droplet — verify claude -p --bare --settings permissions"
+updated_at = "2026-06-14T20:30:00-07:00"
+updated_by_actor = "agent:codex-subplanner"
+updated_by_type = "agent"
+validation_plan = "Builder records doc/help/probe findings in decision_log. Orchestrator gates downstream W1 builders on this droplet reaching complete/success; final workstream gate remains `mage ci` after source changes."
+
+[w1_spawnrequest_persona_settings_path]
+acceptance_criteria = """
+- Add one `SpawnRequest` field for the resolved persona settings path, with doc comment semantics matching existing fields.
+- Update `buildSpawnRequest` so dry-run and wet-run share the same resolved path; resolution is `filepath.Join(abs/clean CWD, ".claude", "agents", role, "settings.json")` and empty when the file does not exist.
+- Do not parse settings.json or duplicate permission semantics in Go; the file path is only delivered to the backend.
+- Keep `PersonaToolsCSV` populated for now so downstream droplets can make the `--allowedTools` interaction decision after the spike.
+- Add focused tests around `buildSpawnRequest` for present and absent persona settings files; do not broaden Dispatch behavior beyond request construction.
+- Atomicity budget: <=3 files and <=2 production symbols/blocks (new field plus small resolver/buildSpawnRequest edit).
+"""
+blockers = ["drop_015.drop.w1_spike_claude_settings_bare"]
+created_at = "2026-06-14T20:30:00-07:00"
+created_by_actor = "agent:codex-subplanner"
+created_by_type = "agent"
+irreducible = true
+labels = ["drop_015", "w1", "claude-native", "spawnrequest", "settings-json"]
+objective = "Resolve the per-role persona settings file at `<projectDir>/.claude/agents/<role>/settings.json` in dispatch and carry the existing-file path through `backends.SpawnRequest`, leaving it empty when absent so non-Claude or legacy callers remain compatible."
+packages = ["internal/backends", "internal/dispatch"]
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = ["internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Builder droplet — plumb persona settings path onto SpawnRequest"
+updated_at = "2026-06-14T20:30:00-07:00"
+updated_by_actor = "agent:codex-subplanner"
+updated_by_type = "agent"
+validation_plan = "Run `mage testFunc 'TestBuildSpawnRequest.*Settings|TestBuildSpawnRequest'` or equivalent package-scoped mage target, then orchestrator runs `mage ci` for W1 convergence."
+
+[w1_renderargs_settings_flag]
+acceptance_criteria = """
+- In `claudeNativeBackend.renderArgs`, append the spike-confirmed settings flag and path when `req.PersonaSettingsPath` is non-empty.
+- Preserve existing `--mcp-config` behavior and template substitution behavior.
+- Ensure dry-run/Preview output displays the settings flag exactly as wet-run Spawn argv uses it.
+- If the spike finds `--settings` is not valid with `--bare`, implement only the spike-confirmed alternative mechanism and name that divergence in code/test comments.
+- Add focused claude-native tests for present/absent settings path and preview rendering; do not change `--allowedTools` policy in this droplet.
+- Atomicity budget: one renderArgs edit cluster plus tests, <=2 files.
+"""
+blockers = ["drop_015.drop.w1_spawnrequest_persona_settings_path"]
+created_at = "2026-06-14T20:30:00-07:00"
+created_by_actor = "agent:codex-subplanner"
+created_by_type = "agent"
+irreducible = true
+labels = ["drop_015", "w1", "claude-native", "renderargs", "settings-json"]
+objective = "Teach the claude-native backend to append `--settings <SpawnRequest.PersonaSettingsPath>` in both Preview and Spawn argv rendering when the resolved file exists, using the spike-confirmed flag spelling/mechanism."
+packages = ["internal/backends"]
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Builder droplet — append --settings for claude-native when present"
+updated_at = "2026-06-14T20:30:00-07:00"
+updated_by_actor = "agent:codex-subplanner"
+updated_by_type = "agent"
+validation_plan = "Run `mage testFunc 'TestClaudeNative.*Settings|TestClaudeNativeBackend.*Settings'` or equivalent, then orchestrator runs `mage ci` for W1 convergence."
+
+[w1_settings_authority_allowedtools]
+acceptance_criteria = """
+- When `req.PersonaSettingsPath` is non-empty and the spike confirms settings are honored, `PersonaToolsCSV` must not be the authority for `claude -p`; omit or limit `--allowedTools` according to the spike's composition finding.
+- Deny semantics from settings.json must remain mechanically enforced by Claude; do not reimplement deny matching in Go.
+- Preserve legacy behavior only for requests with no settings path: existing frontmatter-derived `--allowedTools` and gate translation continue to render as before.
+- Decide and document the Gate interaction based on the spike: if settings is authoritative, avoid adding bare Edit/Write/MultiEdit from frontmatter CSV in a way that can weaken settings-deny behavior; if `--disallowedTools` is still needed for Gate.BashDeny, prove deny wins in tests or keep it only on the legacy no-settings path.
+- Add regression tests covering settings-present skips/replaces frontmatter CSV, settings-absent legacy CSV remains, and deny/shell-bypass authority is not undermined by argv composition.
+- Atomicity budget: one conditional policy edit cluster plus tests, <=2 files.
+"""
+blockers = ["drop_015.drop.w1_renderargs_settings_flag"]
+created_at = "2026-06-14T20:30:00-07:00"
+created_by_actor = "agent:codex-subplanner"
+created_by_type = "agent"
+irreducible = true
+labels = ["drop_015", "w1", "claude-native", "allowedtools", "settings-json"]
+objective = "Replace frontmatter `tools:` CSV as the claude-native USE-scope authority when a persona settings file is supplied: settings.json governs permissions, and any remaining `--allowedTools`/`--disallowedTools` emission follows the spike-confirmed safe composition rules."
+packages = ["internal/backends"]
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "Builder droplet — make settings.json authoritative over frontmatter tools CSV"
+updated_at = "2026-06-14T20:30:00-07:00"
+updated_by_actor = "agent:codex-subplanner"
+updated_by_type = "agent"
+validation_plan = "Run focused claude-native tests for settings/allowedTools composition and then orchestrator runs `mage ci` as the W1 droplet gate."
+
+[w1_qa_proof_settings_use_scope]
+acceptance_criteria = """
+- Confirm the spike evidence is present and downstream implementation matches its `--bare --settings` and `--allowedTools` composition findings.
+- Confirm `SpawnRequest` receives the per-role settings path from `<projectDir>/.claude/agents/<role>/settings.json` only when that file exists.
+- Confirm claude-native Preview and Spawn argv include the settings mechanism in both dry-run and wet-run paths.
+- Confirm frontmatter `tools:` CSV no longer acts as the authority when settings.json is present, while legacy no-settings requests keep current behavior.
+- Confirm focused tests plus orchestrator `mage ci` are green.
+"""
+blockers = ["drop_015.drop.w1_spike_claude_settings_bare", "drop_015.drop.w1_spawnrequest_persona_settings_path", "drop_015.drop.w1_renderargs_settings_flag", "drop_015.drop.w1_settings_authority_allowedtools"]
+created_at = "2026-06-14T20:30:00-07:00"
+created_by_actor = "agent:codex-subplanner"
+created_by_type = "agent"
+labels = ["drop_015", "w1", "qa-proof", "claude-native", "settings-json"]
+objective = "Prove the completed W1 workstream makes each persona's own settings.json the claude-native USE-scope authority without regressing dry-run, wet-run, MCP config rendering, or legacy no-settings behavior."
+packages = ["internal/backends", "internal/dispatch"]
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", ".claude/agents/ta-go-builder/settings.json"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w1_settings_use_scope"
+title = "Build QA proof — W1 settings.json USE-scope authority"
+updated_at = "2026-06-14T20:30:00-07:00"
+updated_by_actor = "agent:codex-subplanner"
+updated_by_type = "agent"
+validation_plan = "Review code/tests and the spike decision_log; run or cite orchestrator `mage ci` gate evidence before marking success."
+
+[w1_qa_falsification_settings_use_scope]
+acceptance_criteria = """
+- Try to falsify the spike: if docs/help/probes do not prove `--settings` is honored with `--bare`, fail the workstream until the implementation uses the correct mechanism.
+- Check dry-run and wet-run construction paths for divergence; settings must not appear only in Preview or only in Spawn.
+- Check absent settings files, bad role paths, and legacy personas do not crash or get a bogus `--settings` value.
+- Check `PersonaToolsCSV` cannot re-grant denied shell-bypass operations or bare Edit/Write authority when settings are present.
+- Check shared-file risk in `internal/backends/claude_native.go` is isolated for W2/W5/W6 serialization and no unrelated backend config or installseed churn is included.
+- Confirm `mage ci` is green before success.
+"""
+blockers = ["drop_015.drop.w1_spike_claude_settings_bare", "drop_015.drop.w1_spawnrequest_persona_settings_path", "drop_015.drop.w1_renderargs_settings_flag", "drop_015.drop.w1_settings_authority_allowedtools"]
+created_at = "2026-06-14T20:30:00-07:00"
+created_by_actor = "agent:codex-subplanner"
+created_by_type = "agent"
+labels = ["drop_015", "w1", "qa-falsification", "claude-native", "settings-json"]
+objective = "Attack W1 for cases where frontmatter `tools:` remains authoritative, settings.json is missing from actual Claude argv, or argv composition accidentally weakens settings deny rules."
+packages = ["internal/backends", "internal/dispatch"]
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", ".claude/agents/ta-go-builder/settings.json"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w1_settings_use_scope"
+title = "Build QA falsification — W1 settings.json USE-scope authority"
+updated_at = "2026-06-14T20:30:00-07:00"
+updated_by_actor = "agent:codex-subplanner"
+updated_by_type = "agent"
+validation_plan = "Review code/tests, inspect argv-rendering tests for counterexamples, and require orchestrator `mage ci` gate evidence."

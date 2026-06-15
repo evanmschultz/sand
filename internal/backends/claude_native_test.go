@@ -212,6 +212,7 @@ func TestClaudeNativeBackend_HappyPath(t *testing.T) {
 		"--bare",
 		"--model",
 		"--output-format",
+		"--verbose",
 		"--no-session-persistence",
 		"--append-system-prompt",
 		"--mcp-config",
@@ -226,8 +227,8 @@ func TestClaudeNativeBackend_HappyPath(t *testing.T) {
 	if !containsAdjacent(argv, "--model", "haiku") {
 		t.Errorf("argv missing --model haiku; argv=%v", argv)
 	}
-	if !containsAdjacent(argv, "--output-format", "json") {
-		t.Errorf("argv missing --output-format json; argv=%v", argv)
+	if !containsAdjacent(argv, "--output-format", "stream-json") {
+		t.Errorf("argv missing --output-format stream-json; argv=%v", argv)
 	}
 	if !containsAdjacent(argv, "--mcp-config", "/abs/cwd/.mcp.json") {
 		t.Errorf("argv missing --mcp-config /abs/cwd/.mcp.json; argv=%v", argv)
@@ -472,7 +473,8 @@ func TestClaudeNativeBackend_PreviewShape(t *testing.T) {
 		"claude -p",
 		"  --bare",
 		"  --model haiku",
-		"  --output-format json",
+		"  --output-format stream-json",
+		"  --verbose",
 		"  --no-session-persistence",
 		"  --append-system-prompt ",
 		`PERSONA BODY LINE 1\n`, // newline-escaped via quoteValue
@@ -490,6 +492,11 @@ func TestClaudeNativeBackend_PreviewShape(t *testing.T) {
 	// pins the space-separated pair.
 	if strings.Contains(preview, "--model=haiku") {
 		t.Errorf("Preview must not use --model=haiku equals form; got:\n%s", preview)
+	}
+
+	// `--output-format json` (old form) MUST be absent — it's upgraded to stream-json.
+	if strings.Contains(preview, "--output-format json") {
+		t.Errorf("Preview must not have --output-format json (should be stream-json); got:\n%s", preview)
 	}
 }
 
@@ -1120,6 +1127,165 @@ func TestRenderEnv_StripsCleanRoomVars(t *testing.T) {
 			t.Errorf("renderEnv leaked XDG_CONFIG_HOME into env: %q", kv)
 		}
 	}
+}
+
+// TestEnsureStreamingArgs_AutoMode verifies that "auto" (or empty/unset)
+// mode injects --output-format stream-json + --verbose when absent.
+func TestEnsureStreamingArgs_AutoMode(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		mode  string
+		want  []string
+	}{
+		{
+			name:  "auto: inject stream-json + verbose",
+			input: []string{"-p", "--bare"},
+			mode:  "auto",
+			want:  []string{"-p", "--bare", "--output-format", "stream-json", "--verbose"},
+		},
+		{
+			name:  "auto: upgrade json to stream-json, add verbose",
+			input: []string{"-p", "--output-format", "json"},
+			mode:  "auto",
+			want:  []string{"-p", "--output-format", "stream-json", "--verbose"},
+		},
+		{
+			name:  "auto: already has stream-json, add verbose",
+			input: []string{"-p", "--output-format", "stream-json"},
+			mode:  "auto",
+			want:  []string{"-p", "--output-format", "stream-json", "--verbose"},
+		},
+		{
+			name:  "auto: already has both stream-json + verbose",
+			input: []string{"-p", "--output-format", "stream-json", "--verbose"},
+			mode:  "auto",
+			want:  []string{"-p", "--output-format", "stream-json", "--verbose"},
+		},
+		{
+			name:  "empty mode (default to auto): inject both",
+			input: []string{"-p"},
+			mode:  "",
+			want:  []string{"-p", "--output-format", "stream-json", "--verbose"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := BackendConfig{
+				EnvelopeFormat:   "claude_json",
+				StructuredOutput: tt.mode,
+			}
+			result, err := ensureStreamingArgs(tt.input, cfg)
+			if err != nil {
+				t.Fatalf("ensureStreamingArgs: %v", err)
+			}
+			if !sliceEqual(result, tt.want) {
+				t.Errorf("got %v, want %v", result, tt.want)
+			}
+		})
+	}
+}
+
+// TestEnsureStreamingArgs_JsonMode verifies that "json" mode leaves
+// --output-format json unchanged and does not inject --verbose.
+func TestEnsureStreamingArgs_JsonMode(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		want  []string
+	}{
+		{
+			name:  "json mode: leave --output-format json unchanged",
+			input: []string{"-p", "--output-format", "json"},
+			want:  []string{"-p", "--output-format", "json"},
+		},
+		{
+			name:  "json mode: no --output-format initially, no inject",
+			input: []string{"-p"},
+			want:  []string{"-p"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := BackendConfig{
+				EnvelopeFormat:   "claude_json",
+				StructuredOutput: "json",
+			}
+			result, err := ensureStreamingArgs(tt.input, cfg)
+			if err != nil {
+				t.Fatalf("ensureStreamingArgs: %v", err)
+			}
+			if !sliceEqual(result, tt.want) {
+				t.Errorf("got %v, want %v", result, tt.want)
+			}
+		})
+	}
+}
+
+// TestEnsureStreamingArgs_OffMode verifies that "off" mode disables
+// enforcement and returns args unchanged.
+func TestEnsureStreamingArgs_OffMode(t *testing.T) {
+	input := []string{"-p", "--output-format", "json"}
+	cfg := BackendConfig{
+		EnvelopeFormat:   "claude_json",
+		StructuredOutput: "off",
+	}
+	result, err := ensureStreamingArgs(input, cfg)
+	if err != nil {
+		t.Fatalf("ensureStreamingArgs: %v", err)
+	}
+	if !sliceEqual(result, input) {
+		t.Errorf("off mode should not modify args; got %v, want %v", result, input)
+	}
+}
+
+// TestEnsureStreamingArgs_NonClaudeJsonEnvelope verifies that non-claude_json
+// envelopes (e.g., codex_stream) are not modified.
+func TestEnsureStreamingArgs_NonClaudeJsonEnvelope(t *testing.T) {
+	input := []string{"-c", "some-config"}
+	cfg := BackendConfig{
+		EnvelopeFormat:   "codex_stream",
+		StructuredOutput: "auto",
+	}
+	result, err := ensureStreamingArgs(input, cfg)
+	if err != nil {
+		t.Fatalf("ensureStreamingArgs: %v", err)
+	}
+	if !sliceEqual(result, input) {
+		t.Errorf("non-claude_json envelope should not be modified; got %v, want %v", result, input)
+	}
+}
+
+// TestEnsureStreamingArgs_Idempotent verifies that calling ensureStreamingArgs
+// multiple times produces the same result (no flag duplication).
+func TestEnsureStreamingArgs_Idempotent(t *testing.T) {
+	input := []string{"-p", "--bare"}
+	cfg := BackendConfig{
+		EnvelopeFormat:   "claude_json",
+		StructuredOutput: "auto",
+	}
+
+	result1, _ := ensureStreamingArgs(input, cfg)
+	result2, _ := ensureStreamingArgs(result1, cfg)
+
+	if !sliceEqual(result1, result2) {
+		t.Errorf("idempotency failed: first call %v, second call %v", result1, result2)
+	}
+}
+
+// sliceEqual is a helper to compare two string slices for equality.
+func sliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestSpawn_CleanRoomEnvIsolation verifies that the spawned child process

@@ -1527,6 +1527,166 @@ func TestCodexExecBackend_GateNarrowsCWDNilGateUnchanged(t *testing.T) {
 	}
 }
 
+// TestEnsureCodexJSONArgs_AutoNoFlag tests that ensureCodexJSONArgs injects
+// --json after `exec` when StructuredOutput is "auto" and --json is absent.
+func TestEnsureCodexJSONArgs_AutoNoFlag(t *testing.T) {
+	cfg := BackendConfig{
+		EnvelopeFormat:   "codex_stream",
+		StructuredOutput: "auto",
+	}
+	args := []string{"exec", "--ephemeral", "-m", "gpt-5.4"}
+	result, err := ensureCodexJSONArgs(args, cfg)
+	if err != nil {
+		t.Fatalf("ensureCodexJSONArgs: %v", err)
+	}
+	if len(result) != len(args)+1 {
+		t.Errorf("ensureCodexJSONArgs: want len %d, got %d; result=%v", len(args)+1, len(result), result)
+	}
+	if result[0] != "exec" || result[1] != "--json" {
+		t.Errorf("ensureCodexJSONArgs: --json not injected after exec; result=%v", result)
+	}
+}
+
+// TestEnsureCodexJSONArgs_EmptyStringInjectsJSON tests that empty StructuredOutput
+// (defaults to "auto") injects --json.
+func TestEnsureCodexJSONArgs_EmptyStringInjectsJSON(t *testing.T) {
+	cfg := BackendConfig{
+		EnvelopeFormat:   "codex_stream",
+		StructuredOutput: "", // empty = defaults to "auto"
+	}
+	args := []string{"exec", "--ephemeral"}
+	result, err := ensureCodexJSONArgs(args, cfg)
+	if err != nil {
+		t.Fatalf("ensureCodexJSONArgs: %v", err)
+	}
+	if len(result) < 2 || result[1] != "--json" {
+		t.Errorf("ensureCodexJSONArgs: --json not injected for empty StructuredOutput; result=%v", result)
+	}
+}
+
+// TestEnsureCodexJSONArgs_ExistingFlagIdempotent tests that ensureCodexJSONArgs
+// is idempotent: calling it on args that already have --json does not duplicate it.
+func TestEnsureCodexJSONArgs_ExistingFlagIdempotent(t *testing.T) {
+	cfg := BackendConfig{
+		EnvelopeFormat:   "codex_stream",
+		StructuredOutput: "auto",
+	}
+	args := []string{"exec", "--json", "--ephemeral", "-m", "gpt-5.4"}
+	result, err := ensureCodexJSONArgs(args, cfg)
+	if err != nil {
+		t.Fatalf("ensureCodexJSONArgs: %v", err)
+	}
+	// Result should be identical to input (no duplicate --json).
+	if len(result) != len(args) {
+		t.Errorf("ensureCodexJSONArgs: should not duplicate --json; want len %d, got %d; result=%v", len(args), len(result), result)
+	}
+	if result[0] != "exec" || result[1] != "--json" {
+		t.Errorf("ensureCodexJSONArgs: --json position changed; result=%v", result)
+	}
+}
+
+// TestEnsureCodexJSONArgs_OffMode tests that StructuredOutput="off" does not
+// inject or modify args.
+func TestEnsureCodexJSONArgs_OffMode(t *testing.T) {
+	cfg := BackendConfig{
+		EnvelopeFormat:   "codex_stream",
+		StructuredOutput: "off",
+	}
+	args := []string{"exec", "--ephemeral", "-m", "gpt-5.4"}
+	result, err := ensureCodexJSONArgs(args, cfg)
+	if err != nil {
+		t.Fatalf("ensureCodexJSONArgs: %v", err)
+	}
+	if len(result) != len(args) {
+		t.Errorf("ensureCodexJSONArgs (off mode): should not modify args; want len %d, got %d; result=%v", len(args), len(result), result)
+	}
+	for i, arg := range result {
+		if arg != args[i] {
+			t.Errorf("ensureCodexJSONArgs (off mode): args[%d] changed from %q to %q", i, args[i], arg)
+		}
+	}
+}
+
+// TestEnsureCodexJSONArgs_NonCodexStream tests that non-codex_stream EnvelopeFormat
+// (e.g., claude_json) returns args unchanged (no-op).
+func TestEnsureCodexJSONArgs_NonCodexStream(t *testing.T) {
+	cfg := BackendConfig{
+		EnvelopeFormat:   "claude_json",
+		StructuredOutput: "auto",
+	}
+	args := []string{"exec", "--ephemeral"}
+	result, err := ensureCodexJSONArgs(args, cfg)
+	if err != nil {
+		t.Fatalf("ensureCodexJSONArgs: %v", err)
+	}
+	if len(result) != len(args) {
+		t.Errorf("ensureCodexJSONArgs (claude_json): should not modify args; want len %d, got %d; result=%v", len(args), len(result), result)
+	}
+}
+
+// TestEnsureCodexJSONArgs_PreviewReflectsJSON tests that --json appears in Preview
+// output when ensureCodexJSONArgs is applied in renderArgs.
+func TestEnsureCodexJSONArgs_PreviewReflectsJSON(t *testing.T) {
+	// Create a fixture with StructuredOutput="auto" so --json is enforced.
+	const tomlWithJSON = `
+[backends.codex-exec]
+command = "codex"
+args = ["exec", "--ephemeral", "--ignore-user-config", "-C", "{{.CWD}}", "-m", "{{.Model}}"]
+env = []
+mcp_config_arg = ""
+allowed_tools_arg = ""
+allowed_tools_csv_template = ""
+slots_default = 0
+envelope_format = "codex_stream"
+stdin_prompt = true
+mcp_injection = "codex_inline_toml"
+structured_output = "auto"
+`
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	writeFile(t, filepath.Join(projectDir, ".claude", "sand-backends.toml"), tomlWithJSON)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", homeDir)
+
+	cfg := decodeCodexExecConfig(t, projectDir)
+	ce := &codexExecBackend{cfg: cfg}
+
+	cwd := t.TempDir()
+	req := SpawnRequest{
+		Role:        "ta-go-builder",
+		Prompt:      "test",
+		Model:       "gpt-5.4",
+		CWD:         cwd,
+		PersonaBody: "B",
+	}
+
+	preview, err := ce.Preview(req)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	// --json must appear in the preview output (after `exec`).
+	if !strings.Contains(preview, "--json") {
+		t.Errorf("Preview must contain --json when StructuredOutput=auto; got:\n%s", preview)
+	}
+
+	// --json must appear right after exec (check the line structure).
+	lines := strings.Split(preview, "\n")
+	foundJSONAfterExec := false
+	for i, line := range lines {
+		if strings.Contains(line, "exec") {
+			// Next line should contain --json.
+			if i+1 < len(lines) && strings.Contains(lines[i+1], "--json") {
+				foundJSONAfterExec = true
+				break
+			}
+		}
+	}
+	if !foundJSONAfterExec {
+		t.Errorf("Preview: --json not positioned after exec; got:\n%s", preview)
+	}
+}
+
 // assertArgvContainsMCPServer is a test helper that fails if no `-c`
 // flag in argv has a value starting with the given mcp_servers prefix.
 func assertArgvContainsMCPServer(t *testing.T, argv []string, prefix string) {

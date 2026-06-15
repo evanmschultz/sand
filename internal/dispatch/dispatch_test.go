@@ -333,8 +333,8 @@ func writeMCPConfig(t *testing.T, cwd string) {
 
 // defaultClaudeNativeBackendsTOML is the canonical fixture that mirrors the
 // committed runClaudeNative argv contract: `-p`, `--bare`, `--model
-// {{.Model}}`, `--output-format json`, `--no-session-persistence`,
-// `--append-system-prompt {{.PersonaBody}}`, conditional `--mcp-config` and
+// {{.Model}}`, `--output-format stream-json`, `--no-session-persistence`,
+// `--append-system-prompt {{.PersonaBody}}`, `--verbose`, conditional `--mcp-config` and
 // `--allowedTools`, prompt piped via stdin. Mirrors the
 // fullArgsClaudeNativeTOML fixture in internal/backends/claude_native_test.go
 // so the dispatch + backends tests exercise the same template surface.
@@ -345,9 +345,10 @@ args = [
   "-p",
   "--bare",
   "--model", "{{.Model}}",
-  "--output-format", "json",
+  "--output-format", "stream-json",
   "--no-session-persistence",
   "--append-system-prompt", "{{.PersonaBody}}",
+  "--verbose",
 ]
 env = []
 mcp_config_arg = "--mcp-config"
@@ -442,10 +443,11 @@ func TestDispatchDryRun(t *testing.T) {
 			"claude -p",
 			"--bare",
 			"--model opus",
-			"--output-format json",
+			"--output-format stream-json",
 			"--no-session-persistence",
 			"--append-system-prompt",
 			"PERSONA BODY LINE 1",
+			"--verbose",
 			"--allowedTools Read,Bash(mage testFunc *)",
 			"evaluate plan X",
 		}

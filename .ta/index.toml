@@ -2296,11 +2296,47 @@ db_name = 'cascade'
 type = 'qa_proof'
 updated = 2026-06-15T01:04:13.12032Z
 
+[drop_015.drop.w1_qa_falsification_settings_use_scope]
+created = 2026-06-15T04:00:01.532496Z
+db_name = 'cascade'
+type = 'qa_falsification'
+updated = 2026-06-15T04:00:01.532496Z
+
+[drop_015.drop.w1_qa_proof_settings_use_scope]
+created = 2026-06-15T04:00:01.515736Z
+db_name = 'cascade'
+type = 'qa_proof'
+updated = 2026-06-15T04:00:01.515736Z
+
+[drop_015.drop.w1_renderargs_settings_flag]
+created = 2026-06-15T04:00:01.47759Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-06-15T04:00:01.47759Z
+
+[drop_015.drop.w1_settings_authority_allowedtools]
+created = 2026-06-15T04:00:01.493069Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-06-15T04:00:01.493069Z
+
 [drop_015.drop.w1_settings_use_scope]
 created = 2026-06-15T01:04:13.107788Z
 db_name = 'cascade'
 type = 'planner'
 updated = 2026-06-15T01:04:13.107788Z
+
+[drop_015.drop.w1_spawnrequest_persona_settings_path]
+created = 2026-06-15T04:00:01.456302Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-06-15T04:00:01.456302Z
+
+[drop_015.drop.w1_spike_claude_settings_bare]
+created = 2026-06-15T04:00:01.438844Z
+db_name = 'cascade'
+type = 'droplet'
+updated = 2026-06-15T04:00:01.438844Z
 
 [drop_015.drop.w2_mcp_visibility_scope]
 created = 2026-06-15T01:04:13.145713Z
@@ -2342,19 +2378,19 @@ updated = 2026-06-15T01:04:13.195332Z
 created = 2026-06-15T02:30:05.576456Z
 db_name = 'cascade'
 type = 'qa_falsification'
-updated = 2026-06-15T02:30:05.576456Z
+updated = 2026-06-15T03:56:23.050398Z
 
 [drop_015.drop.w4_audit_counts_build_proof]
 created = 2026-06-15T02:30:05.556715Z
 db_name = 'cascade'
 type = 'qa_proof'
-updated = 2026-06-15T02:30:05.556715Z
+updated = 2026-06-15T03:56:23.036616Z
 
 [drop_015.drop.w4_audit_counts_parser]
 created = 2026-06-15T01:04:13.220016Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-06-15T02:56:29.404701Z
+updated = 2026-06-15T03:56:23.021697Z
 
 [drop_015.drop.w4_claude_json_shape_spike]
 created = 2026-06-15T02:29:42.838717Z

@@ -323,6 +323,12 @@ func (b *codexExecBackend) renderArgs(req SpawnRequest) ([]string, TemplateData,
 		return nil, td, fmt.Errorf("backends: render args: %w", err)
 	}
 
+	// Enforce --json flag for codex_stream envelope when StructuredOutput is set.
+	args, err = ensureCodexJSONArgs(args, b.cfg)
+	if err != nil {
+		return nil, td, fmt.Errorf("backends: ensure codex json args: %w", err)
+	}
+
 	// Hermetic config overrides — appended unconditionally after the
 	// TOML-defined args so they appear in both Spawn and Preview (Preview
 	// calls only renderArgs; Spawn-appended flags would be invisible to it).
@@ -409,4 +415,59 @@ func appendNetworkFlag(args []string, g *gate.Allowlist) []string {
 		return args
 	}
 	return append(args, "-c", "sandbox_workspace_write.network_access=false")
+}
+
+// ensureCodexJSONArgs guarantees that --json flag is present in the argv
+// for codex_stream envelope format when StructuredOutput requires it.
+// Behavior per StructuredOutput:
+//   - "auto" (empty or unset): inject `--json` if absent, after the `exec` subcommand
+//   - "json": ensure `--json` present (inject after `exec` if absent)
+//   - "off": do not modify args (trace will be empty — operator opts out)
+//
+// For other EnvelopeFormats (claude_json), this is a no-op.
+// The function is idempotent: repeated calls never duplicate --json.
+func ensureCodexJSONArgs(args []string, cfg BackendConfig) ([]string, error) {
+	// Only enforce for codex_stream envelope format.
+	if cfg.EnvelopeFormat != "codex_stream" {
+		return args, nil
+	}
+
+	mode := cfg.StructuredOutput
+	if mode == "" {
+		mode = "auto"
+	}
+
+	// "off" mode: no enforcement.
+	if mode == "off" {
+		return args, nil
+	}
+
+	// Find if --json is already present in args.
+	for _, arg := range args {
+		if arg == "--json" {
+			return args, nil // Already present; idempotent return.
+		}
+	}
+
+	// --json not present. Inject it after the `exec` subcommand.
+	// Find the index of the `exec` subcommand (typically first arg after `codex`).
+	var execIdx int = -1
+	for i, arg := range args {
+		if arg == "exec" {
+			execIdx = i
+			break
+		}
+	}
+
+	if execIdx < 0 {
+		// No `exec` subcommand found; for safety, just append --json at the end.
+		return append(args, "--json"), nil
+	}
+
+	// Insert --json right after the `exec` subcommand (at execIdx+1).
+	newArgs := make([]string, 0, len(args)+1)
+	newArgs = append(newArgs, args[:execIdx+1]...) // up to and including `exec`
+	newArgs = append(newArgs, "--json")            // insert --json
+	newArgs = append(newArgs, args[execIdx+1:]...) // rest of the args
+	return newArgs, nil
 }

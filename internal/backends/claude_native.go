@@ -308,6 +308,12 @@ func (b *claudeNativeBackend) renderArgs(req SpawnRequest) ([]string, TemplateDa
 		return nil, td, fmt.Errorf("backends: render args: %w", err)
 	}
 
+	// Enforce structured-output flags for claude_json envelope.
+	args, err = ensureStreamingArgs(args, b.cfg)
+	if err != nil {
+		return nil, td, fmt.Errorf("backends: ensure streaming args: %w", err)
+	}
+
 	// --mcp-config conditional append. The flag name comes from
 	// BackendConfig.McpConfigArg; the value is the resolved path on
 	// req. Both must be non-empty — backends with no McpConfigArg
@@ -422,6 +428,90 @@ func gateBashDisallowedCSV(bashDeny []string) string {
 		entries = append(entries, "Bash("+pat+":*)")
 	}
 	return strings.Join(entries, ",")
+}
+
+// ensureStreamingArgs guarantees that --output-format and --verbose flags
+// are present in the argv per BackendConfig.StructuredOutput when
+// EnvelopeFormat == "claude_json". Behavior per StructuredOutput:
+//   - "auto" (empty or unset): inject `--output-format stream-json --verbose` if absent
+//   - "stream-json": ensure `--output-format stream-json` + `--verbose` present;
+//     if argv has `--output-format json`, upgrade it to stream-json
+//   - "json": leave `--output-format json` alone (no verbose)
+//   - "off": do not modify args (trace will be empty — operator opts out)
+//
+// For other EnvelopeFormats (codex_stream), this is a no-op.
+// The function is idempotent: repeated calls never duplicate --output-format.
+func ensureStreamingArgs(args []string, cfg BackendConfig) ([]string, error) {
+	// Only enforce for claude_json envelope format.
+	if cfg.EnvelopeFormat != "claude_json" && cfg.EnvelopeFormat != "" {
+		return args, nil
+	}
+
+	mode := cfg.StructuredOutput
+	if mode == "" {
+		mode = "auto"
+	}
+
+	// "off" mode: no enforcement.
+	if mode == "off" {
+		return args, nil
+	}
+
+	// Find current --output-format position.
+	var formatIdx int = -1
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--output-format" {
+			formatIdx = i
+			break
+		}
+	}
+
+	// Find current --verbose position.
+	var verboseIdx int = -1
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--verbose" {
+			verboseIdx = i
+			break
+		}
+	}
+
+	switch mode {
+	case "auto", "stream-json":
+		// Ensure --output-format stream-json + --verbose.
+		if formatIdx >= 0 {
+			// --output-format exists; upgrade value to stream-json.
+			if formatIdx+1 < len(args) {
+				args[formatIdx+1] = "stream-json"
+			}
+		} else {
+			// --output-format does not exist; inject it.
+			args = append(args, "--output-format", "stream-json")
+		}
+
+		// Ensure --verbose is present.
+		if verboseIdx < 0 {
+			args = append(args, "--verbose")
+		}
+
+	case "json":
+		// Leave --output-format json alone; do nothing.
+		// No --verbose injection.
+
+	default:
+		// Unknown mode; treat as "auto".
+		if formatIdx >= 0 {
+			if formatIdx+1 < len(args) {
+				args[formatIdx+1] = "stream-json"
+			}
+		} else {
+			args = append(args, "--output-format", "stream-json")
+		}
+		if verboseIdx < 0 {
+			args = append(args, "--verbose")
+		}
+	}
+
+	return args, nil
 }
 
 // renderAllowedToolsCSV substitutes BackendConfig.AllowedToolsCSVTemplate
