@@ -86,6 +86,18 @@ func loadChainsConfig(cwd string) (chains.Config, error) {
 	return cfg, nil
 }
 
+// isBuilderRole reports whether the given persona represents a builder role.
+// Builder roles have Edit or Write in their Tools list, indicating they are
+// meant to run via the builtin Agent tool, not sand.
+func isBuilderRole(p persona.Persona) bool {
+	for _, tool := range p.Tools {
+		if tool == "Edit" || tool == "Write" || strings.Contains(tool, "Edit") || strings.Contains(tool, "Write") {
+			return true
+		}
+	}
+	return false
+}
+
 // selectClaudeNativeTier walks tiers in order and returns the first entry
 // whose Backend is claude-native, along with its 1-indexed position. When no
 // claude-native tier exists the returned tier is the zero value, idx is 0,
@@ -172,9 +184,15 @@ func writeAttemptAudit(auditDir, runID, role, backend, model string, tier int, e
 // drop_003's TestDispatchDryRun contract still pins Tier=0 + ServedBy naming
 // the first claude-native tier in the chain, with no actual spawn invoked.
 //
+// Builder-lane rejection: Dispatch rejects any role whose persona declares
+// Edit or Write in its Tools list, as builder dispatch must go through the
+// builtin Agent tool, not sand. The error wraps ErrBuilderRoleRejected.
+//
 // Failure modes (each wraps the underlying cause with %w so callers may use
 // errors.Is):
 //
+//   - builder role dispatch (persona has Edit or Write in Tools) returns
+//     wrapped ErrBuilderRoleRejected.
 //   - persona load failure (missing file, malformed frontmatter) propagates
 //     from persona.Load.
 //   - chains config load / parse failure propagates from loadChainsConfig.
@@ -196,6 +214,11 @@ func Dispatch(ctx context.Context, params Params) (Response, error) {
 	p, err := persona.Load(params.CWD, params.Role)
 	if err != nil {
 		return Response{}, fmt.Errorf("dispatch: load persona for role %q: %w", params.Role, err)
+	}
+
+	// Builder roles dispatch via the builtin Agent tool, not sand.
+	if isBuilderRole(p) {
+		return Response{}, fmt.Errorf("dispatch: role %q: %w", params.Role, ErrBuilderRoleRejected)
 	}
 
 	cfg, err := loadChainsConfig(params.CWD)
@@ -484,20 +507,26 @@ func buildSuccessResponse(params Params, backend backends.Backend, tier chains.T
 	// Write audit files (drop_014 area7). On failure, log to stderr with the
 	// exact prefix but do not abort the dispatch.
 	logPath := ""
+	toolsUsedCount := 0
+	for _, tu := range env.ToolsUsed {
+		toolsUsedCount += tu
+	}
+	endedAt := time.Now().UTC()
+	startedAt := endedAt.Add(-result.Duration)
 	auditRec := AuditRecord{
 		RunID:          runID,
 		Role:           params.Role,
 		Backend:        tier.Backend,
-		Model:          tier.Model,
+		Model:          servedModel, // Log the actual served model, not the chain config's tier.Model
 		Tier:           tierIdx,
-		StartedAt:      time.Time{}, // v0 deferral per NIT-D
-		EndedAt:        time.Time{}, // v0 deferral per NIT-D
+		StartedAt:      startedAt,
+		EndedAt:        endedAt,
 		ExitCode:       result.ExitCode,
 		ArgvShape:      nil, // v0 deferral per NIT-C/F3
 		PromptBytes:    len(params.Prompt),
 		ResponseBytes:  len(result.Stdout),
-		ToolsUsedCount: 0, // v0 deferral per NIT-B
-		MCPCallsCount:  0, // v0 deferral per NIT-B
+		ToolsUsedCount: toolsUsedCount,
+		MCPCallsCount:  len(env.ToolCallsOrdered),
 	}
 	metaPath, auditErr := WriteAuditFiles(auditDir, auditRec, stdout, stderr)
 	if auditErr != nil {
@@ -518,6 +547,7 @@ func buildSuccessResponse(params Params, backend backends.Backend, tier chains.T
 		PermissionDenials: permissionDenialsFromMap(env.PermissionDenials),
 		ToolCalls:         toolCallsFromOrdered(env.ToolCallsOrdered),
 		FallbackChain:     chain,
+		NumTurns:          env.NumTurns,
 		LogPath:           logPath,
 	}, nil
 }
@@ -684,6 +714,10 @@ type Params struct {
 //     tool invocations. drop_007 wires it from the full envelope stream;
 //     drop_008 introduces the field on Response so downstream TOON encoders
 //     can shape the row layout now.
+//   - NumTurns is the number of execution turns in the agent's session.
+//     1 indicates no tool work (hallucination discriminator); >1 indicates
+//     real multi-turn execution. Parsed from the envelope and surfaced here
+//     so the operator can verify agent behavior.
 //   - LogPath is the absolute path to the per-dispatch audit metadata file
 //     <project_dir>/.claude/agent-runs/<run-id>.tier<N>.<backend>.meta.json
 //     (drop_014 area7 audit-capture). Empty when audit-write fails; the
@@ -700,6 +734,7 @@ type Response struct {
 	PermissionDenials []PermissionDenial
 	FallbackChain     []Attempt
 	ToolCalls         []ToolCall
+	NumTurns          int
 	LogPath           string
 }
 
@@ -799,4 +834,10 @@ var (
 	// switch must be total at the dispatch boundary so a future Backend
 	// impl that forgets to update buildSuccessResponse fails loudly.
 	ErrUnknownEnvelopeFormat = errors.New("dispatch: unknown backend envelope format")
+
+	// ErrBuilderRoleRejected is returned (wrapped) when sand.dispatch is
+	// called with a builder role (a role that edits source). Builder dispatch
+	// must go through the builtin Agent tool, not sand. This guard ensures
+	// builder roles never dispatch through sand.
+	ErrBuilderRoleRejected = errors.New("dispatch: builder role must use the builtin Agent tool, not sand")
 )

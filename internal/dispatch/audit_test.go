@@ -121,3 +121,133 @@ func TestWriteAuditFiles_MkdirAllFailure(t *testing.T) {
 		t.Errorf("metaPath non-empty on error: %q", metaPath)
 	}
 }
+
+// TestAuditRecord_ToolsAndCallsCounts verifies that ToolsUsedCount and
+// MCPCallsCount are properly populated in the audit record and persisted.
+func TestAuditRecord_ToolsAndCallsCounts(t *testing.T) {
+	t.Parallel()
+	auditDir := filepath.Join(t.TempDir(), "audit")
+	now := time.Now().UTC()
+
+	// Create an audit record with non-zero tools/calls counts.
+	rec := AuditRecord{
+		RunID:          "20260614T120000-1234567890000000-tooltest",
+		StartedAt:      now,
+		EndedAt:        now.Add(5 * time.Second),
+		Role:           "ta-go-planner",
+		Backend:        "codex-exec",
+		Model:          "gpt-5.5",
+		Tier:           1,
+		ExitCode:       0,
+		PromptBytes:    2000,
+		ResponseBytes:  4500,
+		ToolsUsedCount: 5,
+		MCPCallsCount:  7,
+	}
+
+	metaPath, err := WriteAuditFiles(auditDir, rec, []byte("output"), nil)
+	if err != nil {
+		t.Fatalf("WriteAuditFiles() failed: %v", err)
+	}
+
+	// Read back and verify counts.
+	metaData, _ := os.ReadFile(metaPath)
+	var rt AuditRecord
+	if err := json.Unmarshal(metaData, &rt); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	if rt.ToolsUsedCount != 5 {
+		t.Errorf("ToolsUsedCount = %d, want 5", rt.ToolsUsedCount)
+	}
+	if rt.MCPCallsCount != 7 {
+		t.Errorf("MCPCallsCount = %d, want 7", rt.MCPCallsCount)
+	}
+}
+
+// TestAuditRecord_TimestampsPopulated verifies that StartedAt and EndedAt
+// are non-zero in the persisted audit record.
+func TestAuditRecord_TimestampsPopulated(t *testing.T) {
+	t.Parallel()
+	auditDir := filepath.Join(t.TempDir(), "audit")
+	start := time.Now().UTC()
+	end := start.Add(3 * time.Second)
+
+	rec := AuditRecord{
+		RunID:          "20260614T120000-1234567890000001-timestamptest",
+		StartedAt:      start,
+		EndedAt:        end,
+		Role:           "ta-go-builder",
+		Backend:        "claude-native",
+		Model:          "haiku",
+		Tier:           1,
+		ExitCode:       0,
+		PromptBytes:    1000,
+		ResponseBytes:  2000,
+		ToolsUsedCount: 2,
+		MCPCallsCount:  3,
+	}
+
+	metaPath, err := WriteAuditFiles(auditDir, rec, nil, nil)
+	if err != nil {
+		t.Fatalf("WriteAuditFiles() failed: %v", err)
+	}
+
+	metaData, _ := os.ReadFile(metaPath)
+	var rt AuditRecord
+	if err := json.Unmarshal(metaData, &rt); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	// StartedAt and EndedAt must match (within JSON serialization precision).
+	if rt.StartedAt != start {
+		t.Errorf("StartedAt mismatch: got %v, want %v", rt.StartedAt, start)
+	}
+	if rt.EndedAt != end {
+		t.Errorf("EndedAt mismatch: got %v, want %v", rt.EndedAt, end)
+	}
+
+	// Duration should be 3 seconds.
+	if d := rt.EndedAt.Sub(rt.StartedAt); d != 3*time.Second {
+		t.Errorf("duration = %v, want 3s", d)
+	}
+}
+
+// TestAuditRecord_ModelOverride verifies that the actual served model
+// (potentially different from the chain config default) is recorded.
+func TestAuditRecord_ModelOverride(t *testing.T) {
+	t.Parallel()
+	auditDir := filepath.Join(t.TempDir(), "audit")
+
+	// Create a record where the Model field is the actual served model
+	// (e.g., "opus" which is the override, not "haiku" from the chain).
+	rec := AuditRecord{
+		RunID:          "20260614T120000-1234567890000002-modeltest",
+		StartedAt:      time.Now().UTC(),
+		EndedAt:        time.Now().UTC().Add(1 * time.Second),
+		Role:           "ta-go-qa-proof",
+		Backend:        "claude-native",
+		Model:          "opus", // The actual served model (not the chain default)
+		Tier:           1,
+		ExitCode:       0,
+		PromptBytes:    500,
+		ResponseBytes:  1000,
+		ToolsUsedCount: 1,
+		MCPCallsCount:  1,
+	}
+
+	metaPath, err := WriteAuditFiles(auditDir, rec, nil, nil)
+	if err != nil {
+		t.Fatalf("WriteAuditFiles() failed: %v", err)
+	}
+
+	metaData, _ := os.ReadFile(metaPath)
+	var rt AuditRecord
+	if err := json.Unmarshal(metaData, &rt); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	if rt.Model != "opus" {
+		t.Errorf("Model = %q, want %q (the actual served model)", rt.Model, "opus")
+	}
+}

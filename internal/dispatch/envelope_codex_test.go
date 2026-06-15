@@ -286,3 +286,154 @@ func TestParseCodexEnvelopeMalformedMcpLine(t *testing.T) {
 		t.Errorf("Result missing narrative tail\nResult = %q", got.Result)
 	}
 }
+
+// TestParseCodexEnvelope_JSONStream exercises the new --json NDJSON stream format.
+// Format auto-detection routes to parseCodexStream when input starts with `{"type":`.
+func TestParseCodexEnvelope_JSONStream(t *testing.T) {
+	tests := []struct {
+		name           string
+		fixture        string
+		wantErr        error
+		wantTools      map[string]int
+		wantDenials    map[string]int
+		wantResultHas  []string
+		wantResultMiss []string
+	}{
+		{
+			// Happy path: command_execution + mcp_tool_call + agent_message
+			// extracted from item.completed events in the JSON stream.
+			name:    "json-stream-happy-path",
+			fixture: "codex-json-stream-schema.jsonl",
+			wantTools: map[string]int{
+				"echo hi": 1,
+				"ta/get":  1,
+			},
+			wantDenials: map[string]int{},
+			wantResultHas: []string{
+				"Done. Ran echo hi and updated the record.",
+			},
+			wantResultMiss: []string{
+				"item.started",
+				"turn.started",
+			},
+		},
+		{
+			// Permission denials: command_execution with non-zero exit_code,
+			// mcp_tool_call with error, and free-form error items.
+			name:      "json-stream-failures",
+			fixture:   "codex-json-stream-schema-denied.jsonl",
+			wantTools: map[string]int{},
+			wantDenials: map[string]int{
+				"git commit -m x": 1,
+				"ta/update":       1,
+			},
+			wantResultHas: []string{
+				"I could not complete the write; the sandbox denied it.",
+			},
+		},
+		{
+			// Real capture: thread.started → error*6 → turn.failed
+			// No tool calls, accumulated error messages in Result.
+			name:        "json-stream-real-failure",
+			fixture:     "codex-json-stream-lifecycle-real.jsonl",
+			wantTools:   map[string]int{},
+			wantDenials: map[string]int{},
+			wantResultHas: []string{
+				"turn.failed",
+				"404 Not Found",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout := readFixture(t, tc.fixture)
+
+			got, err := ParseCodexEnvelope(stdout)
+
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("ParseCodexEnvelope err = %v, want errors.Is %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseCodexEnvelope err = %v, want nil", err)
+			}
+
+			if !reflect.DeepEqual(got.ToolsUsed, tc.wantTools) {
+				t.Errorf("ToolsUsed = %v, want %v", got.ToolsUsed, tc.wantTools)
+			}
+			if !reflect.DeepEqual(got.PermissionDenials, tc.wantDenials) {
+				t.Errorf("PermissionDenials = %v, want %v", got.PermissionDenials, tc.wantDenials)
+			}
+			for _, sub := range tc.wantResultHas {
+				if !strings.Contains(got.Result, sub) {
+					t.Errorf("Result missing substring %q\nResult = %q", sub, got.Result)
+				}
+			}
+			for _, sub := range tc.wantResultMiss {
+				if strings.Contains(got.Result, sub) {
+					t.Errorf("Result must NOT contain %q\nResult = %q", sub, got.Result)
+				}
+			}
+
+			// Confirm aggregates are non-nil.
+			if got.ToolsUsed == nil {
+				t.Errorf("ToolsUsed nil, want non-nil map")
+			}
+			if got.PermissionDenials == nil {
+				t.Errorf("PermissionDenials nil, want non-nil map")
+			}
+		})
+	}
+}
+
+// TestParseCodexEnvelope_JSONStream_OrderedToolCalls validates the ordering
+// guarantees for the JSON stream parser: tool calls are indexed 1-based in
+// the order they appear in item.completed events.
+func TestParseCodexEnvelope_JSONStream_OrderedToolCalls(t *testing.T) {
+	stdout := readFixture(t, "codex-json-stream-schema.jsonl")
+	got, err := ParseCodexEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseCodexEnvelope err = %v, want nil", err)
+	}
+
+	if len(got.ToolCallsOrdered) != 2 {
+		t.Fatalf("ToolCallsOrdered len = %d, want 2; got %+v", len(got.ToolCallsOrdered), got.ToolCallsOrdered)
+	}
+
+	// First: command_execution "echo hi" succeeds
+	if got.ToolCallsOrdered[0].Index != 1 || got.ToolCallsOrdered[0].Name != "echo hi" || got.ToolCallsOrdered[0].IsError {
+		t.Errorf("ToolCallsOrdered[0] = %+v, want Index=1 Name=echo hi IsError=false", got.ToolCallsOrdered[0])
+	}
+
+	// Second: mcp_tool_call ta/get succeeds
+	if got.ToolCallsOrdered[1].Index != 2 || got.ToolCallsOrdered[1].Name != "ta/get" || got.ToolCallsOrdered[1].IsError {
+		t.Errorf("ToolCallsOrdered[1] = %+v, want Index=2 Name=ta/get IsError=false", got.ToolCallsOrdered[1])
+	}
+}
+
+// TestParseCodexEnvelope_JSONStream_MalformedJSON locks robustness:
+// malformed JSON lines are accumulated as narrative and parsing continues.
+func TestParseCodexEnvelope_JSONStream_MalformedJSON(t *testing.T) {
+	stdout := []byte(
+		`{"type":"thread.started","thread_id":"019ec948"}` + "\n" +
+			`{"type":"turn.started"}` + "\n" +
+			`{malformed json}` + "\n" +
+			`{"type":"item.completed","item":{"type":"command_execution","command":"echo hi","exit_code":0,"status":"completed"}}` + "\n",
+	)
+
+	got, err := ParseCodexEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseCodexEnvelope err = %v, want nil (should tolerate malformed lines)", err)
+	}
+
+	if got.ToolsUsed["echo hi"] != 1 {
+		t.Errorf("ToolsUsed[echo hi] = %d, want 1 (must recover after malformed line)", got.ToolsUsed["echo hi"])
+	}
+
+	if !strings.Contains(got.Result, "malformed json") {
+		t.Errorf("Result missing malformed line for audit — Result = %q", got.Result)
+	}
+}

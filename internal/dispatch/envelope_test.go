@@ -273,8 +273,145 @@ func TestParseEnvelope_OrderedToolCalls(t *testing.T) {
 	}
 }
 
-// readFixture loads a JSON fixture from testdata/ and fails the test if the
-// file is missing or unreadable.
+// TestParseEnvelopeRealShape verifies that the real claude --output-format json
+// result envelope shape (captured in drop_015 W4 spike) is decoded correctly.
+// The top-level num_turns and permission_denials fields (distinct from the
+// iterations-derived aggregate maps) must be populated by ParseEnvelope via
+// plain encoding/json unmarshal with no parser-logic changes required.
+func TestParseEnvelopeRealShape(t *testing.T) {
+	tests := []struct {
+		name             string
+		fixture          string
+		wantNumTurns     int
+		wantDenialsCount int
+		wantDenialTool   string // first entry's ToolName
+	}{
+		{
+			name:             "real-shape-num-turns-and-denials",
+			fixture:          "claude-json-real-tool-trace.json",
+			wantNumTurns:     5,
+			wantDenialsCount: 1,
+			wantDenialTool:   "Bash",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout := readFixture(t, tc.fixture)
+
+			got, err := ParseEnvelope(stdout)
+			if err != nil {
+				t.Fatalf("ParseEnvelope err = %v, want nil", err)
+			}
+
+			if got.NumTurns != tc.wantNumTurns {
+				t.Errorf("NumTurns = %d, want %d", got.NumTurns, tc.wantNumTurns)
+			}
+			if len(got.PermissionDenialsRaw) != tc.wantDenialsCount {
+				t.Fatalf("len(PermissionDenialsRaw) = %d, want %d",
+					len(got.PermissionDenialsRaw), tc.wantDenialsCount)
+			}
+			if got.PermissionDenialsRaw[0].ToolName != tc.wantDenialTool {
+				t.Errorf("PermissionDenialsRaw[0].ToolName = %q, want %q",
+					got.PermissionDenialsRaw[0].ToolName, tc.wantDenialTool)
+			}
+		})
+	}
+}
+
+// TestParseStreamJSONSuccess verifies stream-json parsing against the real
+// sample fixture (15 lines, tool_use → tool_result success path).
+func TestParseStreamJSONSuccess(t *testing.T) {
+	stdout := readFixture(t, "claude-stream-json-sample.jsonl")
+
+	got, err := ParseEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseEnvelope err = %v, want nil", err)
+	}
+
+	// Verify result text is preserved
+	if got.Result != "Done." {
+		t.Errorf("Result = %q, want %q", got.Result, "Done.")
+	}
+
+	// Verify tools_used contains Bash (successful case)
+	if count, ok := got.ToolsUsed["Bash"]; !ok || count != 1 {
+		t.Errorf("ToolsUsed[Bash] = %d, want 1", count)
+	}
+
+	// Verify no permission denials in success case
+	if len(got.PermissionDenials) != 0 {
+		t.Errorf("PermissionDenials = %v, want empty", got.PermissionDenials)
+	}
+
+	// Verify tool call is recorded
+	if len(got.ToolCallsOrdered) != 1 {
+		t.Fatalf("len(ToolCallsOrdered) = %d, want 1", len(got.ToolCallsOrdered))
+	}
+	if got.ToolCallsOrdered[0].Name != "Bash" || got.ToolCallsOrdered[0].IsError {
+		t.Errorf("ToolCallsOrdered[0] = %+v, want Name=Bash IsError=false",
+			got.ToolCallsOrdered[0])
+	}
+
+	// Verify ToolUseID is captured (for correlation with tool_result)
+	if got.ToolCallsOrdered[0].ToolUseID == "" {
+		t.Errorf("ToolCallsOrdered[0].ToolUseID is empty, want non-empty")
+	}
+}
+
+// TestParseStreamJSONDenial verifies stream-json parsing against the real
+// denial fixture (17 lines, tool_use → tool_result is_error:true → result.permission_denials).
+// HOLE 2 FIX: denied tool_uses must NOT be counted in ToolsUsed, must have
+// IsError=true in ToolCallsOrdered, but must still appear in PermissionDenials.
+func TestParseStreamJSONDenial(t *testing.T) {
+	stdout := readFixture(t, "claude-stream-json-denied.jsonl")
+
+	got, err := ParseEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseEnvelope err = %v, want nil", err)
+	}
+
+	// Verify result text is the denial message
+	if got.Result != "The `curl` command requires your approval to run. Please allow the tool execution in the permission prompt that should appear on your screen." {
+		t.Errorf("Result = %q, got unexpected value", got.Result)
+	}
+
+	// Verify permission_denials array is populated from result event
+	if len(got.PermissionDenialsRaw) != 1 {
+		t.Fatalf("len(PermissionDenialsRaw) = %d, want 1", len(got.PermissionDenialsRaw))
+	}
+	if got.PermissionDenialsRaw[0].ToolName != "Bash" {
+		t.Errorf("PermissionDenialsRaw[0].ToolName = %q, want Bash",
+			got.PermissionDenialsRaw[0].ToolName)
+	}
+
+	// Verify PermissionDenials map is populated from the array
+	if count, ok := got.PermissionDenials["Bash"]; !ok || count != 1 {
+		t.Errorf("PermissionDenials[Bash] = %d, want 1", count)
+	}
+
+	// HOLE 2 FIX ASSERTION: denied Bash must NOT be in ToolsUsed
+	if count, ok := got.ToolsUsed["Bash"]; ok {
+		t.Errorf("ToolsUsed[Bash] = %d, want absent (denied tool must not be in ToolsUsed)", count)
+	}
+	if len(got.ToolsUsed) != 0 {
+		t.Errorf("ToolsUsed = %v, want empty map (all denied)", got.ToolsUsed)
+	}
+
+	// HOLE 2 FIX ASSERTION: ToolCallsOrdered must have 1 entry with IsError=true
+	if len(got.ToolCallsOrdered) != 1 {
+		t.Fatalf("len(ToolCallsOrdered) = %d, want 1", len(got.ToolCallsOrdered))
+	}
+	if got.ToolCallsOrdered[0].Name != "Bash" {
+		t.Errorf("ToolCallsOrdered[0].Name = %q, want Bash", got.ToolCallsOrdered[0].Name)
+	}
+	if !got.ToolCallsOrdered[0].IsError {
+		t.Errorf("ToolCallsOrdered[0].IsError = %v, want true (denied)", got.ToolCallsOrdered[0].IsError)
+	}
+}
+
+// readFixture loads a JSON or NDJSON fixture from testdata/ and fails the test
+// if the file is missing or unreadable.
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	path := filepath.Join("testdata", name)

@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"019ec948-de74-7a41-a722-0715e1d6eba4"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5 (unexpected status 404 Not Found: Model 'gpt-5.1-codex' not found. Available models: Qwen3.6-35B-A3B-4bit, url: http://127.0.0.1:8000/v1/responses)"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 404 Not Found: Model 'gpt-5.1-codex' not found. Available models: Qwen3.6-35B-A3B-4bit, url: http://127.0.0.1:8000/v1/responses)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 404 Not Found: Model 'gpt-5.1-codex' not found. Available models: Qwen3.6-35B-A3B-4bit, url: http://127.0.0.1:8000/v1/responses)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 404 Not Found: Model 'gpt-5.1-codex' not found. Available models: Qwen3.6-35B-A3B-4bit, url: http://127.0.0.1:8000/v1/responses)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 404 Not Found: Model 'gpt-5.1-codex' not found. Available models: Qwen3.6-35B-A3B-4bit, url: http://127.0.0.1:8000/v1/responses)"}
+{"type":"error","message":"unexpected status 404 Not Found: Model 'gpt-5.1-codex' not found. Available models: Qwen3.6-35B-A3B-4bit, url: http://127.0.0.1:8000/v1/responses"}
+{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: Model 'gpt-5.1-codex' not found. Available models: Qwen3.6-35B-A3B-4bit, url: http://127.0.0.1:8000/v1/responses"}}

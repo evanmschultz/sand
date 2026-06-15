@@ -56,7 +56,8 @@ args = [
   "-p",
   "--bare",
   "--model", "{{.Model}}",
-  "--output-format", "json",
+  "--output-format", "stream-json",
+  "--verbose",
   "--no-session-persistence",
   "--append-system-prompt", "{{.PersonaBody}}",
 ]

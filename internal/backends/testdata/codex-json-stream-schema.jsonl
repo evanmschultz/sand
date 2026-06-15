@@ -1,0 +1,11 @@
+{"type":"thread.started","thread_id":"019ec948-de74-7a41-a722-0715e1d6eba4"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"reasoning","text":"I will run echo hi."}}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"I will run echo hi."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"echo hi","aggregated_output":"","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"echo hi","aggregated_output":"hi\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_2","type":"mcp_tool_call","server":"ta","tool":"get","arguments":{"id":"drop_001.drop.x"},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"mcp_tool_call","server":"ta","tool":"get","arguments":{"id":"drop_001.drop.x"},"result":{"content":[{"type":"text","text":"{...record...}"}],"structured_content":null},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"file_change","changes":[{"path":"/abs/main.go","kind":"update"}],"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_4","type":"agent_message","text":"Done. Ran echo hi and updated the record."}}
+{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":0,"output_tokens":85,"reasoning_output_tokens":40}}

@@ -362,13 +362,7 @@ updated_by_type = "agent"
 validation_plan = "Construct counterexamples from current role-conditional codex code, persona settings, and chain/backend routing."
 
 [w4_audit_counts_parser]
-acceptance_criteria = """
-- Verify the actual `--output-format json` event shape from live or fixture output before specifying parser code.
-- Extend parsing beyond the current `iterations[]` assumption if Claude emits assistant message content blocks or stream-derived records instead.
-- Ensure `tools_used[]`, `tool_calls[]`, `permission_denials[]`, `tools_used_count`, and audit meta counts are populated from parsed events, not self-report.
-- Include model_override and StartedAt/EndedAt audit metadata defects in the subdivision plan only if they fit atomic droplets; otherwise route as follow-up records.
-- Subdivide into atomic builder droplets only after this planner's QA pair passes.
-"""
+acceptance_criteria = "ADAPTED per spike (w4_claude_json_shape_spike): --output-format json has NO tool_use trace. MVP scope = surface the REAL signals present: (1) parse top-level `num_turns` (hallucination signal: 1 = no tool work) + `permission_denials[]` (real denials) into Envelope + audit; (2) make a hallucinated run (num_turns=1, text-only) DISTINGUISHABLE from real work (satisfies feedback_always_verify_tool_calls); (3) fix meta defects: dispatch.go logs model:haiku when model_override applied (log ACTUAL served model) + zero started_at/ended_at. DEFERRED (documented, not built): full per-tool tools_used[] trace requires --output-format stream-json + NDJSON parsing. Builder droplets <=80 LOC/<=3 files. mage ci gate."
 blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
 created_at = "2026-06-14T18:02:17-07:00"
 created_by_actor = "agent:codex-planner"
@@ -384,11 +378,10 @@ role = "planner"
 state = "todo"
 structural_type = "segment"
 title = "W4 planner — claude_json audit counts parser"
-updated_at = "2026-06-14T18:02:17-07:00"
+updated_at = "2026-06-14T21:30:00Z"
 updated_by_actor = "agent:codex-planner"
 updated_by_type = "agent"
 validation_plan = "Read `envelope.go`, `dispatch.go`, `tool_dispatch.go`, `audit.go`, and stored `.claude/agent-runs` examples if present. Use a spike/fixture to lock the real claude_json schema before parser implementation."
-
 [w4_plan_proof]
 acceptance_criteria = """
 - Confirm the plan does not assume `iterations[]` if evidence shows another schema.
@@ -592,52 +585,49 @@ acceptance_criteria = """
 - Does not modify production parser logic.
 """
 blockers = []
+comments = [{author = "agent:orchestrator", body = "SPIKE FINDING (real shape captured from .claude/agent-runs/*.claude-native.out): `claude --output-format json` returns a SINGLE result object: top-level {type:result, subtype, is_error, num_turns, result:<final text>, stop_reason, session_id, total_cost_usd, usage{input/output_tokens, iterations[{...,type:message}], modelUsage{...}}, permission_denials[], terminal_reason, uuid}. CRITICAL: there are NO tool_use/tool_result content blocks — usage.iterations[] is per-message TOKEN ACCOUNTING (type:message), not tool calls. So the original W4 premise (parse tool_use from this json) is IMPOSSIBLE with --output-format json; the full per-tool trace requires --output-format stream-json (NDJSON, deferred enhancement). MVP-NOW audit signal IS available: num_turns (hallucinator=1, real-work>1) + top-level permission_denials[] (real). W4 adapts to surface those.", id = "w4-spike-finding", timestamp = "2026-06-14T21:30:00-07:00"}]
 created_at = "2026-06-14T00:00:00-07:00"
 created_by_actor = "agent:codex-sub-planner"
 created_by_type = "agent"
 decision_log = ["2026-06-14: Mandatory first W4 spike. Parser droplets are blocked on this record so they cannot assume the current `iterations[]` schema."]
 labels = ["drop_015", "w4", "spike", "claude-json", "audit"]
 objective = "Capture the actual `claude -p --output-format json` stdout shape from a real or fixture-backed run that includes successful Bash, Write, Read tool use and one permission denial before any parser assumptions are encoded. Do not change parser code in this droplet."
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/dispatch"]
 parent_id = "drop_015.drop.w4_audit_counts_parser"
 paths = ["internal/dispatch/testdata/claude-json-real-tool-trace.json"]
 priority = "high"
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "W4 spike: capture real claude_json tool trace shape"
-updated_at = "2026-06-14T00:00:00-07:00"
+updated_at = "2026-06-14T21:30:00Z"
 updated_by_actor = "agent:codex-sub-planner"
 updated_by_type = "agent"
 validation_plan = "Run a real/fixture `claude -p --output-format json` capture, inspect it with structured JSON tooling, and keep the resulting fixture small enough for parser tests. Orchestrator runs mage ci after the droplet."
-
 [w4_envelope_decode_real_shape]
-acceptance_criteria = """
-- Reads the spike fixture and updates `internal/dispatch/envelope.go` types to decode the actual event container shape.
-- Keeps existing `iterations[]` fixtures passing unless the spike proves they are obsolete test scaffolding requiring compatibility handling.
-- Adds or updates focused parser tests against the spike fixture for raw event/container visibility.
-- Does not wire audit counts in `dispatch.go`.
-"""
+acceptance_criteria = "Add fields to the Envelope struct (internal/dispatch/envelope.go) for top-level `num_turns` (int) and `permission_denials` ([]string or []struct per the real shape) and ensure ParseEnvelope populates them. Create internal/dispatch/testdata/claude-json-real-tool-trace.json = a CLEAN minimal fixture of the real shape (type:result, num_turns>1, a non-empty permission_denials entry, usage.iterations, a short result). Table test asserting NumTurns + PermissionDenials parse correctly. <=80 LOC, <=3 files. Reference real capture: .claude/agent-runs/*.claude-native.out."
 blockers = ["drop_015.drop.w4_claude_json_shape_spike"]
+comments = [{author = "agent:orchestrator", body = "SHIPPED + ORCH-AUDITED: envelope.go +24 (EnvelopeDenial struct + Envelope.NumTurns + Envelope.PermissionDenialsRaw, decoded directly from top-level json via tags) + testdata fixture + TestParseEnvelopeRealShape. git diff in-scope; mage testPkg ./internal/dispatch green. Builder correctly avoided the PermissionDenial name collision (already in dispatch.go as {Tool,Count}). Confirmed: existing parser derives tool calls from iterations[] which real --output-format json never populates -> the always-empty cause.", id = "w4-decode-done", timestamp = "2026-06-14T21:45:00-07:00"}]
 created_at = "2026-06-14T00:00:00-07:00"
 created_by_actor = "agent:codex-sub-planner"
 created_by_type = "agent"
 decision_log = ["2026-06-14: Separated raw-shape decoding from aggregation so the first parser edit remains within the atomic droplet budget."]
 labels = ["drop_015", "w4", "parser", "claude-json"]
-objective = "Extend `Envelope`/`ParseEnvelope` decoding just enough to retain the real tool-event containers discovered by `drop_015.drop.w4_claude_json_shape_spike`, without changing response wiring yet."
+objective = "Add NumTurns + PermissionDenials to the Envelope struct and parse them from the real top-level claude json; create the real-shape testdata fixture."
+outcome = "success"
 packages = ["github.com/evanmschultz/sand/internal/dispatch"]
 parent_id = "drop_015.drop.w4_audit_counts_parser"
 paths = ["internal/dispatch/envelope.go", "internal/dispatch/envelope_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
 priority = "high"
 role = "builder"
-state = "todo"
+state = "complete"
 structural_type = "droplet"
 title = "W4 parser: decode real claude_json event containers"
-updated_at = "2026-06-14T00:00:00-07:00"
+updated_at = "2026-06-14T21:45:00Z"
 updated_by_actor = "agent:codex-sub-planner"
 updated_by_type = "agent"
 validation_plan = "Run focused `internal/dispatch` parser tests plus orchestrator mage ci. Verify the new test fails against the old `iterations[]`-only parser."
-
 [w4_envelope_aggregate_tool_trace]
 acceptance_criteria = """
 - `ParseEnvelope` counts successful tool uses by real event tool name and permission denials by denied tool name from structured events only.

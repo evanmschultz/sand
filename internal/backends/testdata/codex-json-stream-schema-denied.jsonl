@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"019ec949-6554-7a72-a240-fb80dbcffc85"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"git commit -m x","aggregated_output":"error: command rejected by sandbox policy\n","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"ta","tool":"update","arguments":{"id":"x"},"error":{"message":"permission denied: write not allowed"},"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"error","message":"sandbox blocked a non-fatal operation"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"I could not complete the write; the sandbox denied it."}}
+{"type":"turn.completed","usage":{"input_tokens":900,"cached_input_tokens":0,"output_tokens":40,"reasoning_output_tokens":20}}

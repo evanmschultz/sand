@@ -2354,13 +2354,13 @@ updated = 2026-06-15T02:30:05.556715Z
 created = 2026-06-15T01:04:13.220016Z
 db_name = 'cascade'
 type = 'planner'
-updated = 2026-06-15T01:04:13.220016Z
+updated = 2026-06-15T02:56:29.404701Z
 
 [drop_015.drop.w4_claude_json_shape_spike]
 created = 2026-06-15T02:29:42.838717Z
 db_name = 'cascade'
 type = 'droplet'
-updated = 2026-06-15T02:29:42.838717Z
+updated = 2026-06-15T02:56:14.745088Z
 
 [drop_015.drop.w4_dispatch_response_trace_regression]
 created = 2026-06-15T02:29:42.892389Z
@@ -2378,7 +2378,7 @@ updated = 2026-06-15T02:29:42.877485Z
 created = 2026-06-15T02:29:42.856494Z
 db_name = 'cascade'
 type = 'droplet'
-updated = 2026-06-15T02:29:42.856494Z
+updated = 2026-06-15T03:01:57.366877Z
 
 [drop_015.drop.w4_failure_audit_time_model]
 created = 2026-06-15T02:29:42.920861Z
