@@ -89,7 +89,8 @@ Raw captured surfaces + the exact profiles are in `bench/raw/` (shareable + diff
 - **lagom DX:** `ToolDef` uses `input_schema` (snake); MCP emits `inputSchema` (camel) — every consumer must map per tool. (lagom's own note; confirmed painful. A core alias would remove the #1 gotcha.)
 - **Anthropic tools API rejects dotted tool names** (`hylla.artifact.list`) — `^[a-zA-Z0-9_-]{1,64}$`. Relevant to anyone token-measuring real MCP surfaces; the bench sanitizes names for counting only.
 - **sand-side latent bug caught pre-consumer:** marshalling a `[]byte` schema inside a `map[string]any` base64-encodes it (the common path, since mcp-go's client populates `InputSchema` not `RawInputSchema`). Fixed; hermetic test now guards it.
-- **Open sand items (tracked):** `DialUpstream` startup timeout; upstream env isolation; the per-builtin-agent bash gate did not confine raw `go test` (read-only here); dogfood sand's OWN dispatch path; docs (SAND-SPEC/README) catch-up.
+- **Dogfood — sand's OWN dispatch (DONE):** a `sand(codex-exec gpt-5.5)` qa-falsification ran over `internal/slimmcp` via `mcp__sand__dispatch`; the trace returned fully populated (36 tool calls, all read-only, zero git/edit mutations — gate held). It independently confirmed three defects, now FIXED (commit `d302f44`): (1) `DialUpstream` startup timeout (30s bounded context on Initialize+ListTools); (2) `MapUpstreamDefs` now preserves the schema verbatim and normalizes absent/JSON-null/empty `inputSchema` to `{}`; (3) `LoadProfile` rejects non-object/array policies. `mage ci` green (85.6%).
+- **Open sand items (tracked):** upstream env isolation (decision); the per-builtin-agent bash gate did not confine raw `go test` (read-only here — gate-hardening TODO); A/B real-cascade billed-token proof; cross-project `sand mcp` adoption; docs (SAND-SPEC/README) catch-up.
 
 ---
 
