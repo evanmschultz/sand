@@ -343,6 +343,26 @@ func TestParseCodexEnvelope_JSONStream(t *testing.T) {
 				"404 Not Found",
 			},
 		},
+		{
+			// Real codex dispatch: genuine --json stream with one
+			// command_execution (git log) and one agent_message.
+			// Validates the parser handles real codex output structure,
+			// including exit_code and aggregated_output fields.
+			name:    "json-stream-real-codex-dispatch",
+			fixture: "codex-json-stream-toolcall-real.jsonl",
+			wantTools: map[string]int{
+				"/bin/zsh -lc 'git log --oneline -1'": 1,
+			},
+			wantDenials: map[string]int{},
+			wantResultHas: []string{
+				"ebbd2a4 feat(backends): code-enforce structured streaming flag (stream-json/--json)",
+			},
+			wantResultMiss: []string{
+				"thread.started",
+				"turn.started",
+				"item.started",
+			},
+		},
 	}
 
 	for _, tc := range tests {

@@ -410,6 +410,96 @@ func TestParseStreamJSONDenial(t *testing.T) {
 	}
 }
 
+// TestParseStreamJSONMultiToolSuccess verifies stream-json parsing with multiple
+// successful tool invocations (real capture: two Bash calls). This regression
+// pins the parseStreamJSON behavior for multi-success real captures.
+func TestParseStreamJSONMultiToolSuccess(t *testing.T) {
+	stdout := readFixture(t, "claude-stream-json-multitool.jsonl")
+
+	got, err := ParseEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseEnvelope err = %v, want nil", err)
+	}
+
+	// Verify result text is preserved
+	if got.Result != "Done. Two separate Bash calls: first returned `a`, second returned `b`." {
+		t.Errorf("Result = %q, want success text", got.Result)
+	}
+
+	// Verify tools_used contains Bash with count 2 (both successful)
+	if count, ok := got.ToolsUsed["Bash"]; !ok || count != 2 {
+		t.Errorf("ToolsUsed[Bash] = %d, want 2", count)
+	}
+
+	// Verify no permission denials in success case
+	if len(got.PermissionDenials) != 0 {
+		t.Errorf("PermissionDenials = %v, want empty", got.PermissionDenials)
+	}
+
+	// Verify two tool calls are recorded in order
+	if len(got.ToolCallsOrdered) != 2 {
+		t.Fatalf("len(ToolCallsOrdered) = %d, want 2", len(got.ToolCallsOrdered))
+	}
+
+	// Both calls must have IsError=false
+	for i, tc := range got.ToolCallsOrdered {
+		if tc.Name != "Bash" {
+			t.Errorf("ToolCallsOrdered[%d].Name = %q, want Bash", i, tc.Name)
+		}
+		if tc.IsError {
+			t.Errorf("ToolCallsOrdered[%d].IsError = %v, want false (successful)", i, tc.IsError)
+		}
+		if tc.ToolUseID == "" {
+			t.Errorf("ToolCallsOrdered[%d].ToolUseID is empty, want non-empty", i)
+		}
+	}
+}
+
+// TestParseStreamJSONToolError verifies stream-json parsing when a tool_use
+// has a tool_result with is_error=true (real capture: ls on non-existent path).
+// The errored call must NOT be counted in ToolsUsed, must be marked IsError in
+// ToolCallsOrdered, and PermissionDenials should be empty.
+func TestParseStreamJSONToolError(t *testing.T) {
+	stdout := readFixture(t, "claude-stream-json-toolerr.jsonl")
+
+	got, err := ParseEnvelope(stdout)
+	if err != nil {
+		t.Fatalf("ParseEnvelope err = %v, want nil", err)
+	}
+
+	// Verify result text acknowledges the error
+	if !strings.Contains(got.Result, "error") && !strings.Contains(got.Result, "No such file") {
+		t.Errorf("Result = %q, want error acknowledgment", got.Result)
+	}
+
+	// Verify ToolsUsed does NOT contain Bash (the call failed with is_error=true)
+	if count, ok := got.ToolsUsed["Bash"]; ok {
+		t.Errorf("ToolsUsed[Bash] = %d, want absent (errored call must not be counted)", count)
+	}
+	if len(got.ToolsUsed) != 0 {
+		t.Errorf("ToolsUsed = %v, want empty map", got.ToolsUsed)
+	}
+
+	// Verify no permission denials (this is a tool error, not a permission denial)
+	if len(got.PermissionDenials) != 0 {
+		t.Errorf("PermissionDenials = %v, want empty (this is a tool error, not a denial)", got.PermissionDenials)
+	}
+
+	// Verify ToolCallsOrdered has 1 entry with IsError=true
+	if len(got.ToolCallsOrdered) != 1 {
+		t.Fatalf("len(ToolCallsOrdered) = %d, want 1", len(got.ToolCallsOrdered))
+	}
+	if got.ToolCallsOrdered[0].Name != "Bash" {
+		t.Errorf("ToolCallsOrdered[0].Name = %q, want Bash", got.ToolCallsOrdered[0].Name)
+	}
+	if !got.ToolCallsOrdered[0].IsError {
+		t.Errorf("ToolCallsOrdered[0].IsError = %v, want true (tool error)", got.ToolCallsOrdered[0].IsError)
+	}
+	if got.ToolCallsOrdered[0].ToolUseID == "" {
+		t.Errorf("ToolCallsOrdered[0].ToolUseID is empty, want non-empty")
+	}
+}
+
 // readFixture loads a JSON or NDJSON fixture from testdata/ and fails the test
 // if the file is missing or unreadable.
 func readFixture(t *testing.T, name string) []byte {

@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"019ec9c0-c0c4-7542-8454-704f220378cb"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'git log --oneline -1'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'git log --oneline -1'","aggregated_output":"ebbd2a4 feat(backends): code-enforce structured streaming flag (stream-json/--json)\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"ebbd2a4 feat(backends): code-enforce structured streaming flag (stream-json/--json)"}}
+{"type":"turn.completed","usage":{"input_tokens":22417,"cached_input_tokens":15616,"output_tokens":71,"reasoning_output_tokens":0}}
