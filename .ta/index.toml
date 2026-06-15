@@ -2638,6 +2638,32 @@ db_name = 'cascade'
 type = 'droplet'
 updated = 2026-06-15T02:36:29.178907Z
 
+[drop_016]
+[drop_016.drop]
+[drop_016.drop.lagom_consume]
+created = 2026-06-15T06:36:15.238758Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-06-15T06:36:15.238758Z
+
+[drop_016.drop.w7a_e2e_test]
+created = 2026-06-15T06:36:15.287199Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-06-15T06:45:50.636129Z
+
+[drop_016.drop.w7a_projector]
+created = 2026-06-15T06:36:15.254016Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-06-15T06:39:37.391653Z
+
+[drop_016.drop.w7a_server]
+created = 2026-06-15T06:36:15.272549Z
+db_name = 'cascade'
+type = 'drop'
+updated = 2026-06-15T06:42:08.936063Z
+
 [ta-closeout]
 created = 2026-05-21T04:59:59.072717Z
 db_name = 'claude_agents'
