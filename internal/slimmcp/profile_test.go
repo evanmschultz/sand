@@ -136,6 +136,70 @@ func TestLoadProfile(t *testing.T) {
 			jsonText: "", // will not write a file
 			wantErr:  true,
 		},
+		{
+			name: "policy is a number",
+			jsonText: `{
+				"server_name": "sand",
+				"upstream": {
+					"command": "node",
+					"args": [],
+					"env": []
+				},
+				"policy": 42
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "policy is a boolean",
+			jsonText: `{
+				"server_name": "sand",
+				"upstream": {
+					"command": "node",
+					"args": [],
+					"env": []
+				},
+				"policy": true
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "policy is null",
+			jsonText: `{
+				"server_name": "sand",
+				"upstream": {
+					"command": "node",
+					"args": [],
+					"env": []
+				},
+				"policy": null
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "policy is a valid array",
+			jsonText: `{
+				"server_name": "sand",
+				"upstream": {
+					"command": "node",
+					"args": [],
+					"env": []
+				},
+				"policy": ["rule1", "rule2"]
+			}`,
+			wantErr: false,
+			check: func(t *testing.T, p *Profile) {
+				if !json.Valid(p.Policy) {
+					t.Error("policy is not valid JSON")
+				}
+				var arr []any
+				if err := json.Unmarshal(p.Policy, &arr); err != nil {
+					t.Fatalf("unmarshal policy array: %v", err)
+				}
+				if len(arr) != 2 {
+					t.Errorf("want 2 array elements, got %d", len(arr))
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

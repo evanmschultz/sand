@@ -5,6 +5,7 @@ package slimmcp
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +20,10 @@ import (
 // TestMain re-execs this test binary as an echo MCP server when the sentinel
 // env var is set, allowing hermetic subprocess testing without external binaries.
 func TestMain(m *testing.M) {
+	if os.Getenv("SAND_TEST_UPSTREAM_HANG") == "1" {
+		_, _ = io.Copy(io.Discard, os.Stdin) // never respond -> client Initialize must time out
+		os.Exit(0)
+	}
 	if os.Getenv("SAND_TEST_UPSTREAM") == "1" {
 		runEchoUpstream()
 		os.Exit(0)
@@ -186,5 +191,52 @@ func TestDialUpstream(t *testing.T) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestDialUpstreamTimeout verifies that DialUpstream respects the dialTimeout
+// and returns with an error rather than blocking indefinitely on a hung upstream.
+func TestDialUpstreamTimeout(t *testing.T) {
+	// Save and restore dialTimeout so we don't affect other tests.
+	oldTimeout := dialTimeout
+	defer func() { dialTimeout = oldTimeout }()
+
+	// Set a short timeout to keep the test fast.
+	dialTimeout = 500 * time.Millisecond
+
+	// Build the spec to re-exec this test binary in hang mode.
+	spec := UpstreamSpec{
+		Command: os.Args[0],
+		Env: append(
+			os.Environ(),
+			"SAND_TEST_UPSTREAM_HANG=1",
+		),
+	}
+
+	// Measure the time it takes to dial.
+	start := time.Now()
+	up, closer, err := DialUpstream(context.Background(), spec)
+
+	elapsed := time.Since(start)
+
+	// Assert that the dial returned an error (hung upstream must fail).
+	if err == nil {
+		if closer != nil {
+			_ = closer() //nolint:errcheck // best-effort cleanup
+		}
+		t.Fatal("DialUpstream should have failed on hung upstream, but returned nil error")
+	}
+
+	// Assert that it returned promptly (much sooner than the unbounded default).
+	if elapsed > 5*time.Second {
+		t.Errorf("dial not bounded by timeout: took %v", elapsed)
+	}
+
+	// up and closer should both be nil on error; no cleanup needed.
+	if up != nil {
+		t.Errorf("expected nil Upstream on error, got non-nil")
+	}
+	if closer != nil {
+		t.Errorf("expected nil closer on error, got non-nil")
 	}
 }

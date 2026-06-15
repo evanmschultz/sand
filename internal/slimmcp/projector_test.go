@@ -149,6 +149,91 @@ func TestMapUpstreamDefs(t *testing.T) {
 			input:     `[{"inputSchema": {"type": "object"}}]`,
 			wantError: true,
 		},
+		{
+			name: "inputSchema JSON null becomes empty object",
+			input: `[{
+				"name": "null_schema",
+				"inputSchema": null
+			}]`,
+			wantNames: []string{"null_schema"},
+			check: func(t *testing.T, output []byte) {
+				var defs []slimDef
+				if err := json.Unmarshal(output, &defs); err != nil {
+					t.Fatalf("unmarshal output: %v", err)
+				}
+				if len(defs) != 1 {
+					t.Fatalf("expected 1 def, got %d", len(defs))
+				}
+				// Verify the schema is an empty object, not null.
+				var schema map[string]any
+				if err := json.Unmarshal(defs[0].InputSchema, &schema); err != nil {
+					t.Fatalf("unmarshal input_schema: %v", err)
+				}
+				if len(schema) != 0 {
+					t.Errorf("want empty object schema, got %v", schema)
+				}
+			},
+		},
+		{
+			name: "missing inputSchema becomes empty object",
+			input: `[{
+				"name": "missing_schema"
+			}]`,
+			wantNames: []string{"missing_schema"},
+			check: func(t *testing.T, output []byte) {
+				var defs []slimDef
+				if err := json.Unmarshal(output, &defs); err != nil {
+					t.Fatalf("unmarshal output: %v", err)
+				}
+				if len(defs) != 1 {
+					t.Fatalf("expected 1 def, got %d", len(defs))
+				}
+				// Verify the schema is an empty object.
+				var schema map[string]any
+				if err := json.Unmarshal(defs[0].InputSchema, &schema); err != nil {
+					t.Fatalf("unmarshal input_schema: %v", err)
+				}
+				if len(schema) != 0 {
+					t.Errorf("want empty object schema, got %v", schema)
+				}
+			},
+		},
+		{
+			name: "numeric schema value preserved verbatim",
+			input: `[{
+				"name": "numeric_schema",
+				"inputSchema": {"type": "object", "properties": {"count": {"type": "integer", "maximum": 100}}}
+			}]`,
+			wantNames: []string{"numeric_schema"},
+			check: func(t *testing.T, output []byte) {
+				var defs []slimDef
+				if err := json.Unmarshal(output, &defs); err != nil {
+					t.Fatalf("unmarshal output: %v", err)
+				}
+				if len(defs) != 1 {
+					t.Fatalf("expected 1 def, got %d", len(defs))
+				}
+				var schema map[string]any
+				if err := json.Unmarshal(defs[0].InputSchema, &schema); err != nil {
+					t.Fatalf("unmarshal input_schema: %v", err)
+				}
+				props, ok := schema["properties"].(map[string]any)
+				if !ok {
+					t.Fatalf("want properties to be an object, got type %T", schema["properties"])
+				}
+				countProp, ok := props["count"].(map[string]any)
+				if !ok {
+					t.Fatalf("want count property to be an object, got type %T", props["count"])
+				}
+				maximum, ok := countProp["maximum"].(float64)
+				if !ok {
+					t.Fatalf("want maximum to be a number, got type %T", countProp["maximum"])
+				}
+				if maximum != 100 {
+					t.Errorf("want maximum=100, got %v", maximum)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -54,11 +54,16 @@ func LoadProfile(path string) (*Profile, error) {
 	if !json.Valid(p.Policy) {
 		return nil, fmt.Errorf("slimmcp: load profile %q: policy is not valid JSON", path)
 	}
-	// Reject JSON strings (including empty strings represented as "").
+	// Reject non-object/non-array policies (strings, numbers, booleans, null).
 	var val any
 	if err := json.Unmarshal(p.Policy, &val); err == nil {
-		if _, ok := val.(string); ok {
-			return nil, fmt.Errorf("slimmcp: load profile %q: policy must be an object or array, not a string", path)
+		switch val.(type) {
+		case map[string]any:
+			// valid object
+		case []any:
+			// valid array
+		default:
+			return nil, fmt.Errorf("slimmcp: load profile %q: policy must be a JSON object or array", path)
 		}
 	}
 

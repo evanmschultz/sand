@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	client "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// dialTimeout bounds the upstream Initialize + ListTools startup probe.
+// It is a var (not const) so tests can override it.
+var dialTimeout = 30 * time.Second
 
 // DialUpstream spawns a child MCP server using the provided spec and returns a
 // wrapped Upstream with a closer function. The child process is configured as
@@ -48,6 +53,10 @@ func DialUpstream(ctx context.Context, spec UpstreamSpec) (*Upstream, func() err
 		return err
 	}
 
+	// Derive a bounded context for the startup probe (Initialize + ListTools).
+	probeCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+
 	// Initialize the client with the MCP protocol.
 	init := mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
@@ -58,14 +67,14 @@ func DialUpstream(ctx context.Context, spec UpstreamSpec) (*Upstream, func() err
 			},
 		},
 	}
-	_, err = cli.Initialize(ctx, init)
+	_, err = cli.Initialize(probeCtx, init)
 	if err != nil {
 		closer() //nolint:errcheck // cleanup is best-effort
 		return nil, nil, fmt.Errorf("slimmcp: dial upstream: %w", err)
 	}
 
 	// Retrieve the list of tools from the upstream.
-	lr, err := cli.ListTools(ctx, mcp.ListToolsRequest{})
+	lr, err := cli.ListTools(probeCtx, mcp.ListToolsRequest{})
 	if err != nil {
 		closer() //nolint:errcheck // cleanup is best-effort
 		return nil, nil, fmt.Errorf("slimmcp: dial upstream: %w", err)

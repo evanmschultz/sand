@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Upstream is a stand-in for a real upstream MCP server: a set of full-fidelity
@@ -42,47 +43,38 @@ type slimDef struct {
 
 // MapUpstreamDefs converts an array of MCP tool definitions (camelCase inputSchema)
 // to a lagom-core ToolDef array (snake_case input_schema). It preserves tool order,
-// omits the description field when absent or empty in the input, and passes the
-// inputSchema raw bytes through verbatim. It returns a wrapped error on malformed
-// JSON input.
+// omits the description field when absent or empty in the input, and preserves the
+// inputSchema raw bytes verbatim without re-encoding (normalizing absent, JSON-null,
+// and empty inputSchema to {}). It returns a wrapped error on malformed JSON input.
 func MapUpstreamDefs(upstreamToolsJSON []byte) ([]byte, error) {
-	// Unmarshal as a slice of raw objects with flexible field names.
-	var upstream []map[string]any
+	var upstream []struct {
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		InputSchema json.RawMessage `json:"inputSchema"`
+	}
 	if err := json.Unmarshal(upstreamToolsJSON, &upstream); err != nil {
 		return nil, fmt.Errorf("slimmcp: unmarshal upstream tools: %w", err)
 	}
 
 	defs := make([]slimDef, 0, len(upstream))
-	for _, tool := range upstream {
-		name, ok := tool["name"].(string)
-		if !ok {
-			return nil, fmt.Errorf("slimmcp: missing or non-string name field")
+	for _, t := range upstream {
+		if t.Name == "" {
+			return nil, fmt.Errorf("slimmcp: tool missing required name")
 		}
 
-		// Extract description; omit if absent or empty.
 		var desc *string
-		if rawDesc, hasDesc := tool["description"]; hasDesc {
-			if descStr, ok := rawDesc.(string); ok && descStr != "" {
-				desc = &descStr
-			}
+		if t.Description != "" {
+			d := t.Description
+			desc = &d
 		}
 
-		// Extract inputSchema as raw bytes. We need to re-marshal it from the
-		// parsed any to get the JSON bytes, since the schema is a raw object.
-		var schema json.RawMessage
-		if rawSchema, hasSchema := tool["inputSchema"]; hasSchema {
-			schemaBytes, err := json.Marshal(rawSchema)
-			if err != nil {
-				return nil, fmt.Errorf("slimmcp: marshal inputSchema: %w", err)
-			}
-			schema = schemaBytes
-		} else {
-			// If inputSchema is missing, use empty object.
-			schema = json.RawMessage("{}") //nolint:gocritic // false positive on []byte assignment
+		schema := t.InputSchema
+		if len(schema) == 0 || strings.TrimSpace(string(schema)) == "null" {
+			schema = json.RawMessage(`{}`)
 		}
 
 		defs = append(defs, slimDef{
-			Name:        name,
+			Name:        t.Name,
 			Description: desc,
 			InputSchema: schema,
 		})
