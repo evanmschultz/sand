@@ -17,7 +17,7 @@ lagom repo (`../lagom/main/`):
 - `bin/lagom-codex-poc.sh` — the proven headless e2e harness (codex vehicle).
 - `bench/` — token-savings measurement pattern.
 
-sand memories (recall): `project_sand_consumes_lagom`, `project_sand_per_persona_scoped_dispatch`, `project_sand_dynamic_agent_minting`, `project_sand_enforced_streaming`, `feedback_cascade_builder_discipline`, `feedback_sand_redeploy_after_dispatch_changes`, `feedback_always_verify_tool_calls`, `project_sand_gate_edit_scope_and_audit_gaps`.
+sand memories (recall): `handoff_session_2026-06-14_lagom_consume` (newest), `project_sand_consumes_lagom`, `project_sand_per_persona_scoped_dispatch`, `project_sand_dynamic_agent_minting`, `project_sand_enforced_streaming`, `project_sand_v02_harness_research`, `feedback_cascade_builder_discipline`, `feedback_sand_redeploy_after_dispatch_changes`, `feedback_always_verify_tool_calls`, `project_sand_gate_edit_scope_and_audit_gaps`. (§9 below = the losslessness ledger: resolved decisions, open questions, deferred, docs TODO, W-status.)
 
 ---
 
@@ -123,3 +123,35 @@ Measure real savings with Anthropic `count_tokens`: full tools/list vs slim tool
 7. Then the cross-project story: `.sand/config.toml` source-resolution + the dynamic-mint MCP tool + adoption ergonomics, so other repos consume the same confined-dispatch.
 
 NO versioning / GH-release until the dev says everything is done AND the full e2e + token numbers are proven.
+
+---
+
+## 9. LOSSLESSNESS — RESOLVED DECISIONS · OPEN QUESTIONS · DEFERRED · DOCS · W-STATUS
+
+**RESOLVED (do NOT re-litigate):**
+- Capability delegation = TWO policy fields — **EXERCISE** (tools the agent itself invokes) + **GRANT/BUDGET** (what it may delegate when minting). Mint narrows the BUDGET only via lagom `Merge` (never widen). Default budget = exercise; **planner = budget ⊋ exercise** (read-only itself, grants write to X), capped by its own minter. **GRANT/BUDGET is a FIRST-CLASS separate field** (decided 2026-06-14). See `project_sand_dynamic_agent_minting`.
+- `.sand/config.toml` agent-def-dir precedence = **orch-arg > repo `.sand/config.toml` > global `~/.config/sand` > default `.claude/`** (REPO-over-global, per-key merge, top-wins). The configurable dir is **OPT-IN**; DEFAULT = standard `.claude/`. **Standard-location agents get the FULL mcp; getting the SLIMMED mcp REQUIRES opt-in dispatch through sand from a tmp profile dir.** See `project_sand_v02_harness_research` + `project_sand_dynamic_agent_minting`.
+- Structured-streaming flag is **sand-ENFORCED in code** (knob `auto|stream-json|json|off`, default `auto`). SHIPPED `ebbd2a4`. See `project_sand_enforced_streaming`.
+- **Configurability + openness FIRST.** The narrow-only-budget gate ships as a CONFIGURABLE policy with a SAFE DEFAULT (budget = exercise); README states we considered stricter security but chose openness, inviting community input on balancing.
+- Backend role-split: builders = builtin Agent tool; planner + qa-falsification = sand (codex); qa-proof/closeout = sand (claude-native); sand REJECTS builder dispatch.
+
+**OPEN QUESTIONS / NOT-YET-TESTED (carry forward — from POC_FINDINGS §"NOT yet tested" + this session):**
+- codex with **OAuth** auth tier — confirm it confines the same as the API-key tier the POC used.
+- **claude -p ollama tier** (local, free) end-to-end with the slim MCP.
+- Folding the working **codex vehicle into sand's actual dispatch** (vs the standalone `bin/lagom-codex-poc.sh`).
+- **LIVE-WATCH** ("look in while it's running"): streaming fills the `.out` live (tailable) — but full **live-stream-of-events-to-the-orchestrator** (so dev/orch can watch a run NOT go off the rails in real time) is a DESIRED enhancement, not built.
+- Confined **claude-native** path: POC says always route via the built-in Agent tool (in-session, MCP already up) or a warmed/persistent session — confirm at scale; decide if sand offers a warmed-session mode.
+- Cross-project **adoption ergonomics**: sensible-defaults / copy-into-project / store agent defs in global sand config; install `sand gate` per project.
+- Edit-scope gap ([[project_sand_gate_edit_scope_and_audit_gaps]]): bare Edit/Write in persona frontmatter defeats per-file confinement until W1 `--settings` (+ deny-all-builtins) lands.
+
+**DEFERRED (beyond drop_016 MVP):**
+- **v0.2 multi-harness** — add order **opencode → omp → continue → cline**, then cursor; defer pi/zed/aider/windsurf. Axis-2 (MCP VISIBILITY scoping) is the discriminator; 5/9 share sand's md+frontmatter def-format. See `project_sand_v02_harness_research`.
+- lagom per-tool richness at scale (pin/constrain/enum/rename across real upstreams beyond the e2e proof).
+- Versioning + GH-repo polish.
+
+**DOCS TODO (dev: "ALL needs to be clear in the docs"):**
+- SAND-SPEC: the enforced-streaming knob + the consequence of `off`; the box+slim+config design; which flags are sand-enforced givens + how to override; the **codex-is-the-confined-headless-vehicle** finding; the **deny-ALL-built-ins** + **process-tree-reaper** requirements; the `.sand/config.toml` shape + precedence; the **exercise/grant** dynamic-mint model; that standard-location = full mcp, slimming = opt-in.
+
+**CLEANUPS (small):** lint modernizations (`interface{}`→`any`, WriteString, forvar) in test files; the synthetic codex fixture (a real one now sits alongside it).
+
+**FULL drop_015 W-STATUS:** W5 DONE (`61eda01`) · W4 DONE (`982ae49`/`ebbd2a4`/`ed69f38`) · **W1 DECOMPOSED** (4 droplets `w1_spike_claude_settings_bare`→`w1_spawnrequest_persona_settings_path`→`w1_renderargs_settings_flag`→`w1_settings_authority_allowedtools` + QA pair; NOT built) · **W2/W6/W3 NOT decomposed** · **W7** 5 sub-segments planned (`w7_profile_schema`/`w7_projector_seam`/`w7_mcp_server_core`/`w7_cmd_wiring`/`w7_slim_e2e_docs`) — build on lagom now. drop_015 plan-tree records live in `.ta/cascade/drops/drop_015/`.
