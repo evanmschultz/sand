@@ -81,3 +81,87 @@ title = "W7a-3: internal/slimmcp in-process mcp-go e2e proof (copy branded_test.
 transition_notes = "server_test.go (2 in-process mcp-go e2e tests) shipped + green. Orchestrator Read-verified the assertions are substantive: full camel->snake via MapUpstreamDefs; branded surface [find] only, no lagom/search/secret leak; pinned index absent from slim schema AND injected downstream; constraint rejection annotated; dropped tool uncallable; two policies->two surfaces with independent pins + hidden keys. Gate hole noted: builtin-Agent builders ran raw `go test -v` despite bash_deny+settings global deny (read-only, not harmful) — candidate for gate hardening."
 updated_at = "2026-06-15T06:55:00Z"
 updated_by_actor = "agent:orchestrator"
+
+[w7b_profile]
+completed_at = "2026-06-15T07:12:00Z"
+created_at = "2026-06-15T07:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+drop_number = 16.0
+labels = ["drop_016", "W7b", "builder"]
+objective = "internal/slimmcp/profile.go: Profile{ServerName string `json:\"server_name\"`; Upstream UpstreamSpec `json:\"upstream\"`; Policy json.RawMessage `json:\"policy\"`} + UpstreamSpec{Command string; Args []string; Env []string}. LoadProfile(path string) (*Profile, error): read+unmarshal, validate ServerName/Upstream.Command non-empty + Policy present, wrapped errors. + profile_test.go (valid load, missing-required, malformed). Note in doc: optional exercise/grant capability fields are reserved for the dynamic-mint layer (project_sand_dynamic_agent_minting) — not required for W7b."
+outcome = "success"
+packages = ["internal/slimmcp"]
+parent_id = "drop_016.drop.lagom_consume"
+paths = ["internal/slimmcp/profile.go", "internal/slimmcp/profile_test.go"]
+priority = "high"
+role = "builder"
+state = "complete"
+structural_type = "drop"
+title = "W7b-1: slimmcp Profile schema + LoadProfile (server_name, upstream spec, policy)"
+transition_notes = "profile.go (UpstreamSpec/Profile/LoadProfile with thorough validation incl. policy-must-not-be-string) + profile_test.go (9 subtests) shipped + mage testPkg green. Orchestrator Read-verified."
+updated_at = "2026-06-15T07:12:00Z"
+updated_by_actor = "agent:orchestrator"
+[w7b_upstream]
+blockers = ["drop_016.drop.w7b_profile"]
+completed_at = "2026-06-15T07:25:00Z"
+created_at = "2026-06-15T07:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+drop_number = 16.0
+labels = ["drop_016", "W7b", "builder"]
+objective = "internal/slimmcp/upstream.go: DialUpstream(ctx, spec UpstreamSpec) (up *Upstream, closer func() error, err error). Uses client.NewStdioMCPClientWithOptions(spec.Command, spec.Env, spec.Args, transport.WithCommandFunc(setpgid cmd)) -> Initialize -> ListTools -> marshal tools to MCP camel JSON array -> MapUpstreamDefs -> Upstream.Defs; Upstream.Run forwards to client.CallTool (build mcp.CallToolRequest{name,args}, return concatenated text result, propagate IsError as error). closer = client.Close() + best-effort process-group kill. reaper_unix.go (//go:build unix): killProcessGroup(pid) via syscall.Kill(-pgid, SIGKILL); reaper_other.go (//go:build !unix): noop. 2 blocks (DialUpstream + reaper), 3 files."
+outcome = "success"
+packages = ["internal/slimmcp"]
+parent_id = "drop_016.drop.lagom_consume"
+paths = ["internal/slimmcp/upstream.go", "internal/slimmcp/reaper_unix.go", "internal/slimmcp/reaper_other.go"]
+priority = "high"
+role = "builder"
+state = "complete"
+structural_type = "drop"
+title = "W7b-2: slimmcp DialUpstream (real stdio client + Run forwarding + process-group reaper)"
+transition_notes = "upstream.go (DialUpstream: stdio client + WithCommandFunc Setpgid capture + Initialize/ListTools/MapUpstreamDefs + Run forwarding + closer Close+group-kill, closer fired on every error path) + reaper_unix.go/reaper_other.go (build-tagged) shipped. Orchestrator caught + fixed a latent base64 bug (schemaBytes []byte in map[string]any -> wrapped json.RawMessage; this is the COMMON path since mcp-go client populates InputSchema not RawInputSchema). mage testPkg green. Windows syscall diagnostics in slot.go/codex_mcp_probe.go are PRE-EXISTING (sand is unix-targeted); reaper files are correctly build-tagged. unusedfunc on reaper is stale (both funcs wired in upstream.go)."
+updated_at = "2026-06-15T07:25:00Z"
+updated_by_actor = "agent:orchestrator"
+[w7b_stdio_test]
+blockers = ["drop_016.drop.w7b_upstream"]
+completed_at = "2026-06-15T07:40:00Z"
+created_at = "2026-06-15T07:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+drop_number = 16.0
+labels = ["drop_016", "W7b", "builder"]
+objective = "internal/slimmcp/upstream_test.go: hermetic real-subprocess proof using the Go TestHelperProcess pattern — when env SAND_TEST_UPSTREAM=1, the test binary re-execs itself as a tiny mcp-go stdio echo server (one tool). TestDialUpstream spawns os.Args[0] with that env via DialUpstream, asserts: ListTools surfaces the echo tool (camel->snake mapped), a CallTool round-trips through Run, and after closer() the child process is gone (signal 0 / process lookup fails). No external binary, no network."
+outcome = "success"
+packages = ["internal/slimmcp"]
+parent_id = "drop_016.drop.lagom_consume"
+paths = ["internal/slimmcp/upstream_test.go"]
+priority = "high"
+role = "builder"
+state = "complete"
+structural_type = "drop"
+title = "W7b-3: slimmcp DialUpstream hermetic e2e (helper-process real-subprocess MCP)"
+transition_notes = "upstream_test.go (TestMain re-exec echo MCP server + TestDialUpstream) shipped + green under race. Orchestrator-verified the assertions are real: schema-object guard (fails if base64 bug regresses — exercises the fixed fallback path since client receives InputSchema not RawInputSchema), round-trip echo, and a genuine process-reaped check (syscall.Kill(pid,0)==ESRCH after closer). Hermetic, no external binary/network. //go:build unix."
+updated_at = "2026-06-15T07:40:00Z"
+updated_by_actor = "agent:orchestrator"
+[w7b_cmd]
+blockers = ["drop_016.drop.w7b_upstream"]
+completed_at = "2026-06-15T07:40:00Z"
+created_at = "2026-06-15T07:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+drop_number = 16.0
+labels = ["drop_016", "W7b", "builder"]
+objective = "cmd/sand/main.go: add an `mcp` subcommand branch (mirroring the existing `gate` branch at os.Args[1]) BEFORE the default MCP-server path. Parse --profile <path> (flag), slimmcp.LoadProfile -> slimmcp.DialUpstream -> slimmcp.NewBrandedServer(profile.ServerName, up, profile.Policy) -> server.ServeStdio(srv). defer closer(); install SIGINT/SIGTERM handler that runs closer + exits so the upstream child is reaped on signal as well as stdin EOF. Keep it small; extract a runMCP(args) helper if it aids clarity. Runs in package main (different package from slimmcp) — parallel-safe with w7b_stdio_test."
+outcome = "success"
+packages = ["cmd/sand"]
+parent_id = "drop_016.drop.lagom_consume"
+paths = ["cmd/sand/main.go"]
+priority = "high"
+role = "builder"
+state = "complete"
+structural_type = "drop"
+title = "W7b-4: `sand mcp --profile` subcommand wiring in cmd/sand/main.go"
+transition_notes = "cmd/sand/main.go `mcp` subcommand + runMCP (flag --profile, LoadProfile->DialUpstream->NewBrandedServer->ServeStdio, defer closer + SIGINT/SIGTERM reap). Correctly dereferences *up. Mirrors the existing gate branch. mage ci green (FormatCheck required a mage format pass on profile_test.go — orchestrator ran it, single-threaded)."
+updated_at = "2026-06-15T07:40:00Z"
+updated_by_actor = "agent:orchestrator"
