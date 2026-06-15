@@ -1,0 +1,1 @@
+{"server_name": "bench", "upstream": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]}, "policy": {"default_presence": "drop", "tools": {"echo": {"presence": "keep"}, "get-annotated-message": {"presence": "keep"}}}}

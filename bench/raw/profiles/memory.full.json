@@ -1,0 +1,1 @@
+{"server_name": "bench", "upstream": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"]}, "policy": {"default_presence": "keep"}}

@@ -1,0 +1,79 @@
+[
+  {
+    "annotations": {},
+    "description": "Add new observations to existing entities in the knowledge graph",
+    "inputSchema": {
+      "properties": {
+        "observations": {
+          "items": {
+            "properties": {
+              "contents": {
+                "description": "An array of observation contents to add",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "entityName": {
+                "description": "The name of the entity to add the observations to",
+                "type": "string"
+              }
+            },
+            "required": [
+              "entityName",
+              "contents"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "observations"
+      ],
+      "type": "object"
+    },
+    "name": "add_observations"
+  },
+  {
+    "annotations": {},
+    "description": "Create multiple new entities in the knowledge graph",
+    "inputSchema": {
+      "properties": {
+        "entities": {
+          "items": {
+            "properties": {
+              "entityType": {
+                "description": "The type of the entity",
+                "type": "string"
+              },
+              "name": {
+                "description": "The name of the entity",
+                "type": "string"
+              },
+              "observations": {
+                "description": "An array of observation contents associated with the entity",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "entityType",
+              "observations"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entities"
+      ],
+      "type": "object"
+    },
+    "name": "create_entities"
+  }
+]

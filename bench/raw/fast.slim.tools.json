@@ -1,0 +1,38 @@
+[
+  {
+    "annotations": {},
+    "description": "Echo a message",
+    "inputSchema": {
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "token"
+      ],
+      "type": "object"
+    },
+    "name": "echo"
+  },
+  {
+    "annotations": {},
+    "description": "Reveal the secret",
+    "inputSchema": {
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "name": "secret"
+  }
+]

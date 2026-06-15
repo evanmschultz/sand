@@ -1,0 +1,5 @@
+server,tools_full,tools_slim,tool_tokens_full,tool_tokens_slim,saved_pct
+fast,2,2,608,608,0.0
+everything,13,2,1812,689,62.0
+filesystem,14,2,2314,747,67.7
+memory,9,2,1534,792,48.4

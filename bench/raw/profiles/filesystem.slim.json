@@ -1,0 +1,1 @@
+{"server_name": "bench", "upstream": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]}, "policy": {"default_presence": "drop", "tools": {"create_directory": {"presence": "keep"}, "directory_tree": {"presence": "keep"}}}}
