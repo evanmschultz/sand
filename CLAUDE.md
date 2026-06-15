@@ -108,7 +108,7 @@ Evidence order for Go work, when sand has committed Go code:
 3. Read / Grep / Glob — non-Go, and post-edit pre-push Go.
 4. Context7 + `go doc` + LSP — external semantics.
 
-Sand has NO Go source committed yet. Hylla queries will return nothing until the first build cascade lands `go.mod` + `main.go` + `magefile.go` + initial package skeleton. Until then: rely on Context7 + `go doc` + the SAND-SPEC.md, and use `git diff` after every droplet.
+Sand HAS a committed Go codebase (`cmd/sand` + ~15 `internal/` packages incl. dispatch, backends, gate, persona, chains, slots, toon, installseed, preflight, and `internal/slimmcp` — the lagom-backed slim-MCP server). Hylla is the PRIMARY evidence source for committed Go symbols/refs/graphs; verify ingest currency via `mcp__hylla__hylla_artifact_metadata` (artifact_ref `github.com/evanmschultz/sand@main`) before relying on it, and use `git diff` for uncommitted local deltas (Hylla lags until the next push + `hylla_ingest`).
 
 **Push-often + ingest-after-push**: once sand has Go code, after every commit batch push to origin then trigger `mcp__hylla__hylla_ingest`. The `/commit-and-reingest` skill bundles both.
 
