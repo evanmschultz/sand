@@ -9,12 +9,25 @@ on:
 permissions:
   contents: read
 
+env:
+  # sand consumes the private module github.com/hylla-io/lagom/go.
+  GOPRIVATE: github.com/hylla-io/*
+
 jobs:
   ci:
     name: mage ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Authenticate go module fetches against the private hylla-io org.
+      # Requires repo secret HYLLA_GO_TOKEN: a token (fine-grained PAT or
+      # classic) with read access to github.com/hylla-io/lagom contents.
+      - name: auth private go modules (hylla-io)
+        run: |
+          git config --global url."https://x-access-token:${HYLLA_GO_TOKEN}@github.com/".insteadOf "https://github.com/"
+        env:
+          HYLLA_GO_TOKEN: ${{ secrets.HYLLA_GO_TOKEN }}
 
       - name: setup go
         uses: actions/setup-go@v5
