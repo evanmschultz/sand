@@ -1094,6 +1094,88 @@ func TestClaudeNativeBackend_AcceptsAPIKeyFromProcessEnv(t *testing.T) {
 	}
 }
 
+// TestRenderEnv_StripsCleanRoomVars verifies that renderEnv drops the
+// inherited HOME, CLAUDE_CONFIG_DIR, and XDG_CONFIG_HOME from the parent
+// environment so the clean-room values appended in Spawn are never
+// shadowed by a duplicate from the parent env.
+func TestRenderEnv_StripsCleanRoomVars(t *testing.T) {
+	cn := resolveClaudeNativeFromFixture(t)
+	// Override with sentinel values that must NOT appear in renderEnv output.
+	t.Setenv("HOME", "/tmp/parent-home-sentinel")
+	t.Setenv("CLAUDE_CONFIG_DIR", "/tmp/parent-config-sentinel")
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/parent-xdg-sentinel")
+
+	envOut, err := cn.renderEnv(TemplateData{Model: "haiku"})
+	if err != nil {
+		t.Fatalf("renderEnv: %v", err)
+	}
+
+	for _, kv := range envOut {
+		switch {
+		case strings.HasPrefix(kv, "HOME="):
+			t.Errorf("renderEnv leaked HOME into env: %q", kv)
+		case strings.HasPrefix(kv, "CLAUDE_CONFIG_DIR="):
+			t.Errorf("renderEnv leaked CLAUDE_CONFIG_DIR into env: %q", kv)
+		case strings.HasPrefix(kv, "XDG_CONFIG_HOME="):
+			t.Errorf("renderEnv leaked XDG_CONFIG_HOME into env: %q", kv)
+		}
+	}
+}
+
+// TestSpawn_CleanRoomEnvIsolation verifies that the spawned child process
+// receives a fresh clean-room HOME (distinct from the parent's HOME) and
+// that the temporary directory is removed after Spawn returns.
+//
+// The env-merge logic is validated indirectly via the fake-claude-happy
+// fixture's env recorder: we extract the child's HOME= line and confirm:
+//  1. HOME in the child differs from the parent's HOME (isolation).
+//  2. The cleanroom dir no longer exists after Spawn returns (cleanup ran).
+//  3. CLAUDE_CONFIG_DIR is present in the child env.
+func TestSpawn_CleanRoomEnvIsolation(t *testing.T) {
+	_, _, envFile := installFakeClaude(t, "fake-claude-happy")
+	cn := resolveClaudeNativeFromFixture(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sentinel-token")
+
+	parentHome := os.Getenv("HOME") // set by resolveClaudeNativeFromFixture
+
+	req := SpawnRequest{
+		Role: "ta-go-builder", Prompt: "x",
+		Model: "haiku", PersonaBody: "B",
+	}
+	if _, err := cn.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	envBytes, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("read env recorder: %v", err)
+	}
+	envText := string(envBytes)
+
+	// Locate the HOME= line the child process saw.
+	var crHome string
+	for _, line := range strings.Split(envText, "\n") {
+		if strings.HasPrefix(line, "HOME=") {
+			crHome = strings.TrimPrefix(line, "HOME=")
+			break
+		}
+	}
+	if crHome == "" {
+		t.Fatal("child env must contain a HOME= entry (clean-room injection)")
+	}
+	if crHome == parentHome {
+		t.Errorf("child HOME %q must differ from parent HOME %q", crHome, parentHome)
+	}
+	// Cleanup must have run: the cleanroom dir should be gone.
+	if _, statErr := os.Stat(crHome); !os.IsNotExist(statErr) {
+		t.Errorf("cleanroom dir %q should not exist after Spawn returns; stat: %v", crHome, statErr)
+	}
+	// CLAUDE_CONFIG_DIR must also be injected.
+	if !strings.Contains(envText, "CLAUDE_CONFIG_DIR=") {
+		t.Errorf("child env missing CLAUDE_CONFIG_DIR=; env:\n%s", envText)
+	}
+}
+
 // TestClaudeNativeBackend_AcceptsAPIKeyFromBackendConfigEnv verifies that
 // Spawn succeeds when ANTHROPIC_API_KEY is supplied via BackendConfig.Env
 // templating (e.g., {{env "FAKE_HOST_API_KEY"}}), even when the process

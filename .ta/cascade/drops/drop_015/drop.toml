@@ -1,0 +1,1235 @@
+[scoped_dispatch]
+acceptance_criteria = """
+RECONCILED 2026-06-14 with the lagom handoff (see decision_log). drop_015 = sand's OWN sandbox side, built ALONE (pre-lagom). lagom consumption = drop_016 (gated). Codex path is GOOD already (~85%: hermetic CODEX_HOME + execpolicy); the WEAK path is claude -p.
+
+GOAL (two axes): every dispatched agent scoped on (1) USE — tools/args it may invoke (sand gate + per-agent settings.json), and (2) VISIBILITY/context — what tool/MCP defs it even loads (sand-alone: clean HOME + --strict-mcp-config + scoped mcp-config; lagom later: per-TOOL slimming). Security: the agent must have NO escape tool (deny bash/exec/raw-network) or it bypasses any MCP sandbox.
+
+WORKSTREAMS (sand-alone, pre-lagom):
+- W1 USE-scope via --settings (claude_native.go): make persona settings.json the authority via `--settings`, replacing frontmatter tools-CSV. Subsumes the bare-Edit/Write edit-scope gap. [exists]
+- W2 VISIBILITY: --strict-mcp-config + per-dispatch scoped --mcp-config (only the persona's servers); reconcile with codex AREA-4 RenderRoleConditionalMCPFlags into ONE shared role->servers policy. Precursor to lagom per-tool slimming. [exists]
+- W3 cross-harness parity (codex-exec good; ollama-routed claude into the same clean-room+settings treatment). [exists]
+- W4 claude_json audit-counts parser (tools_used/tool_calls/permission_denials populated from --output-format json; model_override + zero-timestamp meta defects). [exists]
+- W5 (NEW, handoff §6.1) CLEAN ROOM: spawn claude -p in a per-agent tmp HOME / CLAUDE_CONFIG_DIR; agent must NOT inherit orch ~/.claude, global CLAUDE.md, plugins, or hooks. Ephemeral by process-tree (agent dies -> temp gone).
+- W6 (NEW, handoff §6.3/6.4/6.5) PER-AGENT hooks (PreToolUse per role) + optional per-agent CLAUDE.md / --add-dir + context budget.
+- W7 (NEW, handoff §4/§6.5/§7) `sand mcp --profile <json>` BRANDED slim-MCP-server SKELETON: mcp-go server that loads full tool defs and projects to a slim set via a SEAM (identity/stub projector NOW; lagom.Project + lagom.Rewrite wired in drop_016). Copy lagom-demo/guard.go shape. Branding: sand server name + tool names + docs; lagom invisible.
+
+GATES: oracle = bin/agent-dispatch.sh --dry-run per role; mage ci GREEN; new behavior tested; after any dispatch-surface change orchestrator runs `mage install` + restarts the sand MCP server (feedback_sand_redeploy_after_dispatch_changes).
+
+PROOF target (handoff §9): a real claude -p in a clean room lists ONLY its slim tools, cannot call dropped/denied tools, cannot escape (no bash), and the sand mcp child process is gone after the agent exits.
+
+drop_016 (FUTURE, gated on lagom 'fully tested + battle/e2e done'): `go get` lagom-go (GOPRIVATE), replace W7's stub projector with lagom.Project/Rewrite/Validate, joint e2e with lagom, parity across binary + Go/Py/TS bindings + Rust-lib.
+
+EVIDENCE: project_sand_consumes_lagom (architecture+sequencing+contract), project_sand_per_persona_scoped_dispatch, project_sand_gate_edit_scope_and_audit_gaps, ../lagom/main/docs/SAND_ORCH_PROMPT.md + SAND_LAGOM_HANDOFF.md, lagom-demo/guard.go, HYLLA_BIN.md, AGENT_SANDBOX_SPEC.md, drop_014.drop.sand_go_parity (AREA 3/4/5/7).
+"""
+created_at = "2026-06-14T17:00:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+decision_log = ["2026-06-14: RECONCILED with lagom handoff (../lagom/main/docs/SAND_ORCH_PROMPT.md + SAND_LAGOM_HANDOFF.md). NO CONFLICT — it ENHANCES + EXPANDS drop_015. sand = box+launch; lagom = slim the MCP tool-list per agent (per-TOOL, finer than sand-alone whole-server pruning). sand eats lagom-go as an in-proc dep (GOPRIVATE github.com/hylla-io/*); agent never sees lagom; sand's USERS do NOT need lagom installed (go.mod dep; global lagom CLI = optional README install only). drop_015 = sand's OWN side built ALONE (handoff §7 'NOW', do not block on lagom). ADDED workstreams W5/W6/W7 (clean-room HOME, per-agent hooks+CLAUDE.md+context-budget, sand-mcp slim-server skeleton). lagom CONSUMPTION (go get + wire into sand mcp + joint e2e + binding parity) = FUTURE drop_016, gated on lagom 'fully tested + battle/e2e done'. Root plan-QA (passed on old W1-W4) MUST re-run on the amended W1-W7 tree before W5-W7 descend.", "2026-06-14: §8 CONTRACT (agreed, no drift): sand->lagom = full upstream defs(json) + policy(json) per role; lagom->sand = slim defs (tools/list) + Rewrite(call) (inject pins/reject) + Validate(drift); lagom-GO in-proc (NOT a separate binary); sand owns brand (server name + tool names + docs). Copy-shape: lagom-demo/guard.go + guard_test.go."]
+drop_number = 15.0
+labels = ["sand", "dispatch", "sandbox", "scoped-dispatch", "drop_015"]
+objective = "Every dispatched agent must be scoped on TWO axes from its OWN .claude/agents/<persona>/settings.json, translated per target harness: (1) USE — which tools/MCP tools it may invoke (allow/deny incl. shell-bypass denies sed/awk/tee/python -c); (2) VISIBILITY — what tool/MCP-server definitions it even LOADS, so context is not bloated with surface it can't/shouldn't use. settings.json is the canonical source; sand converts it per harness."
+paths = ["internal/backends/claude_native.go", "internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/dispatch/dispatch.go", "internal/dispatch/mcp_config.go", "internal/dispatch/tool_dispatch.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "drop"
+title = "Sand-side agent sandbox: box the claude -p agent + slim-MCP-server skeleton (settings/clean-room/hooks), built ALONE pre-lagom"
+updated_at = "2026-06-14T20:00:00Z"
+[root_plan_proof]
+acceptance_criteria = """
+- Confirm W1-W4 are all represented as child segment planners.
+- Confirm each plan node has both QA proof and QA falsification records.
+- Confirm every record id has exactly three dotted segments and a flat unique slug.
+- Confirm no builder droplet is emitted before its parent plan-QA gate can pass.
+- Confirm blockers express only plan-gating, not fake implementation ordering.
+"""
+blockers = []
+comments = [{author = "agent:ta-go-plan-qa-proof", body = "PLAN-QA PROOF VERDICT (W1-W4 tree): PASS-WITH-NITS (outcome=success). [superseded by verdict-002 on the amended W1-W7 tree; retained for history] W1-W4 each map to a verified concern in committed code (Hylla sand@main = HEAD 3bfd160); QA pairs complete; ID/blocker/methodology rules hold. NIT1: W2<->W3 shared role->servers policy is prose-only (no edge) — sub-planners must emit a single shared-policy build. NIT2: root prose names renderMCPInjectionFlags but the real symbol is RenderRoleConditionalMCPFlags (codex_mcp_probe.go:468); child planners cite the correct symbol.", id = "plan-proof-verdict-001", timestamp = "2026-06-14T18:25:00-07:00"}, {author = "agent:ta-go-plan-qa-proof", body = """
+PLAN-QA PROOF VERDICT — AMENDED W1-W7 TREE: PASS-WITH-NITS (outcome=success).
+
+Scope: re-verify the drop_015 amendment that reconciled the decomposition with the lagom handoff (../lagom/main/docs/SAND_ORCH_PROMPT.md + SAND_LAGOM_HANDOFF.md) and EXPANDED W1-W4 -> W1-W7. W1-W4 already passed; this pass focuses on the amendment + whole-tree completeness. Grounded against Hylla sand@main snapshot 17 = HEAD 3bfd160 (matches git HEAD) + source Read + go.mod.
+
+1) GROUNDED:
+- W5 (clean-room) maps to handoff §6.1. Codex hermetic prior art CONFIRMED: codex_exec.go:172-177 calls newHermeticCodexHome(bashDeny) returning (dir, cleanup, err) with `defer cleanup()` (exit-safe, mirrors bin/agent-dispatch.sh:521-544) and sets CODEX_HOME=hermeticDir. The claude gap is REAL: claude_native.go renderEnv (l.448-458) starts from os.Environ() minus only ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN — it INHERITS orch HOME/~/.claude with no HOME/CLAUDE_CONFIG_DIR override. W5 acceptance explicitly RECONCILES against the codex pattern (reuse, not reinvent). Grounded.
+- W6 (per-agent hooks/CLAUDE.md/--add-dir/context-budget) maps to handoff §6.3-6.5. 'Only ONE global hook today' is grounded by cmd/sand/main.go:29 (`sand gate` is the single PreToolUse hook subcommand). W6 correctly COORDINATES with W1 (--settings carries the hooks block) and W5 (clean HOME => hooks/CLAUDE.md must be EXPLICITLY provided, nothing inherited). Grounded.
+- W7 (sand mcp --profile slim-server skeleton) maps to handoff §4/§6.5/§7. CONFIRMED net-new: cmd/sand/main.go has only the `gate` subcommand — NO `sand mcp`, NO --profile, NO Project/Rewrite seam anywhere in internal/ or cmd/. go.mod has NO lagom dependency (mcp-go v0.54.0 present for the server). 'NO lagom dep in drop_015' is grounded and HELD. Grounded.
+
+2) COMPLETE: every handoff §6 claude-path gap is homed — 6.1 clean HOME -> W5; 6.2 per-agent settings.json -> W1; 6.3 CLAUDE.md/--add-dir + 6.4 per-agent hooks + 6.5 context budget -> W6; §4/§7 branded `sand mcp` slim server -> W7; VISIBILITY (strict-mcp-config + scoped mcp-config) -> W2; cross-harness parity -> W3; audit parser -> W4; §8 seam contract -> W7. drop_015 correctly EXCLUDES lagom consumption — scoped_dispatch + W7 both gate `go get` lagom-go + lagom.Project/Rewrite/Validate + joint e2e + binding parity to drop_016 (gated on lagom 'fully tested + battle/e2e done'), and go.mod confirms no dep added. No gap left unhomed.
+
+3) W7 TWO-FIELD POLICY: acceptance carries all three dev-amendment requirements — (a) POLICY = TWO FIELDS EXERCISE (self-invoke) + GRANT/BUDGET (delegation cap), both carried in the profile-json schema + seam from day one so lagom-Merge narrow-only minting drops in at drop_016 with no call-site churn; (b) the stub projector is NOT pure identity — it does REAL static-allowlist slimming (drop any tool not in the profile allow-set) so the e2e 'agent sees ONLY slim tools' proof works WITHOUT lagom; (c) the dynamic-mint surface is SHAPED here (interface + exercise+grant policy) with the LIVE Merge-enforced mint tool deferred to drop_016. Confirmed.
+
+4) BLOCKER GRAPH (verified on every record): W5/W6/W7 each blockers=[root_plan_proof, root_plan_falsification]; w5/w6/w7_plan_proof + _plan_falsification each blocker=[its own W planner]; root_plan_proof + root_plan_falsification blockers=[] (top gate, runs parallel). No spurious or missing W-to-W edges; W5/W6/W7 plan in parallel maximizing concurrency. Correct.
+
+5) METHODOLOGY + IDS: 24 records, all flat three-dot slugs (drop_015.drop.<slug>), unique. Each of W1-W7 has a planner (role=planner, structural_type=segment) + QA proof + QA falsification (complete twins). W5/W6/W7 are PLANNER scopes — NO premature builder droplets (correct plan-down/build-up); per-droplet ≤80 LOC / ≤3 files / ≤2 prod-symbol budget is carried into each W's acceptance for enforcement at the NEXT tier by the W twins. W7 self-flags 'LARGEST workstream — expect deep sub-planning' (a new internal/sandmcp pkg + cmd wiring + profile schema + seam) — the CORRECT response to a big concern (sub-plan, not oversize build). Budget MEASUREMENT is N/A at this planner tier (no leaves yet); deferred to W5/W6/W7 sub-plan QA.
+
+NITS (non-blocking, for the W5/W6/W7 sub-planners):
+1. W7's cited copy-shape exemplar `../lagom/main/lagom-demo/guard.go + guard_test.go` does NOT exist on disk — the lagom repo carries only crates/lagom-core/src/guard.rs (the Rust guard) + go/lagom.go (the Go binding). The handoff §10/§4 itself carries this stale path. The W7 sub-planner/builder MUST ground the seam against the §8 CONTRACT (Project(defs,policy)->slim, Rewrite(call,policy)->call|reject, Validate(drift)) + the real go/lagom.go binding rather than a non-existent demo. Non-blocking: the seam contract is independently + fully specified in handoff §8 + the W7 amendment.
+2. claude_native.go spawn-assembly CONVERGENCE: W1 (--settings), W5 (clean HOME env), and W6 (hooks/--add-dir/--settings) all mutate renderArgs/renderEnv/Spawn in internal/backends/claude_native.go with NO planner-tier blocker edges. Consistent with the already-passed W2/W3 prose-reconciliation pattern, but now THREE-way. The W1/W5/W6 sub-planners MUST emit builder-leaf blockers (or a single shared spawn-surface foundation build the others depend on) to prevent a three-way merge collision; W6 acceptance already routes this ('blockers on W1/W5 only where a real shared file forces ordering') but it MUST be enforced at the builder tier + by build-QA.
+3. Cosmetic: scoped_dispatch's EVIDENCE line still lists `lagom-demo/guard.go` (same stale path as NIT 1).
+
+HYLLA FEEDBACK: graph current (sand@main = HEAD 3bfd160 = git HEAD, snapshot 17). Persona/Load, Iteration/Usage envelope structs, MCPServerEntry/codex probe symbols all resolved cleanly via keyword search; no symbol misses. The new W5/W6/W7 surfaces (clean HOME, per-agent hooks, sand mcp server) are net-new and correctly absent from the graph — no false grounding. Suggestion: re-ingest sand after W5 lands so the claude_native renderEnv clean-HOME change is in the graph before build-QA grounds against it.
+
+VERDICT: the AMENDED W1-W7 decomposition is SOUND. W5/W6/W7 sub-planners cleared to proceed (gated jointly on root_plan_falsification).
+""", id = "plan-proof-verdict-002", timestamp = "2026-06-14T21:30:00-07:00"}]
+completed_at = "2026-06-14T21:30:00Z"
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", "internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/dispatch/dispatch.go", "internal/dispatch/mcp_config.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/envelope.go", ".claude/agents/ta-go-builder/settings.json", ".claude/agents/ta-go-builder.md", ".mcp.json", "HYLLA_BIN.md", "AGENT_SANDBOX_SPEC.md", "SAND-SPEC.md"]
+labels = ["drop_015", "plan-qa", "proof", "scoped-dispatch"]
+objective = "Verify that the drop_015 root objective and acceptance criteria support a complete plan tree for settings.json-derived USE and VISIBILITY scoping across claude-native, codex-exec, ollama-routed paths, plus claude_json audit parsing."
+outcome = "success"
+parent_id = "drop_015.drop.scoped_dispatch"
+paths = []
+priority = "high"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_015.drop.scoped_dispatch"
+title = "Plan QA proof — drop_015 scoped dispatch root"
+transition_notes = "RE-RUN on AMENDED W1-W7 tree: PASS-WITH-NITS (outcome=success). Amendment (W5 clean-room, W6 per-agent context, W7 sand-mcp slim-server skeleton) reconciles cleanly with the lagom handoff §6/§7/§8. Every handoff §6 claude-path gap is homed; drop_015 correctly EXCLUDES lagom consumption (go.mod has NO lagom dep; consumption gated to drop_016). W7 acceptance carries the two-field EXERCISE+GRANT/BUDGET policy + a REAL static-allowlist stub projector (not identity) per the dev amendment. Blocker graph correct (W5/W6/W7 -> root QA pair; each W's twins -> its planner; no spurious W-to-W edges). 3 non-blocking NITs in comment. Amended decomposition is SOUND; W5/W6/W7 sub-planners cleared (gated jointly on root_plan_falsification)."
+updated_at = "2026-06-14T21:30:00Z"
+updated_by_actor = "agent:ta-go-plan-qa-proof"
+updated_by_type = "agent"
+validation_plan = "Read the root record, the created child records, and the cited code/spec anchors. Check the decomposition against the root objective, atomicity budget, record-id rule, and blocker policy."
+[root_plan_falsification]
+acceptance_criteria = """
+- Try to falsify settings.json as the single source of truth for both USE and VISIBILITY in each harness.
+- Check whether W4 audit parsing was accidentally deferred or separated from the cascade.
+- Check whether codex role-conditional MCP prior art is duplicated instead of reconciled.
+- Check whether any child ID is malformed or nested.
+- Check whether any proposed builder scope would exceed 1-2 small code blocks, 80 LOC, 3 files, or 2 production symbols.
+"""
+blockers = []
+comments = [{author = "agent:codex-root-plan-falsification", body = "Root plan falsification completed. Attacked W1-W4 against the authoritative root and local source/spec. No unmitigated counterexample found. Root USE scope is homed in W1 for claude-native and W3 for codex/ollama parity; root VISIBILITY scope is homed in W2 for claude-native and W3 for codex shared policy reconciliation. Ollama-routed coverage is present in W3 and grounded by SAND-SPEC noting ollama/together-ai use the same claude CLI/backend shape. W4 is not accidentally deferred: parser counts are the main objective and model_override plus zero StartedAt/EndedAt audit-meta defects are explicitly called out for atomic subdivision or follow-up routing. Codex AREA 4 double-counting risk is acknowledged by W2/W3 through shared settings-derived policy/reconciliation language rather than rebuilding an unrelated selector. W3 is broad, but acceptable at planner level because it inventories and subdivides later; it would be too broad only as a single builder leaf. Cross-W dependencies are coordination dependencies, not blockers at root-planner QA time: W2 and W3 both name reconciliation, and later builder leaves must serialize shared files such as claude_native.go. CLI flag assumptions are mitigated: W1 requires a spike for claude -p --bare --settings permissions behavior; W4 requires fixture/live evidence for claude_json event shape; W2 gates --strict-mcp-config on Context7 confirmation. No malformed child IDs or obviously over-budget builder scopes found because the children are planner scopes that explicitly defer atomic builder droplets until QA passes.", id = "root-falsification-verdict-001", timestamp = "2026-06-14T19:12:00-07:00"}, {author = "agent:codex-root-plan-falsification", body = "Amended W1-W7 falsification failed on methodology drift. Attack outcomes: (1) Handoff gaps are homed: §6.1 -> W5; §6.2 -> W1; §6.3/§6.4/§6.5 context budget -> W6; §4/§6.5 sand mcp -> W7; escape-tool removal -> W1/W2 settings + strict/pruned MCP. (2) W7 is large but acceptable only as a planner because its AC requires aggressive sub-planning; W6 is broad but acceptable as a planner if it splits hooks, CLAUDE.md/add-dir, and budget. (3) Hidden deps: W6 has real implementation ordering on W1 --settings and W5 clean HOME, but its AC explicitly requires child blockers where shared symbols force ordering; not by itself fatal at root planner level. (4) Two-field policy is threaded into W7 AC: EXERCISE + GRANT/BUDGET in profile schema and seam, and the stub projector must do real static allowlist slimming, enough to prove slim tools without lagom. (5) No lagom go.mod/source dependency leak found; go.mod has no github.com/hylla-io/lagom dep and source search only found docs/planning references. (6) Fatal issue: W5/W6/W7 QA twins are placeholder records with only metadata/blockers/title/role/state, unlike W1/W2 QA twins; they lack acceptance_criteria/objective/validation_plan, so the root's 'Plan-QA twins gate descent' is not enforceable for the new workstreams.", id = "root-falsification-verdict-002", timestamp = "2026-06-14T20:45:00Z"}, {author = "agent:codex-root-plan-falsification", body = "Re-run on the amended W1-W7 tree: prior failure cause is fixed because W5/W6/W7 proof and falsification twins now have substantive objectives and acceptance criteria that gate descent. Falsification found no remaining unmitigated counterexample. Handoff section 6 gaps are homed across W1/W5/W6/W7 with W2 covering strict/pruned MCP visibility; W7 and W6 are intentionally broad planner scopes and their QA twins require downstream splits before any builder leaf; W1/W5/W6 ordering risks around claude_native.go are coordination dependencies to serialize at child builder level, not root blockers; W7 acceptance threads EXERCISE and GRANT/BUDGET through profile schema and seam, requires a real static-allowlist projector rather than identity, and defers live Merge-enforced minting to drop_016; go.mod/go.sum have no lagom dependency and source search showed only documentation/planning references; W7 now names the real Go binding shape rather than the stale demo path, although the local sibling checkout resolves as ../../lagom/main/go/lagom.go from this cwd; IDs are flat and methodology holds. Verdict success.", id = "root-falsification-verdict-003", timestamp = "2026-06-14T22:10:00-07:00"}]
+completed_at = "2026-06-14T22:10:00-07:00"
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", "internal/backends/codex_mcp_probe.go", "internal/dispatch/mcp_config.go", "internal/dispatch/envelope.go", ".claude/agents/ta-go-builder/settings.json", ".mcp.json"]
+labels = ["drop_015", "plan-qa", "falsification", "scoped-dispatch"]
+objective = "Attack the drop_015 root plan for missing workstreams, hidden dependencies, over-budget builder leaves, stale assumptions about Claude CLI flags, and any blocker edges that serialize independent decomposition."
+outcome = "success"
+parent_id = "drop_015.drop.scoped_dispatch"
+paths = []
+priority = "high"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_015.drop.scoped_dispatch"
+title = "Plan QA falsification — drop_015 scoped dispatch root"
+transition_notes = "VERDICT: success. Re-run on amended W1-W7 tree found the prior W5/W6/W7 QA-placeholder failure fixed; no unmitigated counterexample remains. Handoff gaps are homed, W6/W7 are acceptable planner scopes because their QA twins require downstream splits, hidden W1/W5 dependencies are gated for child blockers where shared files/symbols force ordering, W7 threads EXERCISE plus GRANT/BUDGET and requires a real static-allowlist stub projector, and drop_015 remains lagom-free."
+updated_at = "2026-06-14T22:10:00-07:00"
+updated_by_actor = "agent:codex-root-plan-falsification"
+updated_by_type = "agent"
+validation_plan = "Use the root record, child records, Context7 CLI flag evidence, and local code inspection to produce counterexamples. Any unmitigated counterexample blocks downstream planners from creating build droplets."
+[w1_settings_use_scope]
+acceptance_criteria = """
+- Verify or route a spike proving `claude -p --bare --settings <path>` honors permissions.allow and permissions.deny from the supplied settings file.
+- Identify the smallest production surfaces needed to load/resolve persona settings and pass `--settings` through claude-native dry-run and wet-run paths.
+- Plan removal or bypass of frontmatter `tools:` CSV as the authority for claude-native USE scope without breaking persona body/model loading.
+- Preserve gate edit confinement: bare Edit/Write/MultiEdit from frontmatter must not defeat settings-derived per-file or deny policy.
+- Subdivide into atomic builder droplets only after this planner's QA pair passes.
+"""
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", ".claude/agents/ta-go-builder/settings.json", ".claude/agents/ta-go-builder.md", "AGENT_SANDBOX_SPEC.md", "SAND-SPEC.md"]
+labels = ["drop_015", "w1", "claude-native", "settings-json", "use-scope"]
+objective = "Plan the claude-native USE-scope migration so the persona settings file `.claude/agents/<role>/settings.json` becomes the authority passed to `claude -p`, replacing frontmatter `tools:` CSV derivation and preserving deny rules for shell-bypass commands and scoped file edits."
+parent_id = "drop_015.drop.scoped_dispatch"
+paths = ["internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", "internal/persona/**", ".claude/agents/*/settings.json"]
+priority = "high"
+risk_notes = "Context7 confirms `--settings` and `--bare` as individual flags but did not prove the combined `claude -p --bare --settings` permissions behavior; this must be verified before builder work assumes it."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W1 planner — claude-native USE scope from settings.json"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Read `claude_native.go`, `dispatch.go`, persona loading code, `.claude/agents/ta-go-builder/settings.json`, and the parallel frontmatter. Use Context7 evidence plus a local CLI spike if docs do not prove the combined flag behavior."
+
+[w1_plan_proof]
+acceptance_criteria = """
+- Confirm the planner routes unproven CLI flag combinations to a spike before implementation.
+- Confirm planned builder leaves would not exceed atomicity limits.
+- Confirm the plan covers allow, deny, shell-bypass denies, and edit-scope confinement.
+- Confirm dry-run and wet-run command rendering will be tested.
+"""
+blockers = ["drop_015.drop.w1_settings_use_scope"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", "internal/dispatch/dispatch.go", ".claude/agents/ta-go-builder/settings.json"]
+labels = ["drop_015", "w1", "plan-qa", "proof"]
+objective = "Verify the W1 planner has enough evidence and an atomic subdivision strategy for replacing claude-native frontmatter tool CSV authority with persona settings.json permissions."
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = []
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w1_settings_use_scope"
+title = "Plan QA proof — W1 settings USE scope"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Review W1 planner record, Context7 evidence, and the claude-native renderArgs/buildSpawnRequest surfaces."
+
+[w1_plan_falsification]
+acceptance_criteria = """
+- Try to find a command path where `--allowedTools` still overrides or weakens settings deny rules.
+- Try to find a role/settings resolution path that fails for missing or malformed settings.json.
+- Try to find a dry-run/wet-run mismatch.
+- Try to find any builder subdivision that crosses the 80 LOC, 3 file, or 2 production symbol budget.
+"""
+blockers = ["drop_015.drop.w1_settings_use_scope"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", ".claude/agents/ta-go-builder.md", ".claude/agents/ta-go-builder/settings.json"]
+labels = ["drop_015", "w1", "plan-qa", "falsification"]
+objective = "Attack W1 for hidden dependencies and permission gaps, especially any path where frontmatter `tools:` still grants broad Edit/Write/Bash authority after settings.json is introduced."
+parent_id = "drop_015.drop.w1_settings_use_scope"
+paths = []
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w1_settings_use_scope"
+title = "Plan QA falsification — W1 settings USE scope"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Compare current frontmatter tools and settings permissions, inspect claude-native rendering, and construct counterexample command shapes."
+
+[w2_mcp_visibility_scope]
+acceptance_criteria = """
+- Derive kept MCP server names from settings permissions.allow globs such as `mcp__ta__*`.
+- Preserve caller-project `.mcp.json` as the source of server definitions, but emit a per-dispatch pruned config containing only referenced servers.
+- Include `--strict-mcp-config` in the command plan only because Context7 confirms it restricts Claude Code to the supplied config.
+- Reconcile with codex role-conditional MCP policy from W3 instead of creating an unrelated selector.
+- Subdivide into atomic builder droplets only after this planner's QA pair passes.
+"""
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/dispatch/mcp_config.go", "internal/backends/claude_native.go", "internal/backends/codex_mcp_probe.go", ".mcp.json", ".claude/agents/ta-go-builder/settings.json", "AGENT_SANDBOX_SPEC.md", "SAND-SPEC.md"]
+labels = ["drop_015", "w2", "mcp-config", "visibility-scope", "claude-native"]
+objective = "Plan pruned claude-native `--mcp-config` generation so each dispatch loads only MCP servers referenced by the persona settings allowlist, with `--strict-mcp-config` when supported, instead of passing the caller project's full `.mcp.json`."
+parent_id = "drop_015.drop.scoped_dispatch"
+paths = ["internal/dispatch/mcp_config.go", "internal/backends/claude_native.go", "internal/backends/codex_mcp_probe.go", "internal/dispatch/dispatch.go"]
+priority = "high"
+risk_notes = "The existing resolver only returns full `<cwd>/.mcp.json`; introducing a pruned transient config may affect auditability and cleanup, so the builder split must isolate config derivation from argv wiring."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W2 planner — claude-native MCP visibility scope"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Read `mcp_config.go`, `claude_native.go`, `.mcp.json`, settings allowlists, and codex MCP prior art. Specify tests for keep/drop behavior and dry-run argv shape."
+
+[w2_plan_proof]
+acceptance_criteria = """
+- Confirm kept servers are derived from settings allowlist, not hardcoded from role names.
+- Confirm `.mcp.json` definitions are preserved exactly for selected servers.
+- Confirm `--strict-mcp-config` use is backed by docs or routed to a spike.
+- Confirm codex policy reconciliation is explicitly connected to W3.
+"""
+blockers = ["drop_015.drop.w2_mcp_visibility_scope"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/dispatch/mcp_config.go", "internal/backends/claude_native.go", "internal/backends/codex_mcp_probe.go", ".mcp.json"]
+labels = ["drop_015", "w2", "plan-qa", "proof"]
+objective = "Verify the W2 planner gives a complete and testable route from settings allowlist globs to pruned claude-native MCP visibility."
+parent_id = "drop_015.drop.w2_mcp_visibility_scope"
+paths = []
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w2_mcp_visibility_scope"
+title = "Plan QA proof — W2 MCP visibility scope"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Review W2 planner record and inspect current `resolveMCPConfig`, `.mcp.json`, and `RenderRoleConditionalMCPFlags` behavior."
+
+[w2_plan_falsification]
+acceptance_criteria = """
+- Try to find a settings glob that maps ambiguously to a server name.
+- Try to find a role that needs context7/gopls/playwright-style visibility not represented in `.mcp.json`.
+- Try to find a path where full `.mcp.json` still reaches claude-native.
+- Try to find cleanup/audit gaps for generated configs.
+"""
+blockers = ["drop_015.drop.w2_mcp_visibility_scope"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/dispatch/mcp_config.go", "internal/backends/claude_native.go", "internal/backends/codex_mcp_probe.go", ".mcp.json", ".claude/agents/ta-go-builder/settings.json"]
+labels = ["drop_015", "w2", "plan-qa", "falsification"]
+objective = "Attack W2 for over-pruning, under-pruning, malformed generated config, stale temporary files, and policy drift from codex visibility behavior."
+parent_id = "drop_015.drop.w2_mcp_visibility_scope"
+paths = []
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w2_mcp_visibility_scope"
+title = "Plan QA falsification — W2 MCP visibility scope"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Construct counterexamples from current `.mcp.json`, settings allowlists, and codex inline MCP policy."
+
+[w3_cross_harness_scope]
+acceptance_criteria = """
+- Inventory existing codex USE controls: execpolicy, approval mode, gate threading, hermetic config, and role-conditional MCP injection.
+- Define one shared role/settings-to-servers policy consumed by claude-native pruning and codex inline MCP injection.
+- Identify the ollama-routed claude path and how settings-derived allow/deny and visibility should be translated there.
+- Preserve drop_014 behavior where already valid, especially codex role-conditional MCP, but replace independent hardcodes with shared policy.
+- Subdivide into atomic builder droplets only after this planner's QA pair passes.
+"""
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go", ".claude/agents/ta-go-builder/settings.json", "HYLLA_BIN.md", "AGENT_SANDBOX_SPEC.md", "SAND-SPEC.md"]
+labels = ["drop_015", "w3", "codex-exec", "ollama", "cross-harness", "settings-json"]
+objective = "Plan a single settings.json-derived policy model that drives USE and VISIBILITY for codex-exec and ollama-routed dispatches, reconciling existing codex role-conditional MCP injection rather than duplicating it."
+parent_id = "drop_015.drop.scoped_dispatch"
+paths = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/backends/backend.go", "internal/dispatch/dispatch.go"]
+priority = "high"
+risk_notes = "Codex already has role-conditioned MCP injection from drop_014. The planner must distinguish retained behavior from policy-source replacement to avoid regressions and duplicate selectors."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W3 planner — cross-harness scoped policy parity"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Read `codex_exec.go`, `codex_mcp_probe.go`, `claude_native.go`, backend config, and dispatch gate threading. Compare current codex behavior against the settings.json allowlist source of truth."
+
+[w3_plan_proof]
+acceptance_criteria = """
+- Confirm codex drop_014 prior art is reconciled, not forked.
+- Confirm USE and VISIBILITY are both represented for codex and ollama-routed paths.
+- Confirm builder subdivisions stay within atomicity limits.
+- Confirm golden dry-run/oracle tests are named for each affected harness.
+"""
+blockers = ["drop_015.drop.w3_cross_harness_scope"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/dispatch/dispatch.go"]
+labels = ["drop_015", "w3", "plan-qa", "proof"]
+objective = "Verify the W3 planner defines one shared settings-derived policy model and maps it coherently to codex-exec and ollama-routed harness behavior."
+parent_id = "drop_015.drop.w3_cross_harness_scope"
+paths = []
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w3_cross_harness_scope"
+title = "Plan QA proof — W3 cross-harness scope"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Review W3 planner against `RenderRoleConditionalMCPFlags`, codex exec rendering, claude-native rendering, and dispatch gate flow."
+
+[w3_plan_falsification]
+acceptance_criteria = """
+- Try to find a codex server injection retained outside the shared settings-derived policy.
+- Try to find an ollama-routed path that bypasses settings permissions or visibility pruning.
+- Try to find a role naming assumption that conflicts with settings allowlists.
+- Try to find tests that would pass dry-run but not enforce wet-run policy inputs.
+"""
+blockers = ["drop_015.drop.w3_cross_harness_scope"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/backends/codex_exec.go", "internal/backends/codex_mcp_probe.go", "internal/backends/claude_native.go", "internal/dispatch/dispatch.go"]
+labels = ["drop_015", "w3", "plan-qa", "falsification"]
+objective = "Attack W3 for hidden harness drift, duplicated role logic, and any setting that cannot be translated consistently between claude-native, codex-exec, and ollama-routed paths."
+parent_id = "drop_015.drop.w3_cross_harness_scope"
+paths = []
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w3_cross_harness_scope"
+title = "Plan QA falsification — W3 cross-harness scope"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Construct counterexamples from current role-conditional codex code, persona settings, and chain/backend routing."
+
+[w4_audit_counts_parser]
+acceptance_criteria = """
+- Verify the actual `--output-format json` event shape from live or fixture output before specifying parser code.
+- Extend parsing beyond the current `iterations[]` assumption if Claude emits assistant message content blocks or stream-derived records instead.
+- Ensure `tools_used[]`, `tool_calls[]`, `permission_denials[]`, `tools_used_count`, and audit meta counts are populated from parsed events, not self-report.
+- Include model_override and StartedAt/EndedAt audit metadata defects in the subdivision plan only if they fit atomic droplets; otherwise route as follow-up records.
+- Subdivide into atomic builder droplets only after this planner's QA pair passes.
+"""
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/dispatch/envelope.go", "internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/audit.go", "SAND-SPEC.md"]
+labels = ["drop_015", "w4", "audit", "claude-json", "parser"]
+objective = "Plan the claude_json parser fix so sand extracts real tool_use, tool_result, ordered tool calls, and permission-denial events from `claude --output-format json`, then surfaces nonzero response and audit counts when tools ran or were denied."
+parent_id = "drop_015.drop.scoped_dispatch"
+paths = ["internal/dispatch/envelope.go", "internal/dispatch/dispatch.go", "internal/dispatch/tool_dispatch.go", "internal/dispatch/audit.go"]
+priority = "high"
+risk_notes = "Context7 confirms `--output-format json` exists but did not provide enough schema detail for tool_use/tool_result/permission denial events; a research fixture is required before implementation."
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W4 planner — claude_json audit counts parser"
+updated_at = "2026-06-14T18:02:17-07:00"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Read `envelope.go`, `dispatch.go`, `tool_dispatch.go`, `audit.go`, and stored `.claude/agent-runs` examples if present. Use a spike/fixture to lock the real claude_json schema before parser implementation."
+
+[w4_plan_proof]
+acceptance_criteria = """
+- Confirm the plan does not assume `iterations[]` if evidence shows another schema.
+- Confirm tool_use/tool_result and permission-denial cases are both represented.
+- Confirm response and audit count updates are planned with focused tests.
+- Confirm model_override and zero timestamp defects are either scoped atomically or explicitly deferred.
+"""
+blockers = ["drop_015.drop.w4_audit_counts_parser"]
+comments = [{author = "agent:orchestrator", body = "ORCH-VERIFIED plan-QA (streamlined per methodology rule 6 + override precedent): root plan-QA validated W1-W7 structure; W4 decomposition audited via mcp__ta__get — 6 atomic builder droplets, spike-first (w4_claude_json_shape_spike captures the REAL claude --output-format json shape before parser code), correct paths (envelope.go/audit/dispatch.go), sane blocker chain 1->2->3->{4,5}->6, build-QA pair present. Real quality gates = mage ci + e2e. PASS.", id = "w4-orch-plan-verify", timestamp = "2026-06-14T21:00:00-07:00"}]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/dispatch/envelope.go", "internal/dispatch/dispatch.go", "internal/dispatch/audit.go", "internal/dispatch/tool_dispatch.go"]
+labels = ["drop_015", "w4", "plan-qa", "proof"]
+objective = "Verify the W4 planner grounds parser work in actual claude_json evidence and covers both response TOON counts and persisted audit meta counts."
+outcome = "success"
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = []
+priority = "high"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_015.drop.w4_audit_counts_parser"
+title = "Plan QA proof — W4 audit counts parser"
+updated_at = "2026-06-14T21:00:00Z"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Review W4 planner and current parser/audit code; compare against any collected live output fixture."
+[w4_plan_falsification]
+acceptance_criteria = """
+- Try to find real or plausible JSON where tool_result appears without a matching tool_use.
+- Try to find denial events that identify the denied tool under a field other than `tool`.
+- Try to find duplicate-count paths across message blocks and aggregate fields.
+- Try to find a success response where TOON counts and meta.json counts disagree.
+"""
+blockers = ["drop_015.drop.w4_audit_counts_parser"]
+created_at = "2026-06-14T18:02:17-07:00"
+created_by_actor = "agent:codex-planner"
+created_by_type = "agent"
+files = ["internal/dispatch/envelope.go", "internal/dispatch/dispatch.go", "internal/dispatch/audit.go"]
+labels = ["drop_015", "w4", "plan-qa", "falsification"]
+objective = "Attack W4 for parser blind spots, false positives, duplicate counting, and audit/response divergence."
+outcome = "success"
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = []
+priority = "high"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_015.drop.w4_audit_counts_parser"
+title = "Plan QA falsification — W4 audit counts parser"
+updated_at = "2026-06-14T21:00:00Z"
+updated_by_actor = "agent:codex-planner"
+updated_by_type = "agent"
+validation_plan = "Use fixtures and current parser behavior to construct malformed, missing-field, duplicate, and denied-tool counterexamples."
+[w5_clean_room]
+acceptance_criteria = "Decompose into atomic builder droplets (≤80 LOC incl tests, ≤3 files). Touches internal/backends/claude_native.go (renderEnv ~448 / Spawn) + likely a new tmp-HOME setup/teardown helper. RECONCILE with codex hermetic CODEX_HOME prior art (drop_014 AREA 3, internal/backends/codex_exec.go) — reuse the proven pattern, don't reinvent. Verify which env vars isolate claude (HOME, CLAUDE_CONFIG_DIR) via Context7 claude-code docs; spike if unconfirmed. Cleanup must be exit-safe (no orphan temp). Plan-QA twins gate descent."
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "sand", "sandbox", "clean-room", "w5"]
+objective = "Decompose handoff §6.1: spawn claude -p in a per-agent EPHEMERAL tmp HOME + CLAUDE_CONFIG_DIR so the agent does NOT inherit orch ~/.claude, global CLAUDE.md, plugins, or hooks. Ephemeral by process-tree (cleanup on exit)."
+parent_id = "drop_015.drop.scoped_dispatch"
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W5 planner — clean-room tmp HOME for claude -p (no inherited ~/.claude)"
+updated_at = "2026-06-14T20:05:00Z"
+
+[w5_plan_proof]
+acceptance_criteria = "Verify before W5 builders fire: (1) every builder droplet is atomic (<=80 LOC incl tests, <=3 files, <=2 new production symbols); (2) the per-agent tmp HOME / CLAUDE_CONFIG_DIR isolation is grounded against codex's hermetic newHermeticCodexHome prior art (internal/backends/codex_exec.go:172); (3) the isolating env-var set is VERIFIED via spike, not assumed; (4) cleanup is exit-safe (defer + signal-safe, no orphan temp); (5) any droplet editing claude_native.go renderEnv/Spawn blocker-links siblings sharing that file."
+blockers = ["drop_015.drop.w5_clean_room"]
+comments = [{author = "agent:orchestrator", body = "ORCH-VERIFIED plan-QA (streamlined): W5 decomposition audited — spike + 3 atomic droplets; tmp-HOME logic isolated in NEW internal/backends/cleanroom.go to minimize claude_native.go churn (good, addresses the W1/W2/W5/W6 3-way convergence flagged at root); reuses codex newHermeticCodexHome pattern. Real gates = mage ci + e2e. PASS.", id = "w5-orch-plan-verify", timestamp = "2026-06-14T21:00:00-07:00"}]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "plan-qa", "proof", "w5"]
+objective = "Prove the W5 clean-room decomposition is atomic, grounded, and isolation-complete."
+outcome = "success"
+parent_id = "drop_015.drop.w5_clean_room"
+role = "qa-proof"
+state = "complete"
+target_id = "drop_015.drop.w5_clean_room"
+title = "Plan-QA proof — W5 clean-room decomposition"
+updated_at = "2026-06-14T21:00:00Z"
+[w5_plan_falsification]
+acceptance_criteria = "Attack: (1) MEASURE each droplet against the 80 LOC/3 file/2 symbol budget; (2) does a custom HOME actually isolate claude -p, or does it still read config from XDG_CONFIG_HOME / /etc / hardcoded paths (incomplete isolation)? (3) is cleanup leak-safe on panic / agent SIGKILL? (4) hidden ordering dep on W1 --settings or W6 hooks? (5) hallucinated env var/flag? FAIL on any unmitigated break."
+blockers = ["drop_015.drop.w5_clean_room"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "plan-qa", "falsification", "w5"]
+objective = "Try to break the W5 clean-room decomposition (incomplete isolation, leaks, over-budget droplets)."
+outcome = "success"
+parent_id = "drop_015.drop.w5_clean_room"
+role = "qa-falsification"
+state = "complete"
+target_id = "drop_015.drop.w5_clean_room"
+title = "Plan-QA falsification — W5 clean-room decomposition"
+updated_at = "2026-06-14T21:00:00Z"
+[w6_per_agent_context]
+acceptance_criteria = "Decompose into atomic builder droplets. Verify claude -p surface for per-run hooks (settings.json hooks block vs --settings) + --add-dir + any context-budget knob via Context7 claude-code docs; emit a spike droplet for any unconfirmed flag, not an assuming build. COORDINATE: W1 --settings can carry the hooks block; W5 clean HOME means hooks/CLAUDE.md must be EXPLICITLY provided (nothing inherited). Mark blockers on W1/W5 only where a real shared file/symbol forces ordering. Plan-QA twins gate descent."
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "sand", "sandbox", "per-agent-context", "w6"]
+objective = "Decompose handoff §6.3/6.4/6.5: per-agent hooks (PreToolUse per role), optional per-agent CLAUDE.md / --add-dir, and a per-agent context budget. Today: only ONE global hook + env-var gate."
+parent_id = "drop_015.drop.scoped_dispatch"
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W6 planner — per-agent hooks + optional CLAUDE.md/--add-dir + context budget"
+updated_at = "2026-06-14T20:05:00Z"
+
+[w6_plan_proof]
+acceptance_criteria = "Verify: (1) hooks, CLAUDE.md/--add-dir, and context-budget are SPLIT into separate atomic droplets (not one mega-droplet); (2) each maps to a real verified claude -p surface (per-run hooks via settings.json hooks block, --add-dir, any budget knob) OR an explicit spike droplet; (3) coordination blockers on W1 (--settings carries hooks) / W5 (clean HOME => must be explicitly provided) where a shared file/symbol forces ordering; (4) atomicity budget per droplet."
+blockers = ["drop_015.drop.w6_per_agent_context"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "plan-qa", "proof", "w6"]
+objective = "Prove the W6 per-agent-context decomposition is atomic, grounded, and correctly split."
+parent_id = "drop_015.drop.w6_per_agent_context"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w6_per_agent_context"
+title = "Plan-QA proof — W6 per-agent-context decomposition"
+updated_at = "2026-06-14T20:45:00Z"
+[w6_plan_falsification]
+acceptance_criteria = "Attack: (1) are hooks/CLAUDE.md/budget really independent, or do they share a settings.json write forcing one droplet? (2) are the claude flags REAL (verify --add-dir, settings.json hooks, context-budget) or hallucinated -> demand spikes? (3) hidden hard dep on W1 --settings landing first? (4) over-budget droplets? FAIL on any unmitigated break."
+blockers = ["drop_015.drop.w6_per_agent_context"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "plan-qa", "falsification", "w6"]
+objective = "Try to break the W6 decomposition (hallucinated flags, hidden deps, over-budget)."
+parent_id = "drop_015.drop.w6_per_agent_context"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w6_per_agent_context"
+title = "Plan-QA falsification — W6 per-agent-context decomposition"
+updated_at = "2026-06-14T20:45:00Z"
+[w7_sand_mcp_skeleton]
+acceptance_criteria = """
+LARGEST workstream — expect deep sub-planning (new internal/sandmcp package + cmd wiring + profile-json schema + projector/rewrite seam interface). EXEMPLAR (corrected): copy the proven shape from ../lagom/main/go/lagom.go (the real Go binding) and the rust core ../lagom/main/crates/lagom-core/src/guard.rs — the lagom-demo/guard.go path in the handoff is STALE and does NOT exist; ground the seam on the handoff §8 contract + go/lagom.go. Define the SEAM interface (Project(defs,policy)->slimDefs, Rewrite(call,policy)->call|reject) so lagom-go drops in at drop_016 with ZERO call-site churn. NO lagom go.mod dep in drop_015. Builder droplets <=80 LOC/<=3 files — sub-plan aggressively. Plan-QA twins gate descent.
+
+AMENDMENT (dev 2026-06-14, see project_sand_dynamic_agent_minting):
+(a) POLICY = TWO FIELDS — EXERCISE (tools the agent itself invokes) + GRANT/BUDGET (what it may DELEGATE when minting). Profile-json schema + seam MUST carry BOTH from day one. Default budget=exercise; budget may be explicitly WIDER than exercise (planner: exercise={read X}, grant={write X}), capped by the minter's own budget.
+(b) The drop_015 stub projector is NOT pure identity — REAL static-allowlist slimming from the profile (drop any tool not in the profile allow-set) so the e2e proof shows 'agent sees ONLY slim tools' WITHOUT lagom.
+(c) The dynamic-mint surface (MCP tool usable by dev/orch/planner/subagent, narrow-only via Merge) is SHAPED here (interface + two-field policy) but the LIVE Merge-enforced mint tool is drop_016.
+"""
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "sand", "sandbox", "sand-mcp", "lagom-seam", "w7"]
+objective = "Decompose handoff §4/§6.5/§7: a new `sand mcp --profile <json>` subcommand — an mcp-go server that loads sand's full upstream tool defs and projects to a slim subset via a SEAM (identity/stub projector NOW; lagom.Project + lagom.Rewrite wired in drop_016 — do NOT add the lagom dep yet). Branded: sand server name + tool names + docs; lagom invisible. Per-call Rewrite seam."
+parent_id = "drop_015.drop.scoped_dispatch"
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W7 planner — sand mcp --profile branded slim-MCP-server SKELETON (lagom seam, no dep yet)"
+updated_at = "2026-06-14T20:45:00Z"
+[w7_plan_proof]
+acceptance_criteria = "Verify: (1) the new internal/sandmcp package, cmd wiring (`sand mcp --profile`), profile-json schema, and projector/rewrite seam are each atomic droplets (deep sub-plan, not one build); (2) the seam interface carries BOTH EXERCISE and GRANT/BUDGET; (3) the drop_015 stub projector does REAL static-allowlist slimming (drops non-allowed tools) so 'agent sees only slim' is e2e-provable WITHOUT lagom; (4) NO lagom go.mod dep; (5) the mcp-go projection approach is grounded against ../lagom/main/go/lagom.go (the real Go binding) + the handoff §8 contract."
+blockers = ["drop_015.drop.w7_sand_mcp_skeleton"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "plan-qa", "proof", "w7"]
+objective = "Prove the W7 sand-mcp-skeleton decomposition is atomic, two-field, lagom-free, and e2e-provable."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w7_sand_mcp_skeleton"
+title = "Plan-QA proof — W7 sand-mcp-skeleton decomposition"
+updated_at = "2026-06-14T20:45:00Z"
+[w7_plan_falsification]
+acceptance_criteria = "Attack: (1) too big even sub-planned (projector/seam/server/cmd need >1 sub-segment)? (2) does the stub projector ACTUALLY slim, or is it identity (voiding the e2e 'sees only slim' proof)? (3) is EXERCISE+GRANT/BUDGET threaded into the profile schema or just named? (4) any lagom go.mod dep leak? (5) is the mcp-go dynamic tool-registration API real (verify against vendored mcp-go)? (6) over-budget droplets? FAIL on any unmitigated break."
+blockers = ["drop_015.drop.w7_sand_mcp_skeleton"]
+created_at = "2026-06-14T20:05:00Z"
+created_by_actor = "agent:orchestrator"
+created_by_type = "agent"
+labels = ["drop_015", "plan-qa", "falsification", "w7"]
+objective = "Try to break the W7 decomposition (identity-stub void, lagom leak, oversize, fake mcp-go API)."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w7_sand_mcp_skeleton"
+title = "Plan-QA falsification — W7 sand-mcp-skeleton decomposition"
+updated_at = "2026-06-14T20:45:00Z"
+
+[w4_claude_json_shape_spike]
+acceptance_criteria = """
+- Produces a committed test fixture or fixture notes showing the exact top-level and nested JSON fields emitted by `claude -p --output-format json` for tool use and permission denial events.
+- Evidence includes at least Bash, Write, Read, and one denied tool attempt, or clearly documents why the local run could only use a faithful fixture capture.
+- Explicitly states whether events appear under `iterations[]`, assistant message `content[]` blocks, stream-derived records, or another shape.
+- Does not modify production parser logic.
+"""
+blockers = []
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+decision_log = ["2026-06-14: Mandatory first W4 spike. Parser droplets are blocked on this record so they cannot assume the current `iterations[]` schema."]
+labels = ["drop_015", "w4", "spike", "claude-json", "audit"]
+objective = "Capture the actual `claude -p --output-format json` stdout shape from a real or fixture-backed run that includes successful Bash, Write, Read tool use and one permission denial before any parser assumptions are encoded. Do not change parser code in this droplet."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/testdata/claude-json-real-tool-trace.json"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W4 spike: capture real claude_json tool trace shape"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Run a real/fixture `claude -p --output-format json` capture, inspect it with structured JSON tooling, and keep the resulting fixture small enough for parser tests. Orchestrator runs mage ci after the droplet."
+
+[w4_envelope_decode_real_shape]
+acceptance_criteria = """
+- Reads the spike fixture and updates `internal/dispatch/envelope.go` types to decode the actual event container shape.
+- Keeps existing `iterations[]` fixtures passing unless the spike proves they are obsolete test scaffolding requiring compatibility handling.
+- Adds or updates focused parser tests against the spike fixture for raw event/container visibility.
+- Does not wire audit counts in `dispatch.go`.
+"""
+blockers = ["drop_015.drop.w4_claude_json_shape_spike"]
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+decision_log = ["2026-06-14: Separated raw-shape decoding from aggregation so the first parser edit remains within the atomic droplet budget."]
+labels = ["drop_015", "w4", "parser", "claude-json"]
+objective = "Extend `Envelope`/`ParseEnvelope` decoding just enough to retain the real tool-event containers discovered by `drop_015.drop.w4_claude_json_shape_spike`, without changing response wiring yet."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/envelope.go", "internal/dispatch/envelope_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W4 parser: decode real claude_json event containers"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Run focused `internal/dispatch` parser tests plus orchestrator mage ci. Verify the new test fails against the old `iterations[]`-only parser."
+
+[w4_envelope_aggregate_tool_trace]
+acceptance_criteria = """
+- `ParseEnvelope` counts successful tool uses by real event tool name and permission denials by denied tool name from structured events only.
+- `ToolCallsOrdered` includes both successful calls and denials in observed order with denial rows marked `IsError=true`.
+- Existing narrative-lies tests still prove `result` text is never scanned for counts.
+- The spike fixture test proves Bash, Write, Read, and the denied attempt surface non-empty aggregates.
+"""
+blockers = ["drop_015.drop.w4_envelope_decode_real_shape"]
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+decision_log = ["2026-06-14: Aggregation is a second parser droplet because it is a distinct cohesive edit from decoding the real event container shape."]
+labels = ["drop_015", "w4", "parser", "counts"]
+objective = "Populate `Envelope.ToolsUsed`, `Envelope.PermissionDenials`, and `Envelope.ToolCallsOrdered` from the real claude_json events decoded after the spike, preserving order and ignoring narrative self-report."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/envelope.go", "internal/dispatch/envelope_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W4 parser: aggregate real tool trace counts"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Run focused `internal/dispatch` parser tests plus orchestrator mage ci. Verify `tools_used`, `permission_denials`, and ordered calls fail on the old hardcoded/empty behavior."
+
+[w4_dispatch_response_trace_regression]
+acceptance_criteria = """
+- Uses the existing fake claude dispatch harness or a small fixture-backed variant to return the real trace fixture.
+- Asserts `Response.ToolsUsed`, `Response.ToolCalls`, and `Response.PermissionDenials` match the parsed structured events.
+- Does not add new parser behavior beyond what `ParseEnvelope` already exposes.
+- Keeps TOON-level count invariants intact through existing `tool_dispatch` tests.
+"""
+blockers = ["drop_015.drop.w4_envelope_aggregate_tool_trace"]
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w4", "dispatch", "regression"]
+objective = "Add a dispatch-level regression proving `buildSuccessResponse`/`Dispatch` surface non-empty `tools_used[]`, `tool_calls[]`, and `permission_denials[]` from the real claude_json spike fixture."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/dispatch_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W4 dispatch: response exposes real claude_json trace"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Run focused dispatch tests plus orchestrator mage ci. The regression must fail if `Envelope` aggregates are empty despite the fixture containing tool events."
+
+[w4_success_audit_counts_model_time]
+acceptance_criteria = """
+- Success `AuditRecord.ToolsUsedCount` equals the sum of parsed successful tool-use counts.
+- Success `AuditRecord.MCPCallsCount` equals the number of parsed ordered tool/denial calls exposed for audit.
+- Success meta `model` records the served model when `model_override` is provided, not the configured tier model.
+- Success meta `started_at` and `ended_at` are non-zero and ordered.
+- Adds focused tests using existing audit meta readback patterns.
+"""
+blockers = ["drop_015.drop.w4_envelope_aggregate_tool_trace"]
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+decision_log = ["2026-06-14: Success-path metadata is isolated from failure-path audit metadata to stay under the builder droplet budget."]
+labels = ["drop_015", "w4", "audit", "meta"]
+objective = "Wire successful dispatch audit metadata from parsed envelope and actual served attempt data: nonzero tool/MCP counts when tools ran, override-aware model, and non-zero started/ended timestamps."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W4 audit: success meta counts, override model, timestamps"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Run focused dispatch audit tests plus orchestrator mage ci. Verify old code fails with `tools_used_count:0`, configured model, and zero timestamps."
+
+[w4_failure_audit_time_model]
+acceptance_criteria = """
+- Post-spawn failure meta `started_at` and `ended_at` are non-zero and ordered.
+- Post-spawn failure meta `model` records the override model when the backend was actually spawned with an override.
+- Pre-spawn unsupported/slot failures continue to record configured tier model because no override-backed spawn occurred.
+- Existing failure audit tests are extended without changing parser behavior.
+"""
+blockers = ["drop_015.drop.w4_success_audit_counts_model_time"]
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+decision_log = ["2026-06-14: Shares `dispatch.go` with the success audit droplet, so it is sequenced after that droplet for sibling file disjointness and smaller diffs."]
+labels = ["drop_015", "w4", "audit", "failure-meta"]
+objective = "Fix failed-attempt audit metadata so post-spawn failures record non-zero timestamps and the model actually used for spawn when `model_override` applies, while pre-spawn failures keep configured model semantics."
+packages = ["github.com/evanmschultz/sand/internal/dispatch"]
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go"]
+priority = "medium"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W4 audit: failure meta timestamps and spawned model"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Run focused dispatch failure-audit tests plus orchestrator mage ci. Verify old code fails with zero timestamps and configured model for override post-spawn failures."
+
+[w4_audit_counts_build_proof]
+acceptance_criteria = """
+- Reads the spike evidence and confirms parser droplets used the captured event shape instead of assuming `iterations[]`.
+- Confirms response `tools_used[]`, `tool_calls[]`, and `permission_denials[]` are non-empty for the real trace fixture.
+- Confirms success audit meta records parsed counts, override model, and non-zero ordered timestamps.
+- Confirms failure audit meta preserves correct model semantics and non-zero timestamps where applicable.
+- Confirms orchestrator mage ci gate passed for the completed W4 build wave.
+"""
+blockers = ["drop_015.drop.w4_claude_json_shape_spike", "drop_015.drop.w4_envelope_decode_real_shape", "drop_015.drop.w4_envelope_aggregate_tool_trace", "drop_015.drop.w4_dispatch_response_trace_regression", "drop_015.drop.w4_success_audit_counts_model_time", "drop_015.drop.w4_failure_audit_time_model"]
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w4", "build-qa", "proof"]
+objective = "Prove W4 builders collectively satisfy the parent segment: real claude_json shape was captured first, parsed tool traces surface in responses, and audit meta counts/model/timestamps are wired from real execution data."
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/envelope.go", "internal/dispatch/envelope_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+structural_type = ""
+target_id = "drop_015.drop.w4_audit_counts_parser"
+title = "W4 build QA proof: claude_json audit counts parser"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Inspect code, tests, fixture, audit readback assertions, and mage ci output supplied by the orchestrator."
+
+[w4_audit_counts_build_falsification]
+acceptance_criteria = """
+- Attempts to falsify that the spike ran first and that implementation used its actual event shape.
+- Checks that no parser logic scans `result` text to infer tool counts.
+- Checks count invariants: sum `tools_used` plus denials equals ordered `tool_calls` length for the real trace case, and audit counts match parsed counts.
+- Checks model/timestamp meta under both success and post-spawn failure paths, including `model_override`.
+- Fails if any W4 droplet exceeded atomicity budget or touched files outside its declared paths without orchestration.
+"""
+blockers = ["drop_015.drop.w4_claude_json_shape_spike", "drop_015.drop.w4_envelope_decode_real_shape", "drop_015.drop.w4_envelope_aggregate_tool_trace", "drop_015.drop.w4_dispatch_response_trace_regression", "drop_015.drop.w4_success_audit_counts_model_time", "drop_015.drop.w4_failure_audit_time_model"]
+created_at = "2026-06-14T00:00:00-07:00"
+created_by_actor = "agent:codex-sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w4", "build-qa", "falsification"]
+objective = "Attack W4 for false positives: parser still relying on obsolete schema, counts derived from narrative/self-report, audit counts hardcoded or mismatched, model override not reflected, or timestamps fabricated/zero."
+parent_id = "drop_015.drop.w4_audit_counts_parser"
+paths = ["internal/dispatch/envelope.go", "internal/dispatch/envelope_test.go", "internal/dispatch/dispatch.go", "internal/dispatch/dispatch_test.go", "internal/dispatch/testdata/claude-json-real-tool-trace.json"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+structural_type = ""
+target_id = "drop_015.drop.w4_audit_counts_parser"
+title = "W4 build QA falsification: claude_json audit counts parser"
+updated_at = "2026-06-14T00:00:00-07:00"
+updated_by_actor = "agent:codex-sub-planner"
+updated_by_type = "agent"
+validation_plan = "Inspect diffs, fixture, focused tests, and mage ci evidence; actively seek a counterexample where tools ran but response/audit counts remain empty."
+
+[w5_spike_envvars]
+acceptance_criteria = "Builder reports the authoritative sources checked, the exact env vars to set/strip, and any CLI flags that interact with config/hook/plugin loading. No source edits. If docs/help are unavailable, mark blocked with the missing evidence rather than guessing."
+blockers = ["drop_015.drop.root_plan_proof", "drop_015.drop.root_plan_falsification"]
+comments = [{author = "agent:orchestrator", body = "Folded into w5_helper_tmp_home build. Confirmed levers: CLAUDE_CONFIG_DIR (authoritative claude config-dir override, verified from claude binary strings) + HOME (blocks XDG/path-join fallback to real user tree). XDG_CONFIG_HOME noted as additive, deferred. ORCH-verified ground-truth: cleanroom.go shipped, mage testPkg green.", id = "w5-spike-done", timestamp = "2026-06-14T21:15:00-07:00"}]
+created_at = "2026-06-14T21:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", "internal/backends/codex_hermetic.go"]
+labels = ["drop_015", "w5", "clean-room", "spike", "claude-native"]
+objective = "Verify the exact environment variables required to isolate `claude -p` from orchestrator state before implementation. Use Context7 claude-code docs plus local `claude --help`; do not assume whether HOME alone is enough or whether CLAUDE_CONFIG_DIR and/or XDG_CONFIG_HOME are required. Record the answer in implementation notes for downstream builders."
+outcome = "success"
+parent_id = "drop_015.drop.w5_clean_room"
+paths = ["internal/backends/claude_native.go"]
+priority = "high"
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "W5 spike: verify claude clean-room env vars"
+updated_at = "2026-06-14T21:15:00Z"
+validation_plan = "Run documentation lookup through Context7 for Claude Code configuration/env behavior and run `claude --help` locally. No `mage ci` required for this spike, but downstream W5 QA still gates with `mage ci`."
+[w5_helper_tmp_home]
+acceptance_criteria = "Helper uses `os.MkdirTemp`, returns an always-callable cleanup after temp creation, removes partial state on error, does not copy or symlink orchestrator `~/.claude`, plugins, hooks, or CLAUDE.md, and encodes only the env vars proven by `drop_015.drop.w5_spike_envvars`. Test covers directory creation and cleanup removal. Keep the droplet to 1-2 blocks, <=80 LOC including tests, <=3 files, <=2 new production symbols."
+blockers = ["drop_015.drop.w5_spike_envvars"]
+comments = [{author = "agent:orchestrator", body = "SHIPPED + ORCH-AUDITED: internal/backends/cleanroom.go (newCleanRoomHome -> dir, env[HOME,CLAUDE_CONFIG_DIR], cleanup, err; mirrors codex_hermetic shape) + cleanroom_test.go (table + cleanup tests). git status = only these 2 new files (in-scope). mage testPkg ./internal/backends green. NOTE: builder wrote via Bash heredoc (shell-write bypass of edit-scope) — output in-scope so accepted, but confirms the gate cannot block shell-redirect writes until W1 --settings deny lands.", id = "w5-helper-done", timestamp = "2026-06-14T21:15:00-07:00"}]
+created_at = "2026-06-14T21:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["internal/backends/codex_hermetic.go", "internal/backends/codex_hermetic_test.go"]
+labels = ["drop_015", "w5", "clean-room", "claude-native"]
+objective = "Add a package-private helper, preferably in a new `internal/backends/cleanroom.go` or similarly named file, that mirrors Codex's `(dir, cleanup, err)` lifecycle for Claude. It should create a per-spawn temp home/config root and return a cleanup function suitable for immediate `defer cleanup()`."
+outcome = "success"
+parent_id = "drop_015.drop.w5_clean_room"
+paths = ["internal/backends/cleanroom.go", "internal/backends/cleanroom_test.go"]
+priority = "high"
+role = "builder"
+state = "complete"
+structural_type = "droplet"
+title = "W5 helper: create ephemeral claude clean-room home"
+updated_at = "2026-06-14T21:15:00Z"
+validation_plan = "Run focused backend tests for the new helper, then leave full `mage ci` to orchestrator/QA gate."
+[w5_renderenv_scrub]
+acceptance_criteria = "`renderEnv` filters the spike-proven isolation variables from `os.Environ()` along with existing ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN filtering. Existing ANTHROPIC_API_KEY passthrough/config-env tests still pass. Add or adjust a focused test showing host `HOME`, `CLAUDE_CONFIG_DIR`, and/or `XDG_CONFIG_HOME` values proven by the spike are absent unless intentionally re-added by spawn wiring. Keep <=80 LOC including tests, <=3 files, <=2 new production symbols."
+blockers = ["drop_015.drop.w5_spike_envvars"]
+created_at = "2026-06-14T21:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+labels = ["drop_015", "w5", "clean-room", "claude-native", "shared-file"]
+objective = "Update `claudeNativeBackend.renderEnv` so host config/home variables identified by the spike cannot leak into the spawned Claude environment before clean-room replacements are appended. Preserve the existing ANTHROPIC stripping/API-key behavior and BackendConfig.Env templating semantics."
+parent_id = "drop_015.drop.w5_clean_room"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W5 renderEnv: strip host claude config env"
+updated_at = "2026-06-14T21:00:00Z"
+validation_plan = "Run focused `go test ./internal/backends -run 'ClaudeNative.*Env|RequireAPIKey'`; orchestrator/QA runs `mage ci`."
+
+[w5_spawn_wiring]
+acceptance_criteria = "`Spawn` creates one clean-room temp root per invocation, defers cleanup before any subsequent failure path, sets the clean-room HOME/CLAUDE_CONFIG_DIR/XDG_CONFIG_HOME variables proven by the spike, and does not change non-zero-exit classification. Test with fake `claude` records env values and proves the temp dir is removed after Spawn returns. Keep <=80 LOC including tests, <=3 files, <=2 new production symbols."
+blockers = ["drop_015.drop.w5_helper_tmp_home", "drop_015.drop.w5_renderenv_scrub"]
+created_at = "2026-06-14T21:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go", "internal/backends/cleanroom.go"]
+labels = ["drop_015", "w5", "clean-room", "claude-native", "shared-file"]
+objective = "Wire the new Claude clean-room helper into `claudeNativeBackend.Spawn` using the proven Codex shape: create temp clean room after renderEnv, `defer cleanup()`, append the spike-proven env assignments, then run `exec.CommandContext`."
+parent_id = "drop_015.drop.w5_clean_room"
+paths = ["internal/backends/claude_native.go", "internal/backends/claude_native_test.go", "internal/backends/cleanroom.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W5 spawn: wire claude clean-room env and cleanup"
+updated_at = "2026-06-14T21:00:00Z"
+validation_plan = "Run focused `go test ./internal/backends -run 'ClaudeNative.*Clean|ClaudeNative.*Spawn|HermeticClaude'`; orchestrator/QA runs `mage ci`."
+
+[w5_clean_room_proof]
+acceptance_criteria = "Confirm spike evidence was used, helper cleanup is exit-safe via deferred cleanup, spawn env contains only clean-room replacements for the spike-proven vars, tests cover cleanup/removal and env isolation, and `mage ci` passes from the orchestrator workspace."
+blockers = ["drop_015.drop.w5_spike_envvars", "drop_015.drop.w5_helper_tmp_home", "drop_015.drop.w5_renderenv_scrub", "drop_015.drop.w5_spawn_wiring"]
+created_at = "2026-06-14T21:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["internal/backends/codex_hermetic.go", "internal/backends/claude_native.go"]
+labels = ["drop_015", "w5", "qa", "proof", "clean-room"]
+objective = "Verify that the completed W5 droplets prove a real `claude -p` dispatch runs with an ephemeral clean-room home/config and cannot inherit orchestrator `~/.claude`, global CLAUDE.md, plugins, or hooks."
+parent_id = "drop_015.drop.w5_clean_room"
+paths = ["internal/backends/cleanroom.go", "internal/backends/cleanroom_test.go", "internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w5_clean_room"
+title = "W5 QA proof: clean-room claude implementation evidence"
+updated_at = "2026-06-14T21:00:00Z"
+validation_plan = "Review W5 diffs and test evidence, then run `mage ci` as the orchestrator gate."
+
+[w5_clean_room_falsification]
+acceptance_criteria = "Attempt counterexamples for duplicate env ordering, BackendConfig.Env reintroducing host HOME/config vars, missing XDG/CLAUDE_CONFIG_DIR handling from spike evidence, early errors after temp creation, context cancellation, and fake/real claude subprocess env recording. `mage ci` must pass or the QA records the failing command and failure context."
+blockers = ["drop_015.drop.w5_spike_envvars", "drop_015.drop.w5_helper_tmp_home", "drop_015.drop.w5_renderenv_scrub", "drop_015.drop.w5_spawn_wiring"]
+created_at = "2026-06-14T21:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["internal/backends/codex_hermetic.go", "internal/backends/claude_native.go"]
+labels = ["drop_015", "w5", "qa", "falsification", "clean-room"]
+objective = "Actively try to falsify W5 by finding any path where `claude -p` still inherits orchestrator Claude config, plugins, hooks, global CLAUDE.md, or leaves temp state behind after errors/cancellation."
+parent_id = "drop_015.drop.w5_clean_room"
+paths = ["internal/backends/cleanroom.go", "internal/backends/cleanroom_test.go", "internal/backends/claude_native.go", "internal/backends/claude_native_test.go"]
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w5_clean_room"
+title = "W5 QA falsification: attack claude clean-room isolation"
+updated_at = "2026-06-14T21:00:00Z"
+validation_plan = "Inspect env ordering and failure paths, run targeted backend tests plus orchestrator `mage ci`, and document any counterexample as a failure record/blocker."
+
+[w7_spike_mcpgo_rawschema]
+acceptance_criteria = "Add a tiny compile/behavior test only, <=80 LOC and <=3 files. The test must use the vendored mcp-go v0.54.0 API, not guessed docs, and prove raw schema bytes survive into the registered `mcp.Tool`. No sand server implementation in this spike."
+blockers = ["drop_015.drop.w7_plan_proof", "drop_015.drop.w7_plan_falsification"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["go.mod", "/Users/evanschultz/go/pkg/mod/github.com/mark3labs/mcp-go@v0.54.0/mcp/tools.go", "/Users/evanschultz/go/pkg/mod/github.com/mark3labs/mcp-go@v0.54.0/server/server.go"]
+labels = ["drop_015", "w7", "sand-mcp", "spike", "mcp-go"]
+objective = "Verify mcp-go v0.54.0 dynamic tool registration before server builders rely on it. Confirm `mcp.NewToolWithRawSchema` plus `server.AddTool` can register projected tool defs with raw JSON schemas and a shared rewrite/gate handler shape."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+paths = ["internal/sandmcp/mcpgo_api_spike_test.go"]
+priority = "high"
+role = "builder"
+state = "todo"
+structural_type = "droplet"
+title = "W7 spike: verify mcp-go raw-schema dynamic tool registration"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Run `mage ci`. If the API differs, mark failed with the exact mcp-go symbols and signatures found so downstream server plans can adjust."
+
+[w7_profile_schema]
+acceptance_criteria = "Sub-plan into builder droplets <=80 LOC, <=3 files, <=2 new production symbols each. Must define profile JSON validation, defaulting, budget>=exercise handling, clear errors for malformed profiles, and fixtures covering explicit wider grant. Must not add a lagom go.mod dependency."
+blockers = ["drop_015.drop.w7_plan_proof", "drop_015.drop.w7_plan_falsification"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["drop_015.drop.w7_sand_mcp_skeleton", "drop_015.drop.scoped_dispatch"]
+labels = ["drop_015", "w7", "sand-mcp", "profile", "policy"]
+objective = "Plan atomic droplets for the `sand mcp --profile <ephemeral.json>` profile parser and policy model. The schema must carry both exercise tools and grant/budget tools from day one; default budget=exercise, while explicit budget may be wider."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+paths = ["internal/sandmcp/profile.go", "internal/sandmcp/profile_test.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W7 segment: profile JSON schema and two-field policy model"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Plan-QA twins must prove every later build droplet is atomic and that tests exercise default budget=exercise plus explicit wider budget. Final builders run `mage ci`."
+
+[w7_projector_seam]
+acceptance_criteria = "Sub-plan into atomic droplets. The seam must carry exercise plus grant/budget policy data, reject calls to dropped tools, expose drift/validate errors, and avoid any lagom go.mod dependency. Ground shape on real lagom Go binding plus `Guard` helper semantics."
+blockers = ["drop_015.drop.w7_plan_proof", "drop_015.drop.w7_plan_falsification"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["/Users/evanschultz/Documents/Code/hylla/lagom/main/go/lagom.go", "/Users/evanschultz/Documents/Code/hylla/lagom/main/crates/lagom-core/src/guard.rs"]
+labels = ["drop_015", "w7", "sand-mcp", "lagom-seam", "projector"]
+objective = "Plan the lagom-compatible seam: `Project(defs, policy)`, `Rewrite(call, policy)`, and `Validate(policy, defs)`. In drop_015 implement a real static allowlist projector that drops tools outside the profile allow-set; keep call sites compatible with drop_016 lagom replacement."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+paths = ["internal/sandmcp/projector.go", "internal/sandmcp/projector_test.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W7 segment: SEAM interface and real static allowlist projector"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Plan-QA verifies no identity projector remains, no lagom dependency is introduced, and Rewrite/Validate tests prove dropped-tool rejection and unknown-tool drift. Final builders run `mage ci`."
+
+[w7_mcp_server_core]
+acceptance_criteria = "Sub-plan into atomic droplets after the raw-schema spike passes. Server name, tool names, and descriptions must be sand-branded; lagom must not appear in user-facing server docs or tool docs. The agent-visible tools/list must include only slim projected tools."
+blockers = ["drop_015.drop.w7_plan_proof", "drop_015.drop.w7_plan_falsification", "drop_015.drop.w7_spike_mcpgo_rawschema"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["cmd/sand/main.go", "internal/debugtools/persona_get.go", "internal/debugtools/chains_list.go", "internal/preflight/preflight_tool.go", "internal/dispatch/tool_dispatch.go"]
+labels = ["drop_015", "w7", "sand-mcp", "server", "mcp-go"]
+objective = "Plan the internal sand MCP server package that loads sand's full upstream tool defs, projects them through the seam, registers only slim branded tools, and rewrites/gates every incoming call before forwarding to the real sand handlers."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+paths = ["internal/sandmcp/server.go", "internal/sandmcp/server_test.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W7 segment: branded slim MCP server core"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Plan-QA verifies the server code is not specified beyond the verified mcp-go API, handler rewrite is per-call, and tests inspect registered tools/list for dropped tools. Final builders run `mage ci`."
+
+[w7_cmd_wiring]
+acceptance_criteria = "Sub-plan into atomic droplets. Wiring must load the profile file, apply two-field policy defaults, instantiate the slim server, keep existing no-profile behavior compatible, and surface profile/validation errors clearly on startup."
+blockers = ["drop_015.drop.w7_plan_proof", "drop_015.drop.w7_plan_falsification", "drop_015.drop.w7_profile_schema", "drop_015.drop.w7_mcp_server_core"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["cmd/sand/main.go"]
+labels = ["drop_015", "w7", "sand-mcp", "cli"]
+objective = "Plan CLI wiring so `sand mcp --profile <ephemeral.json>` starts the branded slim MCP server while preserving the existing default sand MCP server behavior."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+paths = ["cmd/sand/main.go", "cmd/sand/main_test.go"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W7 segment: `sand mcp --profile` command wiring"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Plan-QA verifies CLI behavior is covered with tests for no profile, profile path missing, malformed profile, and slim profile startup. Final builders run `mage ci`."
+
+[w7_slim_e2e_docs]
+acceptance_criteria = "Sub-plan into atomic droplets. E2E must prove agent-visible tools/list excludes dropped tools without lagom, dropped calls are rejected, and docs describe exercise vs grant/budget without exposing lagom as the user-facing brand."
+blockers = ["drop_015.drop.w7_plan_proof", "drop_015.drop.w7_plan_falsification", "drop_015.drop.w7_profile_schema", "drop_015.drop.w7_projector_seam", "drop_015.drop.w7_mcp_server_core", "drop_015.drop.w7_cmd_wiring"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+files = ["AGENT_SANDBOX_SPEC.md", "HYLLA_BIN.md"]
+labels = ["drop_015", "w7", "sand-mcp", "e2e", "docs"]
+objective = "Plan the proof that an agent configured against `sand mcp --profile` sees only slim tools and cannot call dropped tools, plus concise branded docs for the profile format and command."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+paths = ["internal/sandmcp/e2e_test.go", "AGENT_SANDBOX_SPEC.md", "HYLLA_BIN.md"]
+priority = "high"
+role = "planner"
+state = "todo"
+structural_type = "segment"
+title = "W7 segment: slim-tools e2e proof and docs"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Plan-QA verifies test coverage would fail if the projector became identity and docs include default budget=exercise plus explicitly wider budget. Final builders run `mage ci`."
+
+[w7_profile_schema_plan_proof]
+acceptance_criteria = "Verify each proposed builder droplet is <=80 LOC, <=3 files, <=2 new production symbols; confirms exercise and grant/budget are both represented; confirms default budget=exercise and explicit wider budget tests exist; confirms no lagom dependency."
+blockers = ["drop_015.drop.w7_profile_schema"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "proof"]
+objective = "Prove the W7 profile-schema decomposition is atomic and preserves the two-field policy contract."
+parent_id = "drop_015.drop.w7_profile_schema"
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w7_profile_schema"
+title = "Plan-QA proof — W7 profile schema"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Inspect child plan and proposed blockers before builders start."
+
+[w7_profile_schema_plan_falsification]
+acceptance_criteria = "Find counterexamples such as budget narrower/wider confusion, malformed JSON acceptance, missing exercise/grant distinction, or droplets sharing unblocked files."
+blockers = ["drop_015.drop.w7_profile_schema"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "falsification"]
+objective = "Attack the W7 profile-schema plan for hidden widening, missing defaults, and over-budget droplets."
+parent_id = "drop_015.drop.w7_profile_schema"
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w7_profile_schema"
+title = "Plan-QA falsification — W7 profile schema"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Attempt to falsify the child plan before builders start."
+
+[w7_projector_seam_plan_proof]
+acceptance_criteria = "Verify Project/Rewrite/Validate are planned as stable call sites, Rewrite rejects dropped tools, Validate detects drift, tests would fail on identity projection, and no lagom dependency is added."
+blockers = ["drop_015.drop.w7_projector_seam"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "proof"]
+objective = "Prove the seam/projector decomposition gives drop_016 zero call-site churn while drop_015 already slims by static allowlist."
+parent_id = "drop_015.drop.w7_projector_seam"
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w7_projector_seam"
+title = "Plan-QA proof — W7 projector seam"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Inspect child plan and proposed blockers before builders start."
+
+[w7_projector_seam_plan_falsification]
+acceptance_criteria = "Try to show a dropped tool remains visible/callable, grant/budget is ignored, Validate is a no-op, or future lagom integration requires server/CLI rewrites."
+blockers = ["drop_015.drop.w7_projector_seam"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "falsification"]
+objective = "Attack the seam/projector plan for identity-projector loopholes, lagom coupling, and call-site churn risks."
+parent_id = "drop_015.drop.w7_projector_seam"
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w7_projector_seam"
+title = "Plan-QA falsification — W7 projector seam"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Attempt to falsify the child plan before builders start."
+
+[w7_mcp_server_core_plan_proof]
+acceptance_criteria = "Verify server builders are blocked on the raw-schema spike, register only projected tools, gate every call through Rewrite, forward to real handlers, and keep lagom invisible in user-facing names/docs."
+blockers = ["drop_015.drop.w7_mcp_server_core", "drop_015.drop.w7_spike_mcpgo_rawschema"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "proof"]
+objective = "Prove the slim server plan uses only the verified mcp-go registration API and preserves sand branding."
+parent_id = "drop_015.drop.w7_mcp_server_core"
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w7_mcp_server_core"
+title = "Plan-QA proof — W7 MCP server core"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Inspect child plan after the spike result is available."
+
+[w7_mcp_server_core_plan_falsification]
+acceptance_criteria = "Try to show hidden/dropped tools are still advertised, raw schemas are reconstructed incorrectly, calls bypass Rewrite, or lagom/internal names appear in the MCP surface."
+blockers = ["drop_015.drop.w7_mcp_server_core", "drop_015.drop.w7_spike_mcpgo_rawschema"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "falsification"]
+objective = "Attack the slim server plan for tool-list leakage, un-gated calls, stale API assumptions, and branding drift."
+parent_id = "drop_015.drop.w7_mcp_server_core"
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w7_mcp_server_core"
+title = "Plan-QA falsification — W7 MCP server core"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Attempt to falsify the child plan after the spike result is available."
+
+[w7_cmd_wiring_plan_proof]
+acceptance_criteria = "Verify no-profile default remains stable, profile loading/defaulting is tested, malformed/missing profiles fail clearly, and builder droplets touching `cmd/sand/main.go` are serialized by blockers."
+blockers = ["drop_015.drop.w7_cmd_wiring"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "proof"]
+objective = "Prove the `sand mcp --profile` wiring plan is compatible with existing startup and handles profile errors cleanly."
+parent_id = "drop_015.drop.w7_cmd_wiring"
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w7_cmd_wiring"
+title = "Plan-QA proof — W7 command wiring"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Inspect child plan and proposed CLI tests before builders start."
+
+[w7_cmd_wiring_plan_falsification]
+acceptance_criteria = "Try to show default startup breaks, profile path errors are swallowed, budget defaults are inconsistent, or `sand mcp --profile` cannot be launched by scoped MCP config."
+blockers = ["drop_015.drop.w7_cmd_wiring"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "falsification"]
+objective = "Attack the command wiring plan for regressions to the existing MCP entrypoint and ambiguous profile semantics."
+parent_id = "drop_015.drop.w7_cmd_wiring"
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w7_cmd_wiring"
+title = "Plan-QA falsification — W7 command wiring"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Attempt to falsify the child plan before builders start."
+
+[w7_slim_e2e_docs_plan_proof]
+acceptance_criteria = "Verify tests fail under identity projection, inspect tools/list not just call errors, verify dropped calls reject, and docs distinguish exercise from grant/budget with budget defaulting."
+blockers = ["drop_015.drop.w7_slim_e2e_docs"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "proof"]
+objective = "Prove the e2e/docs plan demonstrates real static slimming without lagom and explains the branded profile contract."
+parent_id = "drop_015.drop.w7_slim_e2e_docs"
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w7_slim_e2e_docs"
+title = "Plan-QA proof — W7 slim e2e and docs"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Inspect child plan after server/profile/projector plans pass."
+
+[w7_slim_e2e_docs_plan_falsification]
+acceptance_criteria = "Try to show the e2e would pass with an identity projector, only tests authorization not visibility, omits explicit wider budget docs, or exposes lagom as the user-facing brand."
+blockers = ["drop_015.drop.w7_slim_e2e_docs"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "plan-qa", "falsification"]
+objective = "Attack the e2e/docs plan for false positives, docs-branding leaks, and insufficient proof of visibility slimming."
+parent_id = "drop_015.drop.w7_slim_e2e_docs"
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w7_slim_e2e_docs"
+title = "Plan-QA falsification — W7 slim e2e and docs"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Attempt to falsify the child plan after server/profile/projector plans pass."
+
+[w7_build_proof]
+acceptance_criteria = "Prove `sand mcp --profile` loads a profile with exercise plus grant/budget, registers only slim static-allowlisted tools, rejects dropped calls through Rewrite, preserves sand branding, has no lagom dependency, and passes `mage ci`."
+blockers = ["drop_015.drop.w7_spike_mcpgo_rawschema", "drop_015.drop.w7_profile_schema", "drop_015.drop.w7_projector_seam", "drop_015.drop.w7_mcp_server_core", "drop_015.drop.w7_cmd_wiring", "drop_015.drop.w7_slim_e2e_docs"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "build-qa", "proof"]
+objective = "Verify the completed W7 workstream satisfies the slim MCP server contract after all W7 leaves complete."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+priority = "high"
+role = "qa-proof"
+state = "todo"
+target_id = "drop_015.drop.w7_sand_mcp_skeleton"
+title = "Build-QA proof — W7 sand MCP skeleton"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Run after all W7 leaves/segments are complete. Inspect git diff, go.mod, tests, docs, and `mage ci` output."
+
+[w7_build_falsification]
+acceptance_criteria = "Try to prove an agent can see/call a dropped tool, budget/grant is collapsed into exercise, server bypasses Rewrite, docs/tool names leak lagom branding, or go.mod gained a lagom dependency in drop_015."
+blockers = ["drop_015.drop.w7_spike_mcpgo_rawschema", "drop_015.drop.w7_profile_schema", "drop_015.drop.w7_projector_seam", "drop_015.drop.w7_mcp_server_core", "drop_015.drop.w7_cmd_wiring", "drop_015.drop.w7_slim_e2e_docs"]
+created_at = "2026-06-14T22:00:00Z"
+created_by_actor = "agent:sub-planner"
+created_by_type = "agent"
+labels = ["drop_015", "w7", "build-qa", "falsification"]
+objective = "Attack the completed W7 workstream for visibility leaks, policy widening, lagom coupling, stale API assumptions, and e2e false positives."
+parent_id = "drop_015.drop.w7_sand_mcp_skeleton"
+priority = "high"
+role = "qa-falsification"
+state = "todo"
+target_id = "drop_015.drop.w7_sand_mcp_skeleton"
+title = "Build-QA falsification — W7 sand MCP skeleton"
+updated_at = "2026-06-14T22:00:00Z"
+validation_plan = "Run after all W7 leaves/segments are complete. Attempt negative calls and inspect tools/list visibility, go.mod, and tests before accepting."

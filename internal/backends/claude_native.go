@@ -157,6 +157,12 @@ func (b *claudeNativeBackend) Spawn(ctx context.Context, req SpawnRequest) (Spaw
 		return SpawnResult{}, err
 	}
 
+	_, crEnv, crCleanup, crErr := newCleanRoomHome()
+	if crErr != nil {
+		return SpawnResult{}, fmt.Errorf("backends: spawn clean-room setup: %w", crErr)
+	}
+	defer crCleanup()
+
 	cmd := exec.CommandContext(ctx, resolvedCmd, args...)
 	if b.cfg.StdinPrompt {
 		cmd.Stdin = strings.NewReader(req.Prompt)
@@ -165,7 +171,7 @@ func (b *claudeNativeBackend) Spawn(ctx context.Context, req SpawnRequest) (Spaw
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	cmd.Env = envOut
+	cmd.Env = append(envOut, crEnv...)
 
 	if req.CWD != "" {
 		absCwd, absErr := filepath.Abs(req.CWD)
@@ -443,10 +449,14 @@ func (b *claudeNativeBackend) renderAllowedToolsCSV(req SpawnRequest) (string, e
 
 // renderEnv builds the final cmd.Env slice. Starts from os.Environ()
 // minus the two ANTHROPIC variables that the drop_003 contract pins,
-// then appends BackendConfig.Env entries with the same templating
+// plus HOME, CLAUDE_CONFIG_DIR, and XDG_CONFIG_HOME so the clean-room
+// values appended by Spawn are never shadowed by inherited duplicates.
+// BackendConfig.Env entries are then appended with the same templating
 // surface so values may pull selected host env vars via `{{env "VAR"}}`.
 func (b *claudeNativeBackend) renderEnv(td TemplateData) ([]string, error) {
-	envOut := filterEnv(os.Environ(), "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
+	envOut := filterEnv(os.Environ(),
+		"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+		"HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME")
 	if len(b.cfg.Env) == 0 {
 		return envOut, nil
 	}
