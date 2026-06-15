@@ -3,7 +3,7 @@ acceptance_criteria = "PHASE 1 (W7a): internal/slimmcp consumes lagom in-process
 created_at = "2026-06-15T06:35:35Z"
 created_by_actor = "agent:orchestrator"
 created_by_type = "agent"
-decision_log = ["2026-06-15: lagom dep landed pinned a7a748e (orchestrator go get; GOPRIVATE+gh). API confirmed via go doc: NewGuard/SlimDefs/Gate, Project/Rewrite/Merge/Validate, PolicyBuilder(Keep/Drop/Rename/Pin/Describe/Constrain*/Default), Mint/Refire. Engine serializes on a mutex (one wasm linear memory); package-level funcs share a lazy Engine — dedicated parallelism needs New.", "2026-06-15: build order W7a (in-process lagom seam proof, fully mage-gated, no process mgmt) -> W7b (real upstream stdio client + cmd + reaper) -> W7c (codex headless e2e + token numbers). W7a copies lagom go/examples/branded.go + branded_test.go, branded as sand.", "2026-06-15: lagom held as // indirect in go.mod until first import (server.go) lands; mage ci (Tidy) deferred until then so it is not stripped."]
+decision_log = ["2026-06-15: lagom dep landed pinned a7a748e (orchestrator go get; GOPRIVATE+gh). API confirmed via go doc: NewGuard/SlimDefs/Gate, Project/Rewrite/Merge/Validate, PolicyBuilder(Keep/Drop/Rename/Pin/Describe/Constrain*/Default), Mint/Refire. Engine serializes on a mutex (one wasm linear memory); package-level funcs share a lazy Engine — dedicated parallelism needs New.", "2026-06-15: build order W7a (in-process lagom seam proof, fully mage-gated, no process mgmt) -> W7b (real upstream stdio client + cmd + reaper) -> W7c (codex headless e2e + token numbers). W7a copies lagom go/examples/branded.go + branded_test.go, branded as sand.", "2026-06-15: lagom held as // indirect in go.mod until first import (server.go) lands; mage ci (Tidy) deferred until then so it is not stripped.", "2026-06-15 CORE COMPLETE+PROVEN. W7a shipped 2d2f40c (projector+server+in-process e2e). W7b shipped 217cf71 (profile+DialUpstream+reaper+hermetic stdio e2e+`sand mcp` cmd). W7c shipped c38a1a7 (codex headless e2e GREEN x2: slim-only echo, secret unavailable, token=LOCKED pin injected, no proc leak) + b9f3424 (token numbers 54.8% across 4 upstreams via real sand mcp binary). mage ci green throughout. Orchestrator caught+fixed a base64 schema bug in DialUpstream pre-consumer. REMAINING (completeness, not core): SAND-SPEC docs for the box+slim design / sand mcp / profile shape / codex-vehicle / reaper / enforced-streaming; W1 --settings + deny-all-builtins; W6 per-agent hooks/CLAUDE.md; W3 codex+ollama parity; cross-project .sand/config.toml + dynamic-mint MCP tool. NO push yet (dev-gated outward action)."]
 drop_number = 16.0
 labels = ["drop_016", "lagom", "W7", "slim-mcp"]
 objective = "Make sand actually consume lagom (github.com/hylla-io/lagom/go, pinned a7a748e) to slim each dispatched agent's MCP, then FULLY e2e battle-test it. The agent never sees lagom; lagom is invisible behind a sand-branded slim MCP server (`sand mcp --profile`). Reference handoff: LAGOM_CONSUME_HANDOFF.md (repo root). lagom API: NewGuard->SlimDefs/Gate, Project/Rewrite/Merge/Validate, PolicyBuilder, Mint/Refire. #1 gotcha: lagom ToolDef uses input_schema (snake); MCP emits inputSchema (camel) — map per tool before NewGuard."
@@ -16,9 +16,9 @@ started_at = "2026-06-15T06:35:35Z"
 state = "in_progress"
 structural_type = "drop"
 title = "Consume lagom as a Go dep + build sand mcp slim server + codex e2e battle test"
-updated_at = "2026-06-15T06:35:35Z"
+updated_at = "2026-06-15T08:25:00Z"
+updated_by_actor = "agent:orchestrator"
 validation_plan = "Per droplet: builtin Agent-tool builder (atomic, file-disjoint waves) -> mage testPkg ./internal/slimmcp -> orchestrator ground-truth verify (Read + git diff). Integration: sand(claude) qa-proof + sand(codex) qa-falsification on the W7a package. mage ci before commit. PHASE 3: live codex run captured."
-
 [w7a_projector]
 completed_at = "2026-06-15T06:42:00Z"
 created_at = "2026-06-15T06:35:35Z"
