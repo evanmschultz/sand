@@ -1,0 +1,1 @@
+{"server_name": "bench", "upstream": {"command": "ta", "args": ["--project", "/Users/evanschultz/Documents/Code/hylla/sand/main"]}, "policy": {"default_presence": "keep"}}

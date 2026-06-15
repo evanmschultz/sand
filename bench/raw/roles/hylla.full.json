@@ -1,0 +1,1 @@
+{"server_name": "bench", "upstream": {"command": "/Users/evanschultz/go/bin/hylla", "args": ["mcp"]}, "policy": {"default_presence": "keep"}}

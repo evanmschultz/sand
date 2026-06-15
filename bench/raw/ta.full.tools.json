@@ -1,0 +1,400 @@
+[
+  {
+    "annotations": {},
+    "description": "Create one or more records. Universal items[] shape \u2014 length 1 = single, length >1 = batch. Each item: {id, type (db-qualified), data, no_spawn?}. Fails per-item if the record already exists; per-item failures do NOT abort siblings. When a target type declares an [<db>.<type>.auto_spawn] block (F23), child records are spawned automatically and atomically per-item; pass no_spawn=true on an item to suppress its spawns. Empty items[] errors. Duplicate ids reject loud (ambiguous: second create always fails on collision).",
+    "inputSchema": {
+      "properties": {
+        "as": {
+          "description": "Optional format engine: one of `html` | `md` | `txt`. Validates each per-item create against the format substrate before ops.CreateWithOptions fires. Mismatch with the id's db.Format errors per item.",
+          "type": "string"
+        },
+        "items": {
+          "description": "Items to create. Each: {id (string, required), type (string, required, db-qualified `<db>.<type>`), data (object, required \u2014 validated against the declared type), no_spawn (bool, optional \u2014 suppress auto_spawn for this item)}. Empty array errors. Duplicate ids reject loud.",
+          "items": {
+            "properties": {
+              "data": {
+                "type": "object"
+              },
+              "id": {
+                "type": "string"
+              },
+              "no_spawn": {
+                "type": "boolean"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "items"
+      ],
+      "type": "object"
+    },
+    "name": "create"
+  },
+  {
+    "annotations": {},
+    "description": "Remove one or more records or files. Universal items[] shape \u2014 length 1 = single, length >1 = batch. Each item: {id, type?, force?}. Pass a full id to remove one record; pass a bare file-relpath that uniquely identifies one concrete file PLUS force=true on the item to remove the whole file (no TTY available on MCP). A file-relpath that resolves through a glob mount to multiple files refuses with an unscoped-glob error per item. Per-item failures do NOT abort siblings. Empty items[] errors. Duplicate ids reject loud (second delete is a guaranteed miss).",
+    "inputSchema": {
+      "properties": {
+        "as": {
+          "description": "Optional format engine: one of `html` | `md` | `txt`. Pre-delete gate; per-item mismatch or unknown format aborts that item's delete in STRICT mode \u2014 record survives, siblings continue.",
+          "type": "string"
+        },
+        "items": {
+          "description": "Items to delete. Each: {id (string, required), type (string, optional \u2014 db-qualified cross-check), force (bool, optional \u2014 required for file-level delete)}. Empty array errors. Duplicate ids reject loud.",
+          "items": {
+            "properties": {
+              "force": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "items"
+      ],
+      "type": "object"
+    },
+    "name": "delete"
+  },
+  {
+    "annotations": {},
+    "description": "Read one or more records by id. Universal items[] shape \u2014 length 1 = single, length >1 = batch. Each item: {id, fields?}. Misses (record not present) surface as `found: false` per item, NOT a tool-level error. Duplicate ids are allowed for reads (idempotent fetch returns the record twice in input order). Per-item failures (malformed id, schema resolve error) carry `error: \"...\"` in the result. Empty items[] errors at envelope level. Records[] envelope from the pre-F37 scope-prefix shape is gone \u2014 fetch a scope by calling list_sections then get with the resulting id list.",
+    "inputSchema": {
+      "properties": {
+        "as": {
+          "description": "Optional format engine: one of `html` | `md` | `txt`. Routes each per-item record body through format.Get(<name>).Marshal before emit. Mismatch with the id's db.Format errors per item.",
+          "type": "string"
+        },
+        "items": {
+          "description": "Items to read. Each: {id (string, required), fields (string array, optional \u2014 narrows per-item response to a {fields} map)}. Empty array errors. Duplicate ids ALLOWED on read.",
+          "items": {
+            "properties": {
+              "fields": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        },
+        "template": {
+          "description": "Optional template_manifest record id (e.g. `template_manifest.html.summary`) \u2014 selects the manifest used by --as for Parse/Marshal. Composes with --as.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "items"
+      ],
+      "type": "object"
+    },
+    "name": "get"
+  },
+  {
+    "annotations": {},
+    "description": "Multi-category bootstrap. action=preview returns the items available across binary `examples/` and home `~/.ta/`; action=apply takes a Selections payload and writes the selected items into target. on_conflict picks the resolution policy when destinations already exist.",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "description": "One of preview | apply. Defaults to preview.",
+          "type": "string"
+        },
+        "on_conflict": {
+          "description": "Conflict policy override (CLI flag equivalent). Beats selections.on_conflict when set.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Project directory (absolute). Used as the default target when 'target' is omitted.",
+          "type": "string"
+        },
+        "selections": {
+          "additionalProperties": {},
+          "description": "action=apply only. {schemas, agents, configs, docs-templates, on_conflict}. See CLI --selections-file. Each entry accepts either a bare-string name (resolves to home only when target is a project, to binary only when target is $HOME/.ta) or an object {name, provenance} where provenance \u2208 {ta, home, \"\"} pins the source. Use {name, provenance: \"ta\"} to force the binary-shipped fragment when a home item shares the name. Empty-provenance + project target + empty home library surfaces a friendly error pointing at `ta init --bootstrap-home` (F32).\n  schemas:        [\"<db>\" | {name, provenance}, ...]\n  agents:         [{group, name, provenance?}, ...]\n  configs:        [\"<filename>\" | {name, provenance}, ...]\n  docs-templates: [\"<canonical>\" | {name, provenance}, ...]\n  on_conflict:    error|skip|overwrite|force",
+          "properties": {},
+          "type": "object"
+        },
+        "target": {
+          "description": "Optional override of 'path' for the destination. Set to $HOME/.ta to bootstrap the home library from binary defaults \u2014 this is the only path that reads from binary defaults under F32 strict-provenance.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "init"
+  },
+  {
+    "annotations": {},
+    "description": "Enumerate record ids under a scope. Returns full project-level ids in file-parse order, ready to pass back to get/update/delete. Defaults to 10 ids; pass all=true or a larger limit to widen.",
+    "inputSchema": {
+      "properties": {
+        "all": {
+          "description": "Optional. When true, return every id in scope; ignores limit.",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "Optional cap on returned ids. Default 10. Mutually exclusive with all=true.",
+          "type": "number"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Optional id prefix (e.g. `plans` for every record in `plans.toml`, or `plans.todo-` for ids beginning `plans.todo-`). Default = whole project.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "list_sections"
+  },
+  {
+    "annotations": {},
+    "description": "Relocate one or more records. Universal items[] shape \u2014 length 1 = single, length >1 = batch. Each item: {src_id, dst_id, copy?, type?, force?}. Default copy=false (move semantics: src spliced out after dst lands). copy=true preserves src. type overrides dst type defaulting (db-qualified, e.g. `cascade.drop`); when omitted, defaulting picks src's bare type when both dbs declare it. force=true overwrites a colliding dst. Mode mismatch (file-record vs section-mode) and format mismatch (MD vs TOML) reject loudly per item; src==dst (self-move/copy) also rejects per item. Per-item failures do NOT abort siblings \u2014 results[] mirrors items[] in order with one entry per submitted item.",
+    "inputSchema": {
+      "properties": {
+        "items": {
+          "description": "Items to move. Each: {src_id (string, required), dst_id (string, required), copy (bool, default false), type (string, db-qualified dst type override), force (bool, default false)}. Empty array errors. Duplicate src_id values error (ambiguous patch order on src splice).",
+          "items": {
+            "properties": {
+              "copy": {
+                "type": "boolean"
+              },
+              "dst_id": {
+                "type": "string"
+              },
+              "force": {
+                "type": "boolean"
+              },
+              "src_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "src_id",
+              "dst_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "items"
+      ],
+      "type": "object"
+    },
+    "name": "move"
+  },
+  {
+    "annotations": {},
+    "description": "Inspect or mutate the resolved schema. 'action' is one of get / create / update / delete. action=get uses 'scope' (db / db.type / ta_schema), or the convenience alias 'db' for a bare db name. action=create|update|delete uses 'kind' (db / type / field / base) + 'name' (dotted address) + 'data' (kind-specific meta-schema payload). kind=base addresses a reusable field bundle at [<db>.bases.<name>]; data accepts 'description', 'extends' (another base name), and a nested 'fields' table. kind=type data also accepts an 'auto_spawn' table (F23) \u2014 `auto_spawn = { on_create = [{type = \"<db>.<type>\", id_template = \"{parent_id}-...\", fields = {...}}] }` \u2014 declaring child records that fire automatically on create. Templates support `{parent_id}` and `{index}` interpolation tokens; bases may declare auto_spawn for inheritors. Pass `no_spawn=true` on `create` to suppress. Sugar (PLAN \u00a712.17.9 Phase 9.6): on action=update + kind=db, 'paths_append' / 'paths_remove' mutate the db's paths slice incrementally \u2014 single-entry strings, mutually exclusive with each other and with a 'data' payload carrying a 'paths' key.",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "description": "One of get | create | update | delete. Defaults to get.",
+          "type": "string"
+        },
+        "as": {
+          "description": "Optional format engine: one of `html` | `md` | `txt`. WRITE-side gate (action=create|update); validates against the target db's on-disk Format. Mismatch or unknown format errors at the envelope level. No-op for action=delete (no payload).",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": {},
+          "description": "action=create|update: kind-specific meta-schema payload.",
+          "properties": {},
+          "type": "object"
+        },
+        "db": {
+          "description": "action=get: optional alias for `scope` accepting a bare db name (e.g. `plans`). Token-budget sugar so callers that think in db-name terms do not have to learn the `scope` field. When both are set, `scope` wins.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "action=create|update|delete: one of db | type | field | base.",
+          "type": "string"
+        },
+        "name": {
+          "description": "action=create|update|delete: dotted address \u2014 '<db>', '<db>.<type>', '<db>.<type>.<field>', or '<db>.<base>' (kind=base).",
+          "type": "string"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        },
+        "paths_append": {
+          "description": "Sugar (PLAN \u00a712.17.9 Phase 9.6, action=update + kind=db only): append one entry to the db's paths slice. Idempotent \u2014 repeats are no-ops. Mutually exclusive with paths_remove and with a 'data' payload that carries a 'paths' key.",
+          "type": "string"
+        },
+        "paths_remove": {
+          "description": "Sugar (PLAN \u00a712.17.9 Phase 9.6, action=update + kind=db only): remove one entry from the db's paths slice. Missing entries are no-ops. Mutually exclusive with paths_append and with a 'data' payload that carries a 'paths' key.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "action=get: optional '<db>' | '<db>.<type>' | 'ta_schema'.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "schema"
+  },
+  {
+    "annotations": {},
+    "description": "Structured + regex search across records. Scope narrows traversal to one db, one file, or any id prefix. Match applies exact-match filters on typed fields (AND-combined). Query is a Go RE2 regex matched against string fields; Field optionally restricts the regex to one named string field. Returns full record bodies in source order. Defaults to 10 hits; pass all=true or a larger limit to widen.",
+    "inputSchema": {
+      "properties": {
+        "all": {
+          "description": "Optional. When true, return every hit in scope; ignores limit.",
+          "type": "boolean"
+        },
+        "as": {
+          "description": "Optional format engine: one of `html` | `md` | `txt`. Routes each hit's body through format.Get(<name>).Marshal before emit. Mismatch with the hit's db.Format errors at the envelope level.",
+          "type": "string"
+        },
+        "field": {
+          "description": "Optional: restrict `query` to one named string field. Default = every declared string field on the record type.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Optional cap on returned hits. Default 10. Mutually exclusive with all=true.",
+          "type": "number"
+        },
+        "match": {
+          "additionalProperties": {},
+          "description": "Optional: {field: exact-value} pairs AND-combined over typed scalar fields.",
+          "properties": {},
+          "type": "object"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        },
+        "query": {
+          "description": "Optional: Go RE2 regex matched against string fields. MCP-side `query` arg; CLI-side `ta search [query]` positional or `--query` flag accepts the same regex/literal pattern.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Optional id prefix to narrow traversal (e.g. `plans` for one file, `plans.todo-` for ids beginning `plans.todo-`). Default = whole project.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Optional db-qualified type (`<db>.<type>`); post-walk filter against the index entry for each hit's id.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "search"
+  },
+  {
+    "annotations": {},
+    "description": "PATCH one or more existing records. Universal items[] shape \u2014 length 1 = single, length >1 = batch. Each item: {id, data (partial overlay), type?}. Provided fields overwrite stored values; unspecified fields retain their bytes. Empty `data` ({}) is a no-op success per item. Null on a non-required field clears it; null on a required field with a schema default resets it; null on a required field with no default errors. Merged record is atomically re-validated. Per-item failures do NOT abort siblings. Fails per-item if the backing file does not exist; creates the record within the file if absent (record-level upsert). Empty items[] errors. Duplicate ids reject loud (ambiguous patch order).",
+    "inputSchema": {
+      "properties": {
+        "as": {
+          "description": "Optional format engine: one of `html` | `md` | `txt`. Validates each per-item update against the format substrate before ops.Update fires. Mismatch with the id's db.Format errors per item.",
+          "type": "string"
+        },
+        "items": {
+          "description": "Items to update. Each: {id (string, required), data (object, required \u2014 partial overlay), type (string, optional \u2014 db-qualified type cross-check)}. Empty array errors. Duplicate ids reject loud.",
+          "items": {
+            "properties": {
+              "data": {
+                "type": "object"
+              },
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "data"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "Project directory (absolute).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "items"
+      ],
+      "type": "object"
+    },
+    "name": "update"
+  }
+]

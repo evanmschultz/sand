@@ -1,0 +1,5 @@
+role,combined_full_tok,combined_slim_tok,saved_pct
+planner,9177,6625,27.8
+builder,9177,3112,66.1
+qa,9177,3222,64.9
+closeout,9177,4390,52.2

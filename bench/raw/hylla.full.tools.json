@@ -1,0 +1,795 @@
+[
+  {
+    "annotations": {},
+    "description": "List artifact refs available in the selected graph.",
+    "inputSchema": {
+      "properties": {
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max repos to return",
+          "type": "number"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "hylla.artifact.list"
+  },
+  {
+    "annotations": {},
+    "description": "Return normalized artifact metadata and decoded cost rollups for one artifact branch.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_ref"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.artifact.metadata"
+  },
+  {
+    "annotations": {},
+    "description": "Summarize artifact metadata with example nodes.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "include_summary": {
+          "description": "Include summaries in results",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "Max items per section",
+          "type": "number"
+        },
+        "snapshot": {
+          "description": "Optional ingest snapshot override for historical browsing",
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifact_ref"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.artifact.overview"
+  },
+  {
+    "annotations": {},
+    "description": "Reload config and refresh graph registry.",
+    "inputSchema": {
+      "properties": {
+        "config_path": {
+          "description": "Optional config path override",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "hylla.config.refresh"
+  },
+  {
+    "annotations": {},
+    "description": "Run ad-hoc DQL queries (guardrailed; no mutations).",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref for enrichment checks (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "query": {
+          "description": "DQL query",
+          "type": "string"
+        },
+        "vars": {
+          "description": "DQL variables map",
+          "properties": {},
+          "type": "object"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.dql.query"
+  },
+  {
+    "annotations": {},
+    "description": "List configured graphs and defaults.",
+    "inputSchema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "hylla.graph.list"
+  },
+  {
+    "annotations": {},
+    "description": "Traverse graph edges with recursion.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "depth": {
+          "description": "Recurse depth (max guardrail)",
+          "type": "number"
+        },
+        "direction": {
+          "description": "inbound|outbound",
+          "enum": [
+            "inbound",
+            "outbound"
+          ],
+          "type": "string"
+        },
+        "edge": {
+          "description": "Edge to traverse",
+          "enum": [
+            "contains",
+            "code.contains",
+            "depends_on",
+            "code.depends_on",
+            "depends_on_package",
+            "code.depends_on_package",
+            "defines_value_of",
+            "code.defines_value_of"
+          ],
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max roots",
+          "type": "number"
+        },
+        "node_id": {
+          "description": "Stable node ID",
+          "type": "string"
+        },
+        "snapshot": {
+          "description": "Optional ingest snapshot override for historical browsing",
+          "type": "number"
+        },
+        "traversal_scope": {
+          "description": "artifact|source|global edge expansion scope",
+          "enum": [
+            "artifact",
+            "source",
+            "global"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_ref",
+        "node_id",
+        "edge"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.graph.nav"
+  },
+  {
+    "annotations": {},
+    "description": "Ingest a source snapshot into one artifact graph (structural or enrichment modes).",
+    "inputSchema": {
+      "properties": {
+        "artifact_id": {
+          "description": "Override artifact_id (default: canonical source repo id when available)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Override git branch",
+          "type": "string"
+        },
+        "build_tags": {
+          "description": "Additional Go build tags (equivalent to `-tags`)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "commit": {
+          "description": "Override git commit hash",
+          "type": "string"
+        },
+        "enrichment_mode": {
+          "description": "structural_only|embeddings_only|full_enrichment",
+          "enum": [
+            "structural_only",
+            "embeddings_only",
+            "full_enrichment"
+          ],
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "interactive": {
+          "description": "Return a multi-step prompt when version is unspecified.",
+          "type": "boolean"
+        },
+        "ref": {
+          "description": "Git ref to checkout (tag/branch/commit)",
+          "type": "string"
+        },
+        "run_id": {
+          "description": "Override ingest run ID",
+          "type": "string"
+        },
+        "source_dir": {
+          "description": "Local source path to ingest",
+          "type": "string"
+        },
+        "source_url": {
+          "description": "GitHub source URL to ingest (https://github.com/org/repo.git)",
+          "type": "string"
+        },
+        "stream": {
+          "description": "Stream progress in the tool response (blocks until completion).",
+          "type": "boolean"
+        },
+        "target_goarch": {
+          "description": "Override GOARCH for build-tag evaluation (for example: amd64, arm64)",
+          "type": "string"
+        },
+        "target_goos": {
+          "description": "Override GOOS for build-tag evaluation (for example: windows, linux, darwin)",
+          "type": "string"
+        },
+        "version": {
+          "description": "Semver tag to checkout (GitHub release/tag)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "hylla.ingest"
+  },
+  {
+    "annotations": {},
+    "description": "Expand a node with all predicates and reverse edges.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "detail_mode": {
+          "description": "normal|raw",
+          "enum": [
+            "normal",
+            "raw"
+          ],
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max reverse edges",
+          "type": "number"
+        },
+        "node_id": {
+          "description": "Stable node ID",
+          "type": "string"
+        },
+        "snapshot": {
+          "description": "Optional ingest snapshot override for historical browsing",
+          "type": "number"
+        },
+        "traversal_scope": {
+          "description": "artifact|source|global reverse-edge expansion scope",
+          "enum": [
+            "artifact",
+            "source",
+            "global"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_ref",
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.node.full"
+  },
+  {
+    "annotations": {},
+    "description": "Find inbound/outbound references for a node.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "direction": {
+          "description": "inbound|outbound",
+          "enum": [
+            "inbound",
+            "outbound"
+          ],
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max references",
+          "type": "number"
+        },
+        "node_id": {
+          "description": "Stable node ID",
+          "type": "string"
+        },
+        "node_type": {
+          "description": "block|package",
+          "enum": [
+            "block",
+            "package"
+          ],
+          "type": "string"
+        },
+        "snapshot": {
+          "description": "Optional ingest snapshot override for historical browsing",
+          "type": "number"
+        },
+        "traversal_scope": {
+          "description": "artifact|source|global edge expansion scope",
+          "enum": [
+            "artifact",
+            "source",
+            "global"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_ref",
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.refs.find"
+  },
+  {
+    "annotations": {},
+    "description": "Return one historical LLM run plus its durable per-call records.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Optional artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "run_id": {
+          "description": "Historical run ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.run.get"
+  },
+  {
+    "annotations": {},
+    "description": "List historical LLM runs assembled from the durable llm.Call ledger.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max historical runs to return",
+          "type": "number"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "hylla.run.list"
+  },
+  {
+    "annotations": {},
+    "description": "Hybrid search across keyword and vector signals (deduped with metadata).",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "embedding_model": {
+          "description": "Optional embedding model override",
+          "type": "string"
+        },
+        "field": {
+          "description": "Embedding field",
+          "enum": [
+            "summary",
+            "content",
+            "docstring"
+          ],
+          "type": "string"
+        },
+        "fields": {
+          "description": "Fields to search",
+          "items": {
+            "enum": [
+              "summary",
+              "docstring",
+              "content"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "id_search_mode": {
+          "description": "tail_symbol|exact_full_id",
+          "enum": [
+            "tail_symbol",
+            "exact_full_id"
+          ],
+          "type": "string"
+        },
+        "internal_mode": {
+          "description": "include_internal|only_internal|exclude_internal",
+          "enum": [
+            "include_internal",
+            "only_internal",
+            "exclude_internal"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max results per type",
+          "type": "number"
+        },
+        "node_type": {
+          "description": "block|package|project|any",
+          "enum": [
+            "block",
+            "package",
+            "project",
+            "any"
+          ],
+          "type": "string"
+        },
+        "query": {
+          "description": "Search terms",
+          "type": "string"
+        },
+        "query_text": {
+          "description": "Optional text to embed for the query",
+          "type": "string"
+        },
+        "search_types": {
+          "description": "Search modes to run",
+          "items": {
+            "enum": [
+              "keyword",
+              "vector"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "snapshot": {
+          "description": "Optional ingest snapshot override for historical browsing",
+          "type": "number"
+        },
+        "test_mode": {
+          "description": "hide_tests|include_tests",
+          "enum": [
+            "hide_tests",
+            "include_tests"
+          ],
+          "type": "string"
+        },
+        "vector": {
+          "description": "Embedding vector",
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "visibility_mode": {
+          "description": "public_only|include_private",
+          "enum": [
+            "public_only",
+            "include_private"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "hylla.search"
+  },
+  {
+    "annotations": {},
+    "description": "Keyword search across summaries/docstrings/content.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "fields": {
+          "description": "Fields to search",
+          "items": {
+            "enum": [
+              "summary",
+              "docstring",
+              "content"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "id_search_mode": {
+          "description": "tail_symbol|exact_full_id",
+          "enum": [
+            "tail_symbol",
+            "exact_full_id"
+          ],
+          "type": "string"
+        },
+        "internal_mode": {
+          "description": "include_internal|only_internal|exclude_internal",
+          "enum": [
+            "include_internal",
+            "only_internal",
+            "exclude_internal"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max results per type",
+          "type": "number"
+        },
+        "node_type": {
+          "description": "block|package|project|any",
+          "enum": [
+            "block",
+            "package",
+            "project",
+            "any"
+          ],
+          "type": "string"
+        },
+        "query": {
+          "description": "Search terms",
+          "type": "string"
+        },
+        "snapshot": {
+          "description": "Optional ingest snapshot override for historical browsing",
+          "type": "number"
+        },
+        "test_mode": {
+          "description": "hide_tests|include_tests",
+          "enum": [
+            "hide_tests",
+            "include_tests"
+          ],
+          "type": "string"
+        },
+        "visibility_mode": {
+          "description": "public_only|include_private",
+          "enum": [
+            "public_only",
+            "include_private"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.search.keyword"
+  },
+  {
+    "annotations": {},
+    "description": "Vector similarity search over embeddings.",
+    "inputSchema": {
+      "properties": {
+        "artifact_ref": {
+          "description": "Artifact ref (artifact_id or artifact_id@branch)",
+          "type": "string"
+        },
+        "branch": {
+          "description": "Optional branch override for artifact_ref scope",
+          "type": "string"
+        },
+        "embedding_model": {
+          "description": "Optional embedding model override",
+          "type": "string"
+        },
+        "field": {
+          "description": "Embedding field",
+          "enum": [
+            "summary",
+            "content",
+            "docstring"
+          ],
+          "type": "string"
+        },
+        "graph_ref": {
+          "description": "Graph registry key",
+          "type": "string"
+        },
+        "internal_mode": {
+          "description": "include_internal|only_internal|exclude_internal",
+          "enum": [
+            "include_internal",
+            "only_internal",
+            "exclude_internal"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max results per type",
+          "type": "number"
+        },
+        "node_type": {
+          "description": "block|package|project|any",
+          "enum": [
+            "block",
+            "package",
+            "project",
+            "any"
+          ],
+          "type": "string"
+        },
+        "query_text": {
+          "description": "Optional text to embed for the query",
+          "type": "string"
+        },
+        "snapshot": {
+          "description": "Optional ingest snapshot override for historical browsing",
+          "type": "number"
+        },
+        "test_mode": {
+          "description": "hide_tests|include_tests",
+          "enum": [
+            "hide_tests",
+            "include_tests"
+          ],
+          "type": "string"
+        },
+        "vector": {
+          "description": "Embedding vector",
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "visibility_mode": {
+          "description": "public_only|include_private",
+          "enum": [
+            "public_only",
+            "include_private"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.search.vector"
+  },
+  {
+    "annotations": {},
+    "description": "Get task status for a task ID.",
+    "inputSchema": {
+      "properties": {
+        "task_id": {
+          "description": "Task ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "name": "hylla.task.get"
+  }
+]
